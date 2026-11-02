@@ -1,0 +1,209 @@
+// Excel import / export logic (pure: works on plain rows, so it can be tested). The Excel reading itself is done by SheetJS in the screen.
+// Import REPLACES everything. Any error stops the import and nothing is replaced.
+import * as D from './decimal.js';
+import * as C from './calc.js';
+import * as A from './actions.js';
+import { emptyState, nextId, nextSeq, nextTradeId } from './model.js';
+import { parseDMY, addDays } from './dates.js';
+
+const SHEETS = ['Open positions', 'History', 'Capital start', 'Deposits withdrawals', 'Dividends', 'Stocks list', 'Setups list', 'Errors list'];
+const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+const EX = 'example row (ignored by import)';
+
+// Excel date serial -> ISO (1900 system)
+export function serialToISO(n) { return addDays('1899-12-30', Math.floor(n)); }
+export function toDate(v) {
+  if (v === null || v === undefined || v === '') return { empty: true };
+  if (typeof v === 'number') { if (v < 1 || v > 80000) return { bad: true }; return { iso: serialToISO(v) }; }
+  const iso = parseDMY(String(v)); return iso ? { iso } : { bad: true };
+}
+export function toNum(v) {
+  if (v === null || v === undefined || String(v).trim() === '') return { empty: true };
+  const p = typeof v === 'number' ? D.parse(String(v)) : D.parse(String(v)); // JS numbers print their shortest exact decimal text
+  return p === null ? { bad: true } : { v: p };
+}
+
+// sheets: { 'Sheet name': [ {Header: value, ...}, ... ] }  (header names matched ignoring case/spacing)
+export function buildFromSheets(rawSheets, now = new Date().toISOString()) {
+  const errors = [], warnings = [], ignoredSheets = [], ignoredColumns = [];
+  const err = (sheet, row, msg) => errors.push({ sheet, row, msg }); const warn = (sheet, row, msg) => warnings.push({ sheet, row, msg });
+  const byName = new Map(); for (const k of Object.keys(rawSheets)) byName.set(norm(k), k);
+  for (const k of Object.keys(rawSheets)) if (!SHEETS.some((s) => norm(s) === norm(k))) ignoredSheets.push(k);
+  const rowsOf = (name) => {
+    const key = byName.get(norm(name)); if (!key) return null;
+    const out = [];
+    rawSheets[key].forEach((r, i) => {
+      const o = {}; for (const [h, v] of Object.entries(r)) o[norm(h)] = v;
+      if (o[EX] !== undefined && String(o[EX]).trim() !== '') return; // example row
+      if (Object.values(o).every((v) => v === null || v === undefined || String(v).trim() === '')) return; // empty row
+      o.__row = i + 2; out.push(o);
+    });
+    const known = new Set(); return out;
+  };
+  const get = (r, name, aliases = []) => { for (const n of [name, ...aliases]) { if (r[norm(n)] !== undefined) return r[norm(n)]; } return undefined; };
+  const str = (v) => (v === undefined || v === null ? '' : String(v).trim());
+
+  const st = emptyState(now);
+  // ---- capital start
+  const capRows = rowsOf('Capital start');
+  let startAmt = null, startDate = null;
+  if (!capRows || !capRows.length) err('Capital start', '', 'The sheet “Capital start” is missing or empty. It needs the start capital and the start date.');
+  else {
+    const r = capRows[0]; if (capRows.length > 1) warn('Capital start', r.__row, 'More than one row: only the first row is used.');
+    const a = toNum(get(r, 'Start capital (USD)', ['Start capital'])), d = toDate(get(r, 'Start date'));
+    if (a.empty || a.bad || a.v < 0n) err('Capital start', r.__row, 'Start capital must be a number.'); else startAmt = a.v;
+    if (d.empty || d.bad) err('Capital start', r.__row, 'Start date is missing or not a valid date (dd-mm-yyyy).'); else startDate = d.iso;
+  }
+  // ---- lists
+  const stockMeta = new Map(); // SYMBOL -> info
+  const ensureStock = (sym, info = {}) => { const k = sym.toUpperCase(); if (!stockMeta.has(k)) stockMeta.set(k, { symbol: k, sector: '', industry: '', exchange: '' }); Object.assign(stockMeta.get(k), Object.fromEntries(Object.entries(info).filter(([, v]) => v))); return stockMeta.get(k); };
+  for (const r of rowsOf('Stocks list') || []) { const s = str(get(r, 'Symbol')); if (!s) { err('Stocks list', r.__row, 'Symbol is missing.'); continue; } const m = ensureStock(s, { sector: str(get(r, 'Sector')), industry: str(get(r, 'Industry')), exchange: str(get(r, 'Exchange')) }); void m; }
+  const setupNames = new Map(), errorNames = new Map();
+  const addName = (map, v) => { const n = str(v); if (n && !map.has(n.toLowerCase())) map.set(n.toLowerCase(), n); return n ? map.get(n.toLowerCase()) : ''; };
+  for (const r of rowsOf('Setups list') || []) addName(setupNames, get(r, 'Setup', ['Name']));
+  for (const r of rowsOf('Errors list') || []) addName(errorNames, get(r, 'Error', ['Name']));
+
+  // ---- lines
+  const lines = []; // {sheet,row,id,sym,buyDate,buyPrice,...}
+  const readCommon = (sheet, r) => {
+    const o = { sheet, row: r.__row, id: str(get(r, 'Trade ID')), sym: str(get(r, 'Symbol')).toUpperCase(), setup: str(get(r, 'Setup')), error: str(get(r, 'Error')), comment: str(get(r, 'Comment')) };
+    let bad = false; const fail = (m) => { err(sheet, r.__row, m); bad = true; };
+    if (!o.sym) fail('Symbol is missing.');
+    const bd = toDate(get(r, 'Buy date')); if (bd.empty) fail('Buy date is missing.'); else if (bd.bad) fail('Buy date is not a valid date (dd-mm-yyyy).'); else o.buyDate = bd.iso;
+    const bp = toNum(get(r, 'Buy price')); if (bp.empty) fail('Buy price is missing.'); else if (bp.bad || bp.v <= 0n) fail('Buy price must be a number above 0.'); else o.buyPrice = bp.v;
+    const is = toNum(get(r, 'Initial stop')); if (is.bad || (!is.empty && is.v <= 0n)) fail('Initial stop must be a number above 0.'); else if (!is.empty) o.initialStop = is.v;
+    if (o.initialStop && o.buyPrice && o.initialStop >= o.buyPrice) fail('Initial stop must be below the buy price.');
+    const dnum = (name, alias, key, label, must) => { const x = toNum(get(r, name, alias)); if (x.bad || (!x.empty && x.v < 0n)) fail(label + ' must be a number.'); else if (!x.empty) o[key] = x.v; };
+    o.bad = false; o.fail = () => bad; return o;
+  };
+  for (const r of rowsOf('Open positions') || []) {
+    const o = readCommon('Open positions', r); o.kind = 'open';
+    const q = toNum(get(r, 'Quantity')); if (q.empty) err(o.sheet, r.__row, 'Quantity is missing.'); else if (q.bad || q.v <= 0n) err(o.sheet, r.__row, 'Quantity must be a number above 0.'); else o.qty = q.v;
+    for (const [name, key, label, alias] of [['Current stop', 'currentStop', 'Current stop'], ['Last price', 'last', 'Last price'], ['Highest price', 'highest', 'Highest price'], ['EMA10', 'ema10', 'EMA10'], ['Buy commission', 'buyCommission', 'Buy commission']]) {
+      const x = toNum(get(r, name)); if (x.bad || (!x.empty && x.v < 0n)) err(o.sheet, r.__row, label + ' must be a number.'); else if (!x.empty) o[key] = x.v;
+    }
+    const nr = toDate(get(r, 'Next report')); if (nr.bad) err(o.sheet, r.__row, 'Next report is not a valid date (dd-mm-yyyy).'); else if (!nr.empty) o.nextReport = nr.iso;
+    lines.push(o);
+  }
+  for (const r of rowsOf('History') || []) {
+    const o = readCommon('History', r); o.kind = 'sale';
+    const q = toNum(get(r, 'Quantity sold')); if (q.empty) err(o.sheet, r.__row, 'Quantity sold is missing.'); else if (q.bad || q.v <= 0n) err(o.sheet, r.__row, 'Quantity sold must be a number above 0.'); else o.qty = q.v;
+    const sd = toDate(get(r, 'Sell date')); if (sd.empty) err(o.sheet, r.__row, 'Sell date is missing. A closed trade needs its sell date.'); else if (sd.bad) err(o.sheet, r.__row, 'Sell date is not a valid date (dd-mm-yyyy).'); else o.sellDate = sd.iso;
+    const sp = toNum(get(r, 'Sell price')); if (sp.empty) err(o.sheet, r.__row, 'Sell price is missing. The result cannot be calculated without it.'); else if (sp.bad || sp.v <= 0n) err(o.sheet, r.__row, 'Sell price must be a number above 0.'); else o.sellPrice = sp.v;
+    const bc = toNum(get(r, 'Buy commission (share for these shares)', ['Buy commission'])); if (bc.bad || (!bc.empty && bc.v < 0n)) err(o.sheet, r.__row, 'Buy commission must be a number.'); else if (!bc.empty) o.buyCommission = bc.v;
+    const sc = toNum(get(r, 'Sell commission')); if (sc.bad || (!sc.empty && sc.v < 0n)) err(o.sheet, r.__row, 'Sell commission must be a number.'); else if (!sc.empty) o.sellCommission = sc.v;
+    if (o.sellDate && o.buyDate && o.sellDate < o.buyDate) err(o.sheet, r.__row, 'Sell date is before the buy date.');
+    lines.push(o);
+  }
+  // ---- group into trades
+  const keyOf = (o) => `${o.sym}|${o.buyDate}|${o.buyPrice}`;
+  const groups = new Map(); const noId = [];
+  for (const o of lines) { if (!o.sym || !o.buyDate || !o.buyPrice) continue; if (o.id) { const k = 'id:' + o.id.toLowerCase(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(o); } else noId.push(o); }
+  for (const o of noId) {
+    const matches = [...groups.entries()].filter(([k, g]) => k.startsWith('id:') && keyOf(g[0]) === keyOf(o));
+    if (matches.length === 1) matches[0][1].push(o);
+    else if (matches.length > 1) err(o.sheet, o.row, `Several trades match ${o.sym} bought ${o.buyDate.split('-').reverse().join('-')} at the same price. Fill in the Trade ID.`);
+    else { const k = 'key:' + keyOf(o); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(o); }
+  }
+  const trades = [];
+  for (const [k, g] of groups) {
+    const first = g[0]; const opens = g.filter((x) => x.kind === 'open'), sales = g.filter((x) => x.kind === 'sale');
+    if (g.some((x) => keyOf(x) !== keyOf(first))) { const bad = g.find((x) => keyOf(x) !== keyOf(first)); err(bad.sheet, bad.row, `Trade ID ${bad.id} is used for different buy lines (symbol, buy date or buy price differ). Check the rows.`); continue; }
+    if (opens.length > 1) { err(opens[1].sheet, opens[1].row, `Trade ${opens[0].id || opens[0].sym} appears twice in Open positions. One row per buy line.`); continue; }
+    const open = opens[0]; const soldQty = sales.reduce((a, s) => a + s.qty, 0n); const qty = soldQty + (open?.qty ?? 0n);
+    const stops = [...new Set(g.map((x) => x.initialStop).filter(Boolean).map(String))];
+    if (stops.length > 1) { err(first.sheet, first.row, `Rows of this trade have different Initial stops (${stops.join(', ')}).`); continue; }
+    const comms = g.map((x) => x.buyCommission).filter((x) => x !== undefined);
+    trades.push({ g, open, sales, qty, buyDate: first.buyDate, buyPrice: first.buyPrice, sym: first.sym, initialStop: stops[0] ? BigInt(stops[0]) : null, buyCommission: comms.length ? comms.reduce((a, b) => a + b, 0n) : null,
+      setup: open?.setup || g.find((x) => x.setup)?.setup || '', error: open?.error || g.find((x) => x.error)?.error || '', comment: open?.comment || g.find((x) => x.comment)?.comment || '', rows: g });
+    if (!stops.length) warn(first.sheet, first.row, `${first.sym}: no Initial stop. The trade is “No SL” and stays out of R statistics.`);
+    if (!comms.length) warn(first.sheet, first.row, `${first.sym}: no buy commission. The result is calculated without it.`);
+  }
+  // ---- flows and dividends
+  const flowRows = [];
+  for (const r of rowsOf('Deposits withdrawals') || []) {
+    const d = toDate(get(r, 'Date')), a = toNum(get(r, 'Amount (USD)', ['Amount'])), t = norm(get(r, 'Type (Deposit or Withdrawal)', ['Type']));
+    if (d.empty || d.bad) { err('Deposits withdrawals', r.__row, 'Date is missing or not valid (dd-mm-yyyy).'); continue; }
+    if (a.empty || a.bad || a.v <= 0n) { err('Deposits withdrawals', r.__row, 'Amount must be a number above 0.'); continue; }
+    if (t !== 'deposit' && t !== 'withdrawal') { err('Deposits withdrawals', r.__row, 'Type must be Deposit or Withdrawal.'); continue; }
+    if (startDate && d.iso < startDate) { err('Deposits withdrawals', r.__row, 'The date is before the start capital date.'); continue; }
+    flowRows.push({ date: d.iso, type: t, amount: a.v });
+  }
+  const divRows = [];
+  for (const r of rowsOf('Dividends') || []) {
+    const d = toDate(get(r, 'Pay date')), a = toNum(get(r, 'Net amount (USD)', ['Net amount'])), s = str(get(r, 'Symbol')).toUpperCase();
+    if (d.empty || d.bad) { err('Dividends', r.__row, 'Pay date is missing or not valid (dd-mm-yyyy).'); continue; }
+    if (a.empty || a.bad || a.v <= 0n) { err('Dividends', r.__row, 'Net amount must be a number above 0.'); continue; }
+    if (!s) { err('Dividends', r.__row, 'Symbol is missing.'); continue; }
+    divRows.push({ payDate: d.iso, amount: a.v, sym: s });
+  }
+  if (startDate) for (const t of trades) if (t.buyDate < startDate) err(t.g[0].sheet, t.g[0].row, `${t.sym}: the buy date is before the start capital date (${startDate.split('-').reverse().join('-')}).`);
+  if (errors.length) return { ok: false, errors, warnings, ignoredSheets, ignoredColumns };
+
+  // ---- build the state
+  st.capital.start = { amount: D.toStr(startAmt), date: startDate, seq: 0 };
+  for (const t of trades) ensureStock(t.sym); for (const d of divRows) ensureStock(d.sym);
+  for (const m of [...stockMeta.values()].sort((a, b) => a.symbol.localeCompare(b.symbol))) st.stocks.push({ id: nextId(st, 's'), symbol: m.symbol, sector: m.sector, industry: m.industry, exchange: m.exchange, archived: false });
+  const sid = (sym) => st.stocks.find((x) => x.symbol === sym).id;
+  for (const t of trades) { addName(setupNames, t.setup); addName(errorNames, t.error); }
+  for (const n of setupNames.values()) st.setups.push({ id: nextId(st, 'u'), name: n, archived: false });
+  for (const n of errorNames.values()) st.errors.push({ id: nextId(st, 'e'), name: n, archived: false });
+  const listId = (list, name) => (name ? st[list].find((x) => x.name.toLowerCase() === name.toLowerCase())?.id ?? null : null);
+  // events in time order; on the same day: deposits, dividends, buys, then sales
+  const ev = [];
+  for (const f of flowRows) ev.push({ date: f.date, o: 1, f });
+  for (const d of divRows) ev.push({ date: d.payDate, o: 2, d });
+  trades.sort((a, b) => (a.buyDate < b.buyDate ? -1 : a.buyDate > b.buyDate ? 1 : a.g[0].row - b.g[0].row));
+  for (const t of trades) { ev.push({ date: t.buyDate, o: 3, t }); for (const s of t.sales) ev.push({ date: s.sellDate, o: 4, t, s }); }
+  ev.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.o - b.o));
+  const built = new Map(); let sameDay = false;
+  st.capital.start.seq = nextSeq(st);
+  for (const e of ev) {
+    if (e.f) st.capital.flows.push({ id: nextId(st, 'f'), date: e.f.date, type: e.f.type, amount: D.toStr(e.f.amount), seq: nextSeq(st) });
+    else if (e.d) st.dividends.push({ id: nextId(st, 'v'), stockId: sid(e.d.sym), payDate: e.d.payDate, amount: D.toStr(e.d.amount), seq: nextSeq(st) });
+    else if (e.s === undefined) {
+      const t = e.t; const open = t.open; const S = D.toStr;
+      const tr = { id: nextTradeId(st), seq: nextSeq(st), stockId: sid(t.sym), buyDate: t.buyDate, qty: S(t.qty), buyPrice: S(t.buyPrice), buyCommission: t.buyCommission === null ? '' : S(t.buyCommission), initialStop: t.initialStop ? S(t.initialStop) : '',
+        currentStop: open?.currentStop ? S(open.currentStop) : '', last: open?.last ? S(open.last) : S(t.buyPrice), highest: open?.highest ? S(open.highest) : S(t.buyPrice), ema10: open?.ema10 ? S(open.ema10) : '', nextReport: open?.nextReport || '',
+        setupId: listId('setups', t.setup), errorId: listId('errors', t.error), comment: t.comment, direction: 'Long', capitalAtOpen: '', sales: [] };
+      if (open && !tr.currentStop) tr.currentStop = tr.initialStop; // an open line with an Initial stop and no Current stop starts with the Initial stop
+      st.trades.push(tr); built.set(t, tr);
+    } else {
+      const tr = built.get(e.t); if (e.t.rows.some((x) => x.kind === 'sale') && st.trades.some((x) => x.buyDate === e.s.sellDate && x !== tr)) sameDay = true;
+      tr.sales.push({ id: nextId(st, 'x'), seq: nextSeq(st), date: e.s.sellDate, qty: D.toStr(e.s.qty), price: D.toStr(e.s.sellPrice), commission: e.s.sellCommission === undefined ? '' : D.toStr(e.s.sellCommission) });
+    }
+  }
+  if (sameDay) warnings.push({ sheet: '', row: '', msg: 'Some sales happened on the same day as a buy. The order within a day is not in the file: buys are counted before sales for “capital at open”.' });
+  A.recalcCapital(st);
+  const probs = st.trades.flatMap((t) => C.quantityProblems(t)); if (probs.length) return { ok: false, errors: [{ sheet: '', row: '', msg: 'Quantities do not add up.' }], warnings, ignoredSheets, ignoredColumns };
+  st.meta.importedAt = now;
+  return { ok: true, state: st, errors, warnings, ignoredSheets, ignoredColumns, summary: { trades: st.trades.length, open: st.trades.filter((t) => C.openQty(t) > 0n).length, closed: st.trades.filter((t) => C.openQty(t) === 0n).length, sales: st.trades.reduce((a, t) => a + t.sales.length, 0), flows: st.capital.flows.length, dividends: st.dividends.length, stocks: st.stocks.length } };
+}
+
+// ---- export: same layout as the import template; dates as {d:'yyyy-mm-dd'} for the screen to turn into Excel dates
+export function toSheets(state) {
+  const sym = (t) => state.stocks.find((s) => s.id === t.stockId)?.symbol ?? '';
+  const nm = (list, id) => state[list].find((x) => x.id === id)?.name ?? '';
+  const n = (s) => (s === '' || s === null || s === undefined ? '' : { n: s });
+  const dt = (iso) => (iso ? { d: iso } : '');
+  const open = [], hist = [];
+  const trades = state.trades.slice().sort((a, b) => a.seq - b.seq);
+  for (const t of trades) {
+    const det = C.salesDetail(t); const shares = det.reduce((a, x) => a + x.buyShare, 0n); const oq = C.openQty(t);
+    if (oq > 0n) open.push({ 'Trade ID': t.id, Symbol: sym(t), 'Buy date': dt(t.buyDate), Quantity: n(D.toStr(oq)), 'Buy price': n(t.buyPrice), 'Initial stop': n(t.initialStop), 'Current stop': n(t.currentStop), 'Last price': n(t.last), 'Highest price': n(t.highest), EMA10: n(t.ema10), 'Next report': dt(t.nextReport), 'Buy commission': t.buyCommission === '' ? '' : n(D.toStr(D.d(t.buyCommission) - shares)), Setup: nm('setups', t.setupId), Error: nm('errors', t.errorId), Comment: t.comment });
+    for (const x of det) hist.push({ 'Trade ID': t.id, Symbol: sym(t), 'Buy date': dt(t.buyDate), 'Sell date': dt(x.sale.date), 'Quantity sold': n(x.sale.qty), 'Buy price': n(t.buyPrice), 'Sell price': n(x.sale.price), 'Buy commission (share for these shares)': t.buyCommission === '' ? '' : n(D.toStr(x.buyShare)), 'Sell commission': n(x.sale.commission), 'Initial stop': n(t.initialStop), Setup: nm('setups', t.setupId), Error: nm('errors', t.errorId), Comment: t.comment });
+  }
+  return {
+    'Open positions': open, History: hist,
+    'Capital start': state.capital.start ? [{ 'Start capital (USD)': n(state.capital.start.amount), 'Start date': dt(state.capital.start.date) }] : [],
+    'Deposits withdrawals': state.capital.flows.map((f) => ({ Date: dt(f.date), 'Type (Deposit or Withdrawal)': f.type === 'deposit' ? 'Deposit' : 'Withdrawal', 'Amount (USD)': n(f.amount), Note: '' })),
+    Dividends: state.dividends.map((d) => ({ 'Pay date': dt(d.payDate), Symbol: state.stocks.find((s) => s.id === d.stockId)?.symbol ?? '', 'Net amount (USD)': n(d.amount) })),
+    'Stocks list': state.stocks.map((s) => ({ Symbol: s.symbol, Sector: s.sector, Industry: s.industry, Exchange: s.exchange })),
+    'Setups list': state.setups.map((s) => ({ Setup: s.name })), 'Errors list': state.errors.map((s) => ({ Error: s.name })),
+  };
+}
+// the screen turns {n:'12.5'} into a number cell and {d:'2026-01-05'} into a date cell; this plain version is used by tests
+export function plainSheets(sheets) {
+  const iso2serial = (iso) => { const [y, m, d] = iso.split('-').map(Number); return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000); };
+  return Object.fromEntries(Object.entries(sheets).map(([k, rows]) => [k, rows.map((r) => Object.fromEntries(Object.entries(r).map(([h, v]) => [h, v && v.d ? iso2serial(v.d) : v && v.n !== undefined ? Number(v.n) : v])))]));
+}

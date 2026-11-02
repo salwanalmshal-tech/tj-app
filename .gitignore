@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+# Never put trading data in this repository: the data lives only in your own Google Drive.
+TradeJournal*.json
+TradeJournal*.xlsx
+backup-*.json
