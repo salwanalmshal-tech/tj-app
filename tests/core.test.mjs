@@ -94,3 +94,22 @@ test('reopen puts shares back; undo-safe trash', () => {
   A.closeSale(st, { date: '2026-10-30', price: '60', commission: '', allocations: [{ tradeId: t.id, qty: '100' }] });
   assert.ok(A.reopenSales(st, t.id, [t.sales[0].id]).ok); assert.equal(C.status(t), 'open');
 });
+test('stop history logs every Current stop change, also emptying it (C7)', () => {
+  const st = fresh(); const t = open(st).data;
+  assert.ok(A.editDaily(st, t.id, 'currentStop', '48').ok);
+  assert.ok(A.editDaily(st, t.id, 'currentStop', '').ok);
+  assert.equal(st.stopHistory.length, 2);
+  assert.deepEqual(st.stopHistory.map((x) => [x.old, x.new]), [['47', '48'], ['48', '']]);
+  assert.ok(A.editDaily(st, t.id, 'currentStop', '').ok); assert.equal(st.stopHistory.length, 2); // no change, no line
+});
+test('exceptions: report with profit locked stays calm (G2), without profit it needs review', async () => {
+  const { lineStatus } = await import('../js/marks.js');
+  const st = fresh(); const t = open(st, { buyDate: '2026-11-02', qty: '20' }).data;
+  A.editDaily(st, t.id, 'last', '51'); A.editDaily(st, t.id, 'nextReport', '2026-11-05'); // this week, stop 47 below buy 50
+  assert.equal(lineStatus(lineMarks(st, t, '2026-11-03', C.estimatedAccount(st))), 'rev');
+  A.editDaily(st, t.id, 'currentStop', '50.5'); // profit locked, price 51 is within 2 % of the stop -> close to stop
+  A.editDaily(st, t.id, 'last', '54');
+  assert.equal(lineStatus(lineMarks(st, t, '2026-11-03', C.estimatedAccount(st))), 'ok');
+  A.editDaily(st, t.id, 'last', '50'); // at or below the stop
+  assert.equal(lineStatus(lineMarks(st, t, '2026-11-03', C.estimatedAccount(st))), 'act');
+});

@@ -1,4 +1,4 @@
-import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn } from './dom.js';
+import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
@@ -22,13 +22,13 @@ export function renderOpen(ctx) {
   const sym = inp('Symbol', { list: 'stocklist', placeholder: 'PLTR', style: { textTransform: 'uppercase' } });
   const dl = h('datalist', { id: 'stocklist' }, st.stocks.filter((s) => !s.archived).map((s) => h('option', { value: s.symbol })));
   const bp = inp('Buy price', { inputmode: 'decimal', placeholder: '0,00' }), qty = inp('Shares', { inputmode: 'decimal', placeholder: '0' });
-  const bd = inp('Buy date', { type: 'date', value: today }), bc = inp('Buy commission', { inputmode: 'decimal', placeholder: '0,00' });
+  const bd = datePicker({ iso: today, label: 'Buy date' }), bc = inp('Buy commission', { inputmode: 'decimal', placeholder: '0,00' });
   const is = inp('Initial stop', { inputmode: 'decimal', placeholder: '0,00' });
   const setup = pick(st.setups.filter((x) => !x.archived), 'Setup', 'No setup');
   const err = pick(st.errors.filter((x) => !x.archived), 'Mistake', 'None');
   const com = h('textarea', { 'aria-label': 'Trade thesis', rows: 3, placeholder: 'Why is this trade worth taking?' });
   const cs = inp('Current stop', { inputmode: 'decimal', placeholder: 'Same as Initial stop' }), last = inp('Last price', { inputmode: 'decimal', placeholder: 'Same as buy price' });
-  const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = inp('Next report', { type: 'date' });
+  const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = datePicker({ label: 'Next report' });
   const sector = inp('Sector'), industry = inp('Industry'), exch = inp('Exchange');
   const newStock = h('div', { class: 'newstock', hidden: true }, of('Sector', box(sector)), of('Industry', box(industry)), of('Exchange', box(exch)));
   const newNote = h('p', { class: 'note', hidden: true, style: { margin: 0 } }, 'New stock: add its sector, industry and exchange once.');
@@ -45,12 +45,13 @@ export function renderOpen(ctx) {
   const nowRisk = account > 0n ? D.pct(D.abs(loss.loss), account) : null;
 
   function values() {
-    return { symbol: sym.value.trim(), buyDate: bd.value || null, qty: qty.value, buyPrice: bp.value, buyCommission: bc.value, initialStop: is.value, currentStop: cs.value, last: last.value, highest: hi.value, ema10: ema.value, nextReport: nr.value || '', setupId: setup.value || null, errorId: err.value || null, comment: com.value, stockInfo: { sector: sector.value, industry: industry.value, exchange: exch.value } };
+    return { symbol: sym.value.trim(), buyDate: bd.getISO() || null, qty: qty.value, buyPrice: bp.value, buyCommission: bc.value, initialStop: is.value, currentStop: cs.value, last: last.value, highest: hi.value, ema10: ema.value, nextReport: nr.getISO() || '', setupId: setup.value || null, errorId: err.value || null, comment: com.value, stockInfo: { sector: sector.value, industry: industry.value, exchange: exch.value } };
   }
   function check() {
     const f = values(); const v = A.validateOpen(st, f);
     const extra = [];
     for (const [x, name] of [[hi, 'Highest price'], [ema, 'EMA10'], [cs, 'Current stop'], [last, 'Last price']]) if (x.value.trim() && D.parse(x.value) === null) extra.push(name + ' must be a number.');
+    if (nr.getISO() === null) extra.push('Next report is not a valid date (dd-mm-yyyy).');
     const errors = [...v.errors, ...extra];
     const isNew = !!f.symbol && !A.findStock(st, f.symbol); newStock.hidden = !isNew; newNote.hidden = !isNew;
     dnote.textContent = f.buyDate ? weekdayName(f.buyDate) + (isWeekend(f.buyDate) ? ' · weekend' : '') + (f.buyDate > today ? ' · in the future' : '') : '';
@@ -82,10 +83,11 @@ export function renderOpen(ctx) {
     const level = list.some((x) => x[0] === 'act') ? 'act' : list.length ? 'rev' : 'ok';
     // planned risk box
     rbox.className = 'riskbox ' + (risk === null ? 'none' : riskPct !== null && riskPct > D.d(S.riskRed) ? 'act' : riskPct !== null && riskPct > D.d(S.riskWarn) ? 'rev' : 'ok');
-    rbox.replaceChildren(h('span', { class: 'k' }, 'Planned risk'), h('span', { class: 'v' }, risk === null ? '—' : usd(risk)),
+    rbox.replaceChildren(h('span', { class: 'k' }, 'Risk at Initial stop', infoBtn('Risk at Initial stop', '(Buy price − Initial stop) × shares. As % of the capital on the buy date. Within plan up to ' + S.riskWarn.replace('.', ',') + ' %, review up to ' + S.riskRed.replace('.', ',') + ' %, above that it is above plan.')), h('span', { class: 'v' }, risk === null ? '—' : usd(risk)),
       h('span', { class: 'k' }, risk === null ? (badStop ? 'Stop must be below the buy price' : 'Add shares, buy price and initial stop') : `${pctTxt(riskPct)} · ${rbox.classList.contains('ok') ? 'within plan' : rbox.classList.contains('rev') ? 'review' : 'above plan'}`));
-    const row = (k, val) => h('div', null, h('dt', null, k), h('dd', null, val));
-    ck.replaceChildren(row('Position size', pctTxt(size)), row('Stop distance', dist === null ? '–' : `${pctTxt(dist)} · ${distLabel}`), row('Portfolio risk now', pctTxt(nowRisk)), row('Portfolio risk after', pctTxt(after)));
+    const row = (k, val, why) => h('div', null, h('dt', null, k, infoBtn(k, why)), h('dd', null, val));
+    ck.replaceChildren(row('Position size', pctTxt(size), 'Shares × buy price as % of the capital on the buy date.'), row('Stop distance', dist === null ? '–' : `${pctTxt(dist)} · ${distLabel}`, '(Buy price − Initial stop) ÷ buy price. Labels: Tight, Good, Wide, High Risk (limits in Settings).'),
+      row('Loss if all stops hit, now', pctTxt(nowRisk), 'Loss if all stops hit from now, as % of the estimated account, before this trade.'), row('Loss if all stops hit, after', pctTxt(after), 'The same, after adding the risk of this trade at its Initial stop.'));
     conds.replaceChildren(...(list.length ? list : [['ok', '✓ No condition needs attention']]).map(([l, t]) => h('div', { class: 'cond ' + l }, t)));
     accept.textContent = risk !== null ? `By opening, you accept a planned loss of ${usd(risk)} if ${f.symbol ? f.symbol.toUpperCase() : 'the stock'} reaches ${priceTxt(stop)}.` : '';
     return { f, errors, level };
@@ -98,25 +100,25 @@ export function renderOpen(ctx) {
     toast(`${f.symbol.toUpperCase()} opened as ${res.data.id}.`, 'Undo', () => ctx.store.undo());
     if (again) { ctx.go('open-trade'); } else back(ctx);
   }
-  for (const x of [sym, bd, qty, bp, bc, is, cs, last, hi, ema, nr, setup, err, com, sector, industry, exch]) x.addEventListener('input', () => check());
-  const onEnter = (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submit(false); } };
+  bd.input.addEventListener('input', () => check()); nr.input.addEventListener('input', () => check());
+  for (const x of [sym, qty, bp, bc, is, cs, last, hi, ema, setup, err, com, sector, industry, exch]) x.addEventListener('input', () => check());
   setTimeout(() => { check(); sym.focus(); }, 0);
 
-  const more = h('details', { class: 'more' }, h('summary', null, 'More: current stop, last price, highest, EMA10, next report'),
-    h('div', { class: 'fgrid', style: { marginTop: '14px' } }, of('Current stop', box(cs, '$')), of('Last price', box(last, '$')), of('Highest price', box(hi, '$')), of('EMA10', box(ema, '$')), of('Next report', box(nr))));
+  const more = h('details', { class: 'more' }, h('summary', null, 'More: setup, current stop, last price, highest, EMA10, next report'),
+    h('div', { class: 'fgrid', style: { marginTop: '14px' } }, of('Setup', box(setup)), of('Current stop', box(cs, '$')), of('Last price', box(last, '$')), of('Highest price', box(hi, '$')), of('EMA10', box(ema, '$')), of('Next report', box(nr))));
   const card = (title, lead, ...kids) => h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, title), h('p', { class: 'lead' }, lead))), h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, kids));
-  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '20px' }, onKeydown: onEnter },
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '20px' } },
     h('header', { class: 'pg-head' },
-      h('div', null, h('div', { class: 'eyebrow' }, 'Pre-trade'), h('h1', null, 'Open a Position'), h('p', { class: 'lead' }, 'A clear decision before capital is committed.')),
-      h('div', { class: 'acts' }, h('span', { class: 'hpill' }, 'Account', h('b', null, usd(C.capitalNow(st)))), h('span', { class: 'hpill' }, 'Current risk', h('b', null, pctTxt(nowRisk))), h('button', { class: 'btn ghost', onClick: () => back(ctx) }, 'Cancel'))),
+      h('div', null, h('div', { class: 'eyebrow' }, 'Pre-trade'), h('h1', null, 'Open trade'), h('p', { class: 'lead' }, 'A clear decision before capital is committed.')),
+      h('div', { class: 'acts' }, h('span', { class: 'hpill' }, 'Capital (closed trades)', h('b', null, usd(C.capitalNow(st)))), h('span', { class: 'hpill' }, 'Loss if all stops hit', h('b', null, pctTxt(nowRisk))), h('button', { class: 'btn ghost', onClick: () => back(ctx) }, 'Cancel'))),
     st.capital.start ? null : h('div', { class: 'msg warn' }, '◆ Capital is not set yet. Set the start capital on the Capital screen first.'),
     h('div', { class: 'op-grid' },
       h('div', { class: 'op-left' }, dl,
         card('Opportunity', 'Capture the trade.',
           h('div', { class: 'fgrid' }, of('Symbol', symBox), of('Buy price', bpBox), of('Shares', qtyBox),
-            of('Buy date', h('div', { class: 'datebox' }, bdBox, h('button', { class: 'btn today', type: 'button', onClick: () => { bd.value = today; check(); } }, 'Today')), dnote),
+            of('Buy date', h('div', { class: 'datebox' }, bdBox, h('button', { class: 'btn today', type: 'button', onClick: () => { bd.setISO(today); } }, 'Today')), dnote),
             of('Buy commission', box(bc, '$'))), newNote, newStock),
-        card('Plan', 'Define the setup and protection.', h('div', { class: 'fgrid' }, of('Setup', box(setup)), of('Initial stop', isBox)), more),
+        card('Plan', 'Define the protection.', h('div', { class: 'fgrid' }, of('Initial stop', isBox)), more),
         h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Note'), h('p', { class: 'lead' }, 'Optional. Keep only what is worth remembering.'))),
           h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, of('Trade thesis', com), h('div', { class: 'fgrid' }, of('Mistake (if any)', box(err)))))),
       h('aside', { class: 'card acc op-check', 'aria-label': 'Decision check' }, h('div', { class: 'card-b' },

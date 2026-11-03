@@ -18,9 +18,9 @@ import * as settings from './settings.js';
 
 // own: the screen draws its own page header (redesigned screens); otherwise the shell draws eyebrow + title.
 const ROUTES = {
-  open: { title: 'Open Positions', mod: openPos, own: true },
-  'open-trade': { title: 'Open a Position', mod: tradeForms, fn: 'renderOpen', parent: 'open', own: true },
-  'close-trade': { title: 'Close position', eyebrow: 'Exit', mod: tradeForms, fn: 'renderClose', parent: 'open' },
+  open: { title: 'Open positions', mod: openPos, own: true },
+  'open-trade': { title: 'Open trade', mod: tradeForms, fn: 'renderOpen', parent: 'open', own: true },
+  'close-trade': { title: 'Close trade', eyebrow: 'Exit', mod: tradeForms, fn: 'renderClose', parent: 'open' },
   history: { title: 'History', eyebrow: 'Learn', mod: history },
   capital: { title: 'Capital', eyebrow: 'Money', mod: capital },
   lists: { title: 'Lists', eyebrow: 'Records', mod: lists },
@@ -28,7 +28,7 @@ const ROUTES = {
   settings: { title: 'Settings', eyebrow: 'System', mod: settings },
 };
 const MENU = [
-  ['Trade', [['open', 'Open Positions']]],
+  ['Trade', [['open', 'Open positions']]],
   ['Learn', [['dashboard', 'Dashboard', 'Version 2'], ['history', 'History'], ['report', 'Reports', 'Version 3'], ['tax', 'Tax report', 'Version 2']]],
   ['Records', [['capital', 'Capital'], ['lists', 'Lists']]],
   ['System', [['data', 'Import / Export'], ['settings', 'Settings']]],
@@ -213,7 +213,7 @@ function draw() {
   const top = h('header', { class: 'top', 'aria-label': 'Status' },
     ctx.store.canUndo() && !ctx.readOnly ? h('button', { class: 'btn sm', onClick: () => { const l = ctx.store.undoLabel(); ctx.store.undo(); toast('Undone: ' + (l || 'last change')); } }, '↶ Undo ' + ctx.store.undoLabel()) : null,
     h('span', { class: 'spacer' }), statusEl, h('span', { class: 'note', style: { whiteSpace: 'nowrap' } }, `Today · ${weekdayName(t).slice(0, 3)} ${dmy(t)}`),
-    route.own ? null : h('button', { class: 'btn sm', onClick: () => ctx.go('open-trade'), disabled: ctx.readOnly }, '+ Open position'));
+    route.own ? null : h('button', { class: 'btn sm', onClick: () => ctx.go('open-trade'), disabled: ctx.readOnly }, '+ Open trade'));
   root.append(h('div', { class: 'app' }, side, h('div', { class: 'main' }, top, bannerEl, body)));
   paintStatus(); drawBanner();
   if (scroll) { const tw = document.querySelector('.tw.fx'); if (tw) tw.scrollTop = scroll; }
@@ -221,10 +221,7 @@ function draw() {
 }
 import * as C from '../calc.js';
 import * as M from '../marks.js';
-function attentionCount() {
-  const st = ctx.store.state; const acc = C.estimatedAccount(st); let n = 0;
-  for (const t of C.openTrades(st)) { const c = M.attention(M.lineMarks(st, t, todayISO(), acc)); if (c.size) n++; }
-  return n;
-}
+// same rule as "Needs your attention" on Open positions, so both numbers always match
+function attentionCount() { return openPos.lines(ctx.store.state, todayISO()).filter((l) => l.status !== 'ok').length; }
 
 welcome();

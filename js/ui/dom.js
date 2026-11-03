@@ -1,6 +1,6 @@
 // Tiny DOM helpers. Text is ALWAYS inserted as text (never as HTML), so typed or imported data can never run as code.
 import * as D from '../decimal.js';
-import { fmtDMY } from '../dates.js';
+import { fmtDMY, parseDMY, todayISO } from '../dates.js';
 
 export function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -65,6 +65,7 @@ export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = fal
       h('div', { style: { display: 'flex', gap: '8px', marginTop: '14px', justifyContent: 'flex-end' } }, cancelBtn, okBtn));
     const scrim = h('div', { class: 'scrim fixed' }, box);
     const onKey = (e) => {
+      if (document.querySelector('.dp-pop')) return; // a calendar is open on top: it handles its own keys
       if (e.key === 'Escape') { e.stopPropagation(); close(info ? true : false); }
       else if (e.key === 'Tab') { const f = [...box.querySelectorAll('button:not(:disabled),input,select,textarea,[tabindex]')].filter((x) => x.offsetParent !== null); if (!f.length) return; const i = f.indexOf(document.activeElement); if (e.shiftKey && i <= 0) { e.preventDefault(); f.at(-1).focus(); } else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); } }
       else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && !confirmWord) { e.preventDefault(); if (!okBtn.disabled) doOk(); }
@@ -89,4 +90,60 @@ export function pill(m) { return h('span', { class: 'pill ' + (m.level === 'plai
 export function download(name, blob) {
   const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// ---- date field: shows and accepts dd-mm-yyyy (C2), any separator when typing, plus a calendar (P6) with Today and Clear (P7).
+// getISO() -> 'yyyy-mm-dd', '' when empty, null when the text is not a valid date. setISO(iso) fills it and fires an input event.
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function calIcon() {
+  const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); svg.setAttribute('aria-hidden', 'true');
+  for (const [tag, at] of [['rect', { x: 2, y: 3, width: 12, height: 11, rx: 2 }], ['path', { d: 'M2 6.5h12M5.5 1.5v3M10.5 1.5v3' }]]) {
+    const e = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(at)) e.setAttribute(k, v);
+    e.setAttribute('fill', 'none'); e.setAttribute('stroke', 'currentColor'); e.setAttribute('stroke-width', '1.4'); svg.append(e);
+  }
+  return svg;
+}
+export function datePicker({ iso = '', label = 'Date', onChange } = {}) {
+  const inp = h('input', { value: iso ? fmtDMY(iso) : '', placeholder: 'dd-mm-yyyy', inputmode: 'numeric', 'aria-label': label, autocomplete: 'off' });
+  const btn = h('button', { type: 'button', class: 'dp-btn', 'aria-label': 'Open calendar: ' + label, 'aria-haspopup': 'dialog' }, calIcon());
+  const wrap = h('div', { class: 'dp' }, inp, btn);
+  const fire = () => { inp.dispatchEvent(new Event('input', { bubbles: true })); onChange?.(); };
+  wrap.input = inp;
+  wrap.getISO = () => { const t = inp.value.trim(); return t ? parseDMY(t) : ''; };
+  wrap.setISO = (v) => { inp.value = v ? fmtDMY(v) : ''; fire(); };
+  inp.addEventListener('blur', () => { const v = wrap.getISO(); if (v) inp.value = fmtDMY(v); });
+  let pop = null;
+  const closePop = () => { if (!pop) return; pop.remove(); pop = null; document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', keys, true); window.removeEventListener('resize', closePop); btn.setAttribute('aria-expanded', 'false'); };
+  const outside = (e) => { if (pop && !pop.contains(e.target) && !btn.contains(e.target)) closePop(); };
+  const keys = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); btn.focus(); } };
+  const open = () => {
+    if (pop) return closePop();
+    const today = todayISO(); const cur = wrap.getISO() || today;
+    let y = +cur.slice(0, 4), m = +cur.slice(5, 7) - 1;
+    pop = h('div', { class: 'dp-pop', role: 'dialog', 'aria-label': 'Choose a date' });
+    const draw = () => {
+      const sel = wrap.getISO(); const first = new Date(Date.UTC(y, m, 1)); const lead = (first.getUTCDay() + 6) % 7; const days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+      const cells = []; for (let i = 0; i < lead; i++) cells.push(h('span'));
+      for (let d = 1; d <= days; d++) {
+        const v = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        cells.push(h('button', { type: 'button', class: 'dp-d' + (v === sel ? ' sel' : '') + (v === today ? ' now' : ''), 'aria-label': fmtDMY(v), 'aria-pressed': v === sel ? 'true' : 'false', onClick: () => { wrap.setISO(v); closePop(); inp.focus(); } }, d));
+      }
+      const nav = (k) => { m += k; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } draw(); };
+      clear(pop).append(
+        h('div', { class: 'dp-h' }, h('button', { type: 'button', class: 'dp-n', 'aria-label': 'Previous month', onClick: () => nav(-1) }, '‹'), h('b', null, `${MONTHS[m]} ${y}`), h('button', { type: 'button', class: 'dp-n', 'aria-label': 'Next month', onClick: () => nav(1) }, '›')),
+        h('div', { class: 'dp-g' }, ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((w) => h('span', { class: 'dp-w' }, w)), cells),
+        h('div', { class: 'dp-f' }, h('button', { type: 'button', class: 'btn sm', onClick: () => { wrap.setISO(today); closePop(); inp.focus(); } }, 'Today'), h('button', { type: 'button', class: 'btn sm ghost', onClick: () => { wrap.setISO(''); closePop(); inp.focus(); } }, 'Clear')));
+      (pop.querySelector('.dp-d.sel') || pop.querySelector('.dp-d.now') || pop.querySelector('.dp-d'))?.focus();
+    };
+    document.body.append(pop); draw();
+    const r = wrap.getBoundingClientRect(); const w = pop.offsetWidth, hgt = pop.offsetHeight;
+    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+    pop.style.top = (r.bottom + 6 + hgt > innerHeight && r.top - hgt - 6 > 0 ? r.top - hgt - 6 : r.bottom + 6) + 'px';
+    document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', keys, true); window.addEventListener('resize', closePop);
+    btn.setAttribute('aria-expanded', 'true');
+  };
+  btn.addEventListener('click', open);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); open(); } });
+  return wrap;
 }

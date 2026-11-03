@@ -134,8 +134,8 @@ export function editDaily(st, id, field, raw) {
     else { const p = D.parse(raw); if (p === null) return err('Enter a number.'); if (p <= 0n) return err('The value must be above 0.'); val = S(p); }
   }
   if (field === 'nextReport') val = raw || '';
-  if (field === 'currentStop' && need(val)) {
-    // keep the old value for the stop history
+  if (field === 'currentStop' && val !== t.currentStop) {
+    // every change goes to the stop history, also emptying the stop (C7)
     st.stopHistory.push({ ts: new Date().toISOString(), tradeId: t.id, old: t.currentStop, new: val });
   }
   t[field] = val; return ok(t);

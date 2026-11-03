@@ -97,3 +97,18 @@ export function stockPctMark(pct, S) {
   if (pct >= D.d(S.stockGain1)) return { level: 'pos', icon: '▲', text: `Gain above ${S.stockGain1.replace('.', ',')} %` };
   return null;
 }
+
+// Exceptions on Open positions ("Needs your attention", the status column and the menu count all use this one rule).
+// A mark is an exception when it may need a decision: at or below the stop, a strong (red) mark, or an attention
+// category. A report mark is an exception only while no profit is locked (G2: with the stop above the buy price it stays calm).
+export function isException(m) {
+  if (m.level === 'crit' || m.level === 'neg') return true;
+  const cats = attention([m]);
+  if (cats.has('report')) return m.text.includes('no profit locked');
+  return cats.size > 0;
+}
+// 'act' = act now (at or below the stop), 'rev' = review, 'ok' = on plan
+export function lineStatus(marks) {
+  if (marks.some((m) => m.level === 'crit')) return 'act';
+  return marks.some(isException) ? 'rev' : 'ok';
+}
