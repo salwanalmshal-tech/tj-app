@@ -1,4 +1,4 @@
-import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, field, pill, infoBtn, changeTable } from './dom.js';
+import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, field, pill, infoBtn, changeTable, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
@@ -53,7 +53,7 @@ export function render(ctx) {
 
 function editSale(ctx, tradeId, saleId) {
   const st = ctx.store.state; const t = A.tradeById(st, tradeId); const s = t.sales.find((x) => x.id === saleId); const sym = A.symbolOf(st, t);
-  const date = h('input', { value: dmy(s.date), 'aria-label': 'Sell date' }), qty = h('input', { value: D.edit(D.d(s.qty)), style: { textAlign: 'right' }, 'aria-label': 'Quantity sold' }), price = h('input', { value: D.edit(D.d(s.price)), style: { textAlign: 'right' }, 'aria-label': 'Sell price' }), comm = h('input', { value: s.commission === '' ? '' : D.edit(D.d(s.commission)), style: { textAlign: 'right' }, 'aria-label': 'Sell commission' });
+  const date = datePicker({ iso: s.date, label: 'Sell date' }), qty = h('input', { value: D.edit(D.d(s.qty)), style: { textAlign: 'right' }, 'aria-label': 'Quantity sold' }), price = h('input', { value: D.edit(D.d(s.price)), style: { textAlign: 'right' }, 'aria-label': 'Sell price' }), comm = h('input', { value: s.commission === '' ? '' : D.edit(D.d(s.commission)), style: { textAlign: 'right' }, 'aria-label': 'Sell commission' });
   dialog({ title: `Edit sale of ${sym} · ${t.id}`, wide: true, ok: 'Save', body: h('div', { style: { display: 'grid', gap: '12px' } },
     h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Sell date', date), field('Quantity sold', qty), field('Sell price', price), field('Sell commission', comm)),
     h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => { document.querySelector('.scrim')?.remove(); editTrade(ctx, t.id); } }, 'Edit buy data…'),

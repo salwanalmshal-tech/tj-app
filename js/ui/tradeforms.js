@@ -5,7 +5,7 @@ import * as A from '../actions.js';
 import { parseDMY, weekdayName, isWeekend } from '../dates.js';
 
 const sel = (items, value, { blank = '–' } = {}) => h('select', null, h('option', { value: '' }, blank), items.map((x) => h('option', { value: x.id, selected: x.id === value }, x.name ?? x.symbol)));
-const dateInput = (iso, label) => { const i = h('input', { value: iso ? dmy(iso) : '', placeholder: 'dd-mm-yyyy', inputmode: 'numeric', 'aria-label': label }); return i; };
+const dateInput = (iso, label) => datePicker({ iso: iso || '', label });
 const numInput = (v = '', label) => h('input', { value: v, inputmode: 'decimal', style: { textAlign: 'right' }, 'aria-label': label, autocomplete: 'off' });
 const back = (ctx) => ctx.go('open');
 

@@ -1,4 +1,4 @@
-import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, field, changeTable } from './dom.js';
+import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, field, changeTable, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
@@ -10,7 +10,7 @@ export function render(ctx) {
   const nm = (v) => h('input', { value: v, inputmode: 'decimal', style: { textAlign: 'right' } });
 
   // ---- start capital ----
-  const sa = nm(start ? D.edit(D.d(start.amount)) : ''), sd = h('input', { value: start ? dmy(start.date) : '', placeholder: 'dd-mm-yyyy' }); const smsg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
+  const sa = nm(start ? D.edit(D.d(start.amount)) : ''), sd = datePicker({ iso: start ? start.date : '', label: 'Start date' }); const smsg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
   const saveStart = async () => {
     const iso = parseDMY(sd.value); smsg.style.display = 'none';
     if (!iso) { smsg.textContent = '■ Enter a valid date (dd-mm-yyyy).'; smsg.style.display = 'flex'; return; }
@@ -30,7 +30,7 @@ export function render(ctx) {
   wrap.append(h('div', { class: 'tile-row' }, [['Capital (closed trades)', money(C.capitalNow(st)), 'start + deposits − withdrawals + dividends + sales'], ['Estimated account', money(acc), 'capital + unrealized result of open lines'], ['Invested (deposits)', money(C.invested(st)), 'start capital + deposits']].map(([l, v, d]) => h('div', { class: 'panel tile' }, h('span', { class: 'lab' }, l), h('span', { class: 'v' }, v), h('span', { class: 'd' }, d)))));
 
   // ---- deposits / withdrawals ----
-  const fd = h('input', { value: dmy(today), 'aria-label': 'Date' }), ft = h('select', { 'aria-label': 'Type' }, h('option', { value: 'deposit' }, 'Deposit'), h('option', { value: 'withdrawal' }, 'Withdrawal')), fa = nm(''); const fmsg = h('div', { class: 'err', role: 'alert' });
+  const fd = datePicker({ iso: today, label: 'Date' }), ft = h('select', { 'aria-label': 'Type' }, h('option', { value: 'deposit' }, 'Deposit'), h('option', { value: 'withdrawal' }, 'Withdrawal')), fa = nm(''); const fmsg = h('div', { class: 'err', role: 'alert' });
   const addFlow = () => { const iso = parseDMY(fd.value); if (!iso) { fmsg.textContent = 'Enter a valid date (dd-mm-yyyy).'; return; } const r = ctx.act((d) => { const x = A.addFlow(d, { date: iso, type: ft.value, amount: fa.value }); if (x.ok) A.recalcCapital(d); return x; }, { label: ft.value, now: true }); if (!r.ok) fmsg.textContent = r.error; };
   const flows = st.capital.flows.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
   wrap.append(h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Deposits and withdrawals'),
@@ -39,7 +39,7 @@ export function render(ctx) {
       h('td', { class: 'r' }, h('button', { class: 'btn sm quiet-dng', disabled: ctx.readOnly, onClick: () => { const r = ctx.act((d) => { const x = A.deleteFlow(d, f.id); if (x.ok) A.recalcCapital(d); return x; }, { label: 'delete line', now: true }); if (r.ok) toast('Moved to the Trash.', 'Restore', () => ctx.store.undo()); else toast(r.error); } }, 'Delete'))))))) : h('div', { class: 'pb note' }, 'No deposits or withdrawals yet.')));
 
   // ---- dividends ----
-  const ds = h('select', { 'aria-label': 'Stock' }, st.stocks.filter((s) => !s.archived).map((s) => h('option', { value: s.id }, s.symbol))), dd = h('input', { value: dmy(today), 'aria-label': 'Pay date' }), da = nm(''); const dmsg = h('div', { class: 'err', role: 'alert' });
+  const ds = h('select', { 'aria-label': 'Stock' }, st.stocks.filter((s) => !s.archived).map((s) => h('option', { value: s.id }, s.symbol))), dd = datePicker({ iso: today, label: 'Pay date' }), da = nm(''); const dmsg = h('div', { class: 'err', role: 'alert' });
   const addDiv = () => { const iso = parseDMY(dd.value); if (!iso) { dmsg.textContent = 'Enter a valid pay date (dd-mm-yyyy).'; return; } const r = ctx.act((d) => { const x = A.addDividend(d, { stockId: ds.value, payDate: iso, amount: da.value }); if (x.ok) A.recalcCapital(d); return x; }, { label: 'dividend', now: true }); if (!r.ok) dmsg.textContent = r.error; };
   const divs = st.dividends.slice().sort((a, b) => (a.payDate < b.payDate ? 1 : -1));
   wrap.append(h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Dividends', h('span', { class: 'sub' }, 'net amount received; adds to capital')),
@@ -58,7 +58,7 @@ export function render(ctx) {
 
 function splitPanel(ctx) {
   const st = ctx.store.state; const withOpen = st.stocks.filter((s) => st.trades.some((t) => t.stockId === s.id && C.openQty(t) > 0n));
-  const sel = h('select', { 'aria-label': 'Stock' }, withOpen.map((s) => h('option', { value: s.id }, s.symbol))), rn = h('input', { value: '2', style: { width: '60px', textAlign: 'right' }, 'aria-label': 'New shares' }), ro = h('input', { value: '1', style: { width: '60px', textAlign: 'right' }, 'aria-label': 'Old shares' }), date = h('input', { value: dmy(ctx.today()), 'aria-label': 'Split date' });
+  const sel = h('select', { 'aria-label': 'Stock' }, withOpen.map((s) => h('option', { value: s.id }, s.symbol))), rn = h('input', { value: '2', style: { width: '60px', textAlign: 'right' }, 'aria-label': 'New shares' }), ro = h('input', { value: '1', style: { width: '60px', textAlign: 'right' }, 'aria-label': 'Old shares' }), date = datePicker({ iso: ctx.today(), label: 'Split date' });
   return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Stock split', h('span', { class: 'sub' }, 'changes quantity and prices of open trades')),
     h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, withOpen.length ? h('div', { class: 'row', style: { alignItems: 'flex-end' } }, field('Stock', sel), field('New shares', rn), field('for old shares', ro), field('Split date', date),
       h('button', { class: 'btn', disabled: ctx.readOnly, onClick: async () => {

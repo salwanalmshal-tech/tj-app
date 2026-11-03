@@ -20,12 +20,12 @@ import * as settings from './settings.js';
 const ROUTES = {
   open: { title: 'Open positions', mod: openPos, own: true },
   'open-trade': { title: 'Open trade', mod: tradeForms, fn: 'renderOpen', parent: 'open', own: true },
-  'close-trade': { title: 'Close trade', eyebrow: 'Exit', mod: tradeForms, fn: 'renderClose', parent: 'open' },
-  history: { title: 'History', eyebrow: 'Learn', mod: history },
-  capital: { title: 'Capital', eyebrow: 'Money', mod: capital },
-  lists: { title: 'Lists', eyebrow: 'Records', mod: lists },
-  data: { title: 'Import / Export', eyebrow: 'Safety centre', mod: data },
-  settings: { title: 'Settings', eyebrow: 'System', mod: settings },
+  'close-trade': { title: 'Close trade', eyebrow: 'Exit', lead: 'Sell shares and see the result before anything is saved.', mod: tradeForms, fn: 'renderClose', parent: 'open' },
+  history: { title: 'History', eyebrow: 'Learn', lead: 'Every sale with its result. A trade is counted when its last share is sold.', mod: history },
+  capital: { title: 'Capital', eyebrow: 'Money', lead: 'What changed your capital and why.', mod: capital },
+  lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and errors used by your trades.', mod: lists },
+  data: { title: 'Import / Export', eyebrow: 'Safety centre', lead: 'Export, backups, restore and import of your journal.', mod: data },
+  settings: { title: 'Settings', eyebrow: 'System', lead: 'Limits for marks, labels and saving. They only change what you see; they never block anything.', mod: settings },
 };
 const MENU = [
   ['Trade', [['open', 'Open positions']]],
@@ -206,7 +206,7 @@ function draw() {
   statusEl = h('span');
   bannerEl = h('div');
   const body = h('main', { id: 'main', class: 'body' }, ctx.readOnly ? h('div', { class: 'note' }, 'Read-only window: you can look and copy, but not change anything.') : null,
-    route.own ? null : h('header', { class: 'pg-head' }, h('div', null, h('div', { class: 'eyebrow' }, route.eyebrow || ''), h('h1', null, route.title))));
+    route.own ? null : h('header', { class: 'pg-head' }, h('div', null, h('div', { class: 'eyebrow' }, route.eyebrow || ''), h('h1', null, route.title), route.lead ? h('p', { class: 'lead' }, route.lead) : null)));
   const mod = route.mod; const fn = route.fn || 'render';
   try { body.append(mod[fn](ctx)); } catch (e) { console.error(e); body.append(h('div', { class: 'msg bad', role: 'alert' }, '■ This screen could not be drawn: ' + e.message)); }
   const t = todayISO();

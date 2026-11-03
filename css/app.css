@@ -282,3 +282,48 @@ details.more[open] summary::before{content:"− "}
 .metric .i{margin-left:5px}
 .chip{border-radius:999px;border-color:var(--line);background:var(--panel);color:var(--muted)}
 .chip[aria-pressed="true"]{background:var(--infobg);color:var(--accent);border-color:#BFD4E8;font-weight:600}
+/* ===== theme for the screens built before the redesign (History, Capital, Lists, Import / Export, Settings, Close trade, Edit trade, pop-ups) ===== */
+.panel{border-radius:16px}
+.ph{border-bottom:0;padding:18px 22px 4px;font-size:15px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.ph .sub{font-size:12px;font-weight:400;color:var(--muted)}
+.pb{padding:14px 22px 20px}
+.tile-row{gap:14px}
+.tile{padding:16px 18px;gap:6px}
+.tile .lab{font-size:10.5px;letter-spacing:.11em;color:var(--faint);font-weight:700}
+.tile .v{font-size:23px;font-weight:700;letter-spacing:-.02em}
+.tile .d{font-size:11.5px;color:var(--faint)}
+.lab{letter-spacing:.1em;color:var(--faint);font-weight:700}
+.fld{gap:7px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.fld .note{text-transform:none;letter-spacing:0;font-weight:400;font-size:11.5px}
+.fld input,.fld select{height:40px;border:1px solid var(--field);border-radius:10px;background:var(--panel);padding:0 12px;font:600 13.5px 'Inter',system-ui,sans-serif;color:var(--ink);text-transform:none;letter-spacing:0;transition:border-color .15s,box-shadow .15s}
+.fld textarea{border:1px solid var(--field);border-radius:10px;background:var(--panel);padding:10px 12px;font:13px 'Inter',system-ui,sans-serif;text-transform:none;letter-spacing:0;color:var(--ink)}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(50,107,158,.12)}
+.fld .dp{height:40px;border:1px solid var(--field);border-radius:10px;background:var(--panel);padding:0 4px 0 12px;gap:4px;transition:border-color .15s,box-shadow .15s}
+.fld .dp:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(50,107,158,.12)}
+.fld .dp input{border:0;height:100%;padding:0;box-shadow:none}
+.fld .dp input:focus{box-shadow:none}
+.dp.bad,.fld .dp.bad{border-color:var(--neg)}
+.row .btn,.row .btn.pri{height:40px;border-radius:10px;padding:0 16px}
+.row .btn.sm{height:30px;border-radius:9px;padding:0 11px}
+.ptable .row .btn,.attn-c .row .btn,.pfoot .btn{height:30px}
+.btn.big{height:44px}
+th{height:36px;background:var(--raised);font-size:10px;font-weight:700;letter-spacing:.09em;color:var(--faint);padding:0 12px}
+td{height:40px;padding:0 12px;font-size:12.5px}
+.mono{font-family:'Inter',system-ui,sans-serif;font-size:12.5px;font-weight:600;letter-spacing:0}
+.tabs{padding:0 22px;gap:4px}
+.tabs a{padding:12px 12px;font-weight:600}
+.tabs a.on{color:var(--accent);border-bottom-color:var(--accent)}
+.msg{border-radius:10px;padding:10px 12px;line-height:1.45}
+.dlg{border-radius:16px}
+.dlg h2{font-size:17px;font-weight:700;letter-spacing:-.01em;margin-bottom:10px}
+.dlg .fld{margin:0}
+.kv{gap:6px 16px}
+.kv dt{color:var(--muted)}.kv dd{font-weight:600}
+.toast{border-radius:12px;padding:11px 16px}
+input.cell{border-color:var(--field);height:30px;border-radius:8px}
+input.cell:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(50,107,158,.12)}
+.fld{font-size:11.5px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted)}
+.panel input:not([type=checkbox]):not([type=radio]):not(.cell),.panel select{height:36px;border:1px solid var(--field);border-radius:10px;background:var(--panel);padding:0 12px;font:600 13px 'Inter',system-ui,sans-serif;color:var(--ink)}
+.panel .dp input{height:100%;border:0;padding:0}
+.panel input:focus,.panel select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(50,107,158,.12)}
+.panel .row .btn.sm{height:30px}

@@ -110,6 +110,9 @@ export function datePicker({ iso = '', label = 'Date', onChange } = {}) {
   const wrap = h('div', { class: 'dp' }, inp, btn);
   const fire = () => { inp.dispatchEvent(new Event('input', { bubbles: true })); onChange?.(); };
   wrap.input = inp;
+  // behaves like a plain text input for older screens: .value is the dd-mm-yyyy text, .focus() focuses the text
+  Object.defineProperty(wrap, 'value', { get: () => inp.value, set: (v) => { inp.value = v; } });
+  wrap.focus = () => inp.focus();
   wrap.getISO = () => { const t = inp.value.trim(); return t ? parseDMY(t) : ''; };
   wrap.setISO = (v) => { inp.value = v ? fmtDMY(v) : ''; fire(); };
   inp.addEventListener('blur', () => { const v = wrap.getISO(); if (v) inp.value = fmtDMY(v); });
