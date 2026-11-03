@@ -28,6 +28,8 @@ export class MemoryStorage {
 }
 
 // ------------------------------------------------------------------ Google Drive ----
+// Content fingerprint of a Drive file: changes only when the file's content changes.
+export function fingerprint(f) { return f?.md5Checksum || f?.headRevisionId || null; }
 export class DriveError extends Error { constructor(msg, status, auth = false) { super(msg); this.status = status; this.auth = auth; } }
 
 export class DriveStorage {
@@ -45,7 +47,7 @@ export class DriveStorage {
     return res;
   }
   async _json(url, opts) { return (await this._req(url, opts)).json(); }
-  _q(q) { return 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name,version,modifiedTime,createdTime,appProperties)&pageSize=200&q=' + encodeURIComponent(q); }
+  _q(q) { return 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name,version,md5Checksum,headRevisionId,modifiedTime,createdTime,appProperties)&pageSize=200&q=' + encodeURIComponent(q); }
   async _find(name, parent, mime) {
     const esc = name.replace(/'/g, "\\'");
     const q = `name='${esc}' and trashed=false` + (parent ? ` and '${parent}' in parents` : '') + (mime ? ` and mimeType='${mime}'` : '');
@@ -67,10 +69,10 @@ export class DriveStorage {
     const meta = { name, parents: [parent], mimeType: 'application/json', ...(appProps ? { appProperties: appProps } : {}) };
     const boundary = 'tj' + Math.random().toString(36).slice(2);
     const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(obj)}\r\n--${boundary}--`;
-    return this._json('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,version,modifiedTime', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body });
+    return this._json('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,version,md5Checksum,headRevisionId,modifiedTime', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body });
   }
   async _update(id, obj) {
-    return this._json(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media&fields=id,version,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
+    return this._json(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media&fields=id,version,md5Checksum,headRevisionId,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
   }
   async _read(id) { return (await this._req(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`)).json(); }
 
@@ -78,16 +80,18 @@ export class DriveStorage {
     const { root } = await this._folders();
     const f = await this._find(FILE_NAME, root);
     if (!f) return { data: null };
-    this.ids.data = f.id; this.version = f.version;
+    this.ids.data = f.id; this.version = fingerprint(f);
     return { data: await this._read(f.id) };
   }
   // Before every save: check the Drive file is still the one we loaded (never overwrite newer data).
+  // The check uses the file's CONTENT fingerprint (md5Checksum, else headRevisionId). Google's "version"
+  // number is NOT used: Drive raises it by itself after a save, which gave false "changed somewhere else" alarms.
   async save(data) {
     const { root } = await this._folders();
-    if (!this.ids.data) { const c = await this._create(FILE_NAME, root, data); this.ids.data = c.id; this.version = c.version; return { ok: true }; }
-    const cur = await this._json(`https://www.googleapis.com/drive/v3/files/${this.ids.data}?fields=version`);
-    if (this.version !== null && cur.version !== this.version) return { ok: false, conflict: true };
-    const r = await this._update(this.ids.data, data); this.version = r.version; return { ok: true };
+    if (!this.ids.data) { const c = await this._create(FILE_NAME, root, data); this.ids.data = c.id; this.version = fingerprint(c); return { ok: true }; }
+    const cur = await this._json(`https://www.googleapis.com/drive/v3/files/${this.ids.data}?fields=md5Checksum,headRevisionId`);
+    if (this.version !== null && fingerprint(cur) !== this.version) return { ok: false, conflict: true };
+    const r = await this._update(this.ids.data, data); this.version = fingerprint(r); return { ok: true };
   }
   async lockInfo() {
     const { root } = await this._folders(); const f = await this._find(LOCK_NAME, root); if (!f) return null;
