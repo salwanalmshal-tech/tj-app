@@ -35,7 +35,7 @@ export function lineMarks(state, t, today, account) {
       else if (days === 1) { text = 'Report tomorrow'; strong = true; }
       else if (rw === wk) text = 'Report this week';
       else if (rw === nextWk) text = 'Report next week';
-      if (text) add(strong && noProfit ? 'neg' : 'warn', strong && noProfit ? '■' : '●', text + tail, `Report on ${t.nextReport}.`);
+      if (text) add(strong && noProfit ? 'neg' : 'warn', strong && noProfit ? '■' : '●', text + tail, `Report on ${t.nextReport.split('-').reverse().join('-')}.`);
     } else if (-days <= S.reportedAgoDays) add('plain', '', `Reported ${-days} day${-days === 1 ? '' : 's'} ago`, 'Quiet reminder.');
   }
   // G3 highest to stop

@@ -1,4 +1,7 @@
-import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, pill, infoBtn, changeTable, field } from './dom.js';
+// Open Positions: the daily workspace (UX/UI specification, screen 1).
+// Hierarchy: page header + four account metrics, "Needs your attention" (exceptions only), compact table of all positions.
+// A row opens the daily decision detail, where the typed daily values are updated. All calculations come from calc.js / marks.js.
+import { h, dialog, para, toast, money, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, changeTable } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as M from '../marks.js';
@@ -6,123 +9,200 @@ import * as A from '../actions.js';
 import { parseDMY } from '../dates.js';
 import { editTrade } from './tradeforms.js';
 
-const LEVEL = { crit: 0, neg: 1, warn: 2, info: 3, pos: 4, plain: 5 };
-const CHIPS = [['atstop', 'crit', '■ At or below stop'], ['close', 'warn', '● Close to stop'], ['raise', 'info', '↑ Raise stop'], ['report', 'warn', '● Report within 7 days'], ['missing', 'warn', '◆ Missing data']];
-let filter = null; let showAll = false;
+export const usd = (a) => (a === null || a === undefined ? '–' : (a < 0n ? '−$' : '$') + money(D.abs(a)));
+export const susd = (a) => (a === null || a === undefined ? '–' : (a > 0n ? '+$' : a < 0n ? '−$' : '$') + money(D.abs(a)));
+const rTxt = (r) => (r === null || r === undefined ? '–' : (r > 0n ? '+' : '') + D.fmt(r, 2) + ' R');
+
+// Status of a line, from its marks. Act now = at or below the stop. Review = an attention category or a strong mark.
+const isException = (m) => m.level === 'crit' || m.level === 'neg' || M.attention([m]).size > 0;
+function statusOf(marks) {
+  if (marks.some((m) => m.level === 'crit')) return 'act';
+  if (marks.some(isException)) return 'rev';
+  return 'ok';
+}
+const STATUS_TEXT = { act: 'Act now', rev: 'Review', ok: 'On plan' };
+const ORDER = { act: 0, rev: 1, ok: 2 };
+function kindLabel(m) {
+  const t = m.text;
+  if (t === 'At or below stop') return 'At stop';
+  if (t === 'Raise stop' || t === 'Stop far below highest price') return 'Protection';
+  if (t.startsWith('Report')) return t.split(':')[0];
+  if (t.startsWith('Missing')) return 'Missing data';
+  return t;
+}
+function openR(t) {
+  const rps = C.riskPerShare(t), last = num(t.last);
+  if (rps === null || rps <= 0n || last === null) return null;
+  return D.div(D.sub(last, D.d(t.buyPrice)), rps);
+}
 
 export function render(ctx) {
   const st = ctx.store.state; const today = ctx.today();
   const account = C.estimatedAccount(st);
   const lines = C.openTrades(st).map((t) => {
     const marks = M.lineMarks(st, t, today, account);
-    return { t, m: C.lineMetrics(st, t, account), marks, cats: M.attention(marks), rank: Math.min(5, ...marks.map((k) => LEVEL[k.level])) };
-  }).sort((a, b) => a.rank - b.rank || A.symbolOf(st, a.t).localeCompare(A.symbolOf(st, b.t)));
+    return { t, sym: A.symbolOf(st, t), m: C.lineMetrics(st, t, account), marks, status: statusOf(marks), exc: marks.filter(isException) };
+  }).sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.sym.localeCompare(b.sym));
 
-  const wrap = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } });
-  if (!st.capital.start) { wrap.append(h('div', { class: 'msg warn' }, '◆ Capital is not set yet. ', h('a', { href: '#/capital', onClick: (e) => { e.preventDefault(); ctx.go('capital'); } }, 'Set the start capital first.'))); }
+  const capital = C.capitalNow(st);
+  const openPL = lines.reduce((a, l) => a + (l.m.openPL ?? 0n), 0n);
+  const loss = C.lossIfAllStopsHit(st);
+  const value = lines.reduce((a, l) => a + (l.m.value ?? 0n), 0n);
+  const deployed = account > 0n ? D.pct(value, account) : null;
+  const noStop = lines.filter((l) => num(l.t.currentStop) === null).length;
+
+  const wrap = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px' } });
+  wrap.append(h('header', { class: 'pg-head' },
+    h('div', null, h('div', { class: 'eyebrow' }, 'Daily workspace'), h('h1', null, 'Open Positions'), h('p', { class: 'lead' }, 'Focus on exceptions first. Do not encourage unnecessary action.')),
+    h('div', { class: 'acts' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly || !st.capital.start, onClick: () => ctx.go('open-trade') }, '+ Open position'))));
+
+  if (!st.capital.start) wrap.append(h('div', { class: 'msg warn' }, '◆ Capital is not set yet. ', h('a', { href: '#/capital', onClick: (e) => { e.preventDefault(); ctx.go('capital'); } }, 'Set the start capital first.')));
+
+  const metric = (label, v, cls, d, title) => h('div', { class: 'metric', title }, h('span', { class: 'eyebrow' }, label), h('span', { class: 'v ' + (cls || '') }, v), d ? h('span', { class: 'd' }, d) : null);
+  wrap.append(h('section', { class: 'metrics', 'aria-label': 'Account' },
+    metric('Account capital', usd(capital), '', 'Closed trades, deposits and dividends', 'Capital (closed trades) = start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included.'),
+    metric('Open P&L', susd(openPL), numClass(openPL), `${lines.length} open position${lines.length === 1 ? '' : 's'}`, '(Last price − buy price) × open shares, summed. Commissions count when you sell.'),
+    metric('Risk at stops', susd(loss.loss), loss.loss < 0n ? 'neg' : '', (loss.pctOfAccount === null ? '' : `${pctTxt(D.abs(loss.pctOfAccount))} of account now`) + (noStop ? ` · ${noStop} without stop` : ''), 'Loss if all stops hit, from now: (Current stop − last price) × open shares, summed, as % of the estimated account (capital + open result).'),
+    metric('Capital deployed', pctTxt(deployed, 1), '', deployed === null ? '' : `${usd(value)} in the market`, 'Value of all open positions at the last price, as % of the estimated account.')));
+
   if (!lines.length) {
-    wrap.append(h('section', { class: 'panel' }, h('div', { class: 'pb' }, h('p', null, 'You have no open positions.'), h('button', { class: 'btn pri', disabled: ctx.readOnly || !st.capital.start, onClick: () => ctx.go('open-trade') }, '+ Open trade'))));
+    wrap.append(h('section', { class: 'card' }, h('div', { class: 'card-b', style: { paddingTop: '22px' } }, h('div', { class: 'calm' }, '✓ No open positions. Your next trade starts with a clear plan.'))));
     return wrap;
   }
-  // chips
-  const counts = Object.fromEntries(CHIPS.map(([k]) => [k, lines.filter((l) => l.cats.has(k)).length]));
-  const needing = lines.filter((l) => l.cats.size).length;
-  if (needing) wrap.append(h('div', { class: 'chips', role: 'group', 'aria-label': 'Lines that need attention. Click a chip to filter the table.' }, h('b', null, needing === 1 ? '1 line needs attention' : `${needing} lines need attention`),
-    CHIPS.filter(([k]) => counts[k]).map(([k, cls, label]) => h('button', { class: 'chip ' + cls, 'aria-pressed': String(filter === k), onClick: () => { filter = filter === k ? null : k; ctx.redraw(); } }, `${label} · ${counts[k]}`)),
-    h('button', { class: 'chip', 'aria-pressed': String(filter === null), onClick: () => { filter = null; ctx.redraw(); } }, 'Show all')));
-  const shown = filter ? lines.filter((l) => l.cats.has(filter)) : lines;
 
-  const th = (label, cls = '', why, ed) => h('th', { class: cls }, label, ed ? h('span', { class: 'ped', title: 'You type this value' }, '✎') : null, why ? infoBtn(label, why) : null);
-  const head = h('tr', null, th('Edit'), th('Symbol'), th('Marks', '', 'Quiet hints about this line. They never change anything and never block you. Hover a mark to see why it is shown.'),
-    th('Qty', 'r'), th('Buy price', 'r'), th('Last price', 'r ed', 'The last price you typed. The program never fetches prices.', true), th('Current stop', 'r', 'Your stop today. Changes are written to the stop history.', true),
-    th('To stop', 'r', 'Distance from the last price down to the Current stop, as % of the last price.'), th('Open P&L', 'r', '(Last price − buy price) × open shares. Commissions are not included until you sell.'),
-    th('Position size', 'r', 'Value of the line (last price × open shares) as % of the estimated account (capital + unrealized result of all open lines).'), th('Next report', '', 'Date of the next earnings report. Used for the report marks.', true),
-    ...(showAll ? [th('Buy date'), th('Highest', 'r', 'Highest price since buying, typed by you.', true), th('EMA10', 'r', 'The 10-day exponential average, typed by you.', true), th('Initial stop', 'r', 'The stop you had when you bought. It is used for R and does not change.'),
-      th('Loss if stop hit', 'r', '(Current stop − last price) × open shares.'), th('Risk at stop %', 'r', 'Loss at the stop as % of the capital this trade was opened with.'), th('Realized so far', 'r', 'Net result of the shares already sold from this line.'), th('Setup'), th('Comment', '', '', true)] : []));
+  // ---- Needs your attention (exceptions only)
+  const exc = lines.filter((l) => l.status !== 'ok');
+  wrap.append(h('section', { class: 'card', 'aria-label': 'Needs your attention' },
+    h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Needs your attention'), h('p', { class: 'lead' }, 'Only exceptions that may require a decision.'))),
+    h('div', { class: 'card-b' }, exc.length ? h('div', { class: 'attn' }, exc.map((l) => {
+      const top = l.exc[0]; const rest = l.exc.slice(1);
+      return h('div', { class: 'attn-c ' + l.status },
+        h('div', { class: 'sym' }, l.sym),
+        h('div', { class: 'kind' }, (l.status === 'act' ? 'Action required' : 'Review') + ' · ' + kindLabel(top)),
+        h('p', { class: 'why' }, top.why, rest.length ? ` Also: ${rest.map((x) => x.text.split(':')[0]).join(', ')}.` : ''),
+        h('div', { class: 'row' },
+          l.status === 'act' ? h('button', { class: 'btn sm risk', disabled: ctx.readOnly, onClick: () => ctx.go('close-trade', { tradeId: l.t.id }) }, 'Close position…') : null,
+          h('button', { class: 'btn sm', onClick: () => detail(ctx, l.t.id) }, l.status === 'act' ? 'Details' : 'Review')));
+    })) : h('div', { class: 'calm' }, '✓ Nothing needs a decision today. All positions are on plan.'))));
 
-  const cell = (t, field, text, cls = 'r', opts = {}) => h('td', { class: cls + ' ed', tabindex: ctx.readOnly ? null : 0, title: ctx.readOnly ? '' : 'Click to type', onClick: ctx.readOnly ? null : (e) => startEdit(ctx, e.currentTarget, t, field, opts), onKeydown: (e) => { if (e.key === 'Enter' && !ctx.readOnly) startEdit(ctx, e.currentTarget, t, field, opts); } }, text);
-  const rows = shown.map(({ t, m, marks }) => {
-    const sym = A.symbolOf(st, t); const last = num(t.last); const stop = num(t.currentStop);
-    const vis = marks.slice(0, 2), hid = marks.slice(2);
-    return h('tr', null,
-      h('td', null, h('button', { class: 'btn sm', 'aria-label': 'Edit ' + sym, disabled: ctx.readOnly, onClick: () => editTrade(ctx, t.id) }, 'Edit'), ' ', h('button', { class: 'btn sm', 'aria-label': 'Close ' + sym, disabled: ctx.readOnly, onClick: () => ctx.go('close-trade', { tradeId: t.id }) }, 'Close…')),
-      h('td', { class: 'mono' }, sym, t.sales.length ? h('span', { class: 'note', title: 'Partly sold' }, ' ½') : null),
-      h('td', { class: 'marks' }, h('div', { class: 'mk' }, vis.map(pill), hid.length ? h('button', { class: 'pill more', title: 'Also: ' + hid.map((x) => x.text).join('; '), 'aria-label': hid.length + ' more marks: ' + hid.map((x) => x.text).join('; '), onClick: () => dialog({ title: sym + ': all marks', body: h('div', null, marks.map((x) => h('p', { style: { margin: '0 0 8px' } }, pill(x), ' ', h('span', { class: 'note' }, x.why)))), info: true, ok: 'Close' }) }, '+' + hid.length) : null)),
-      h('td', { class: 'r' }, qtyTxt(C.openQty(t))), h('td', { class: 'r' }, priceTxt(D.d(t.buyPrice))),
-      cell(t, 'last', priceTxt(last)), cell(t, 'currentStop', priceTxt(stop)),
-      h('td', { class: 'r ' + (m.toStopPct !== null && m.toStopPct <= 0n ? 'neg' : '') }, pctTxt(m.toStopPct, 1)),
-      h('td', { class: 'r ' + numClass(m.openPL) }, signed(m.openPL)), h('td', { class: 'r' }, pctTxt(m.positionPct, 1)),
-      cell(t, 'nextReport', dmy(t.nextReport), '', { date: true }),
-      ...(showAll ? [h('td', null, dmy(t.buyDate)), cell(t, 'highest', priceTxt(num(t.highest))), cell(t, 'ema10', priceTxt(num(t.ema10))), h('td', { class: 'r' }, priceTxt(num(t.initialStop))),
-        h('td', { class: 'r ' + numClass(m.lossIfStop) }, signed(m.lossIfStop)), h('td', { class: 'r' }, pctTxt(m.riskAtStopPct)), h('td', { class: 'r ' + numClass(m.realized) }, m.realized === null ? '–' : signed(m.realized)),
-        h('td', null, st.setups.find((x) => x.id === t.setupId)?.name ?? '–'), cell(t, 'comment', t.comment || '–', 'mut', { text: true })] : []));
+  // ---- All positions
+  const rows = lines.map((l) => {
+    const { t, m } = l; const stop = num(t.currentStop), last = num(t.last), buy = D.d(t.buyPrice);
+    const R = openR(t);
+    const chg = last === null ? null : D.pct(D.sub(last, buy), buy);
+    const locked = stop !== null && stop > buy;
+    const prot = stop === null ? h('span', { class: 'b neg' }, 'No stop')
+      : [h('div', { class: 'b' }, 'Stop ' + priceTxt(stop)), h('div', { class: 's2 ' + (locked ? 'pos' : '') }, locked ? 'Locked ' + susd(m.lockedAtStop) : m.lossIfStop === null ? '' : susd(m.lossIfStop) + ' at stop')];
+    const open = () => detail(ctx, t.id);
+    return h('tr', { tabindex: 0, 'aria-label': `${l.sym}: ${STATUS_TEXT[l.status]}. Open details`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
+      h('td', null, h('div', { class: 'sym' }, l.sym, t.sales.length ? h('span', { class: 's2', title: 'Partly sold' }, ' · partly sold') : null), h('div', { class: 's2' }, `${qtyTxt(C.openQty(t))} × ${priceTxt(buy)} · ${pctTxt(m.positionPct, 1)}`)),
+      h('td', null, h('div', { class: 'b' }, priceTxt(last)), h('div', { class: 's2 ' + numClass(chg) }, chg === null ? '' : (chg > 0n ? '+' : '') + pctTxt(chg, 1))),
+      h('td', { class: numClass(m.openPL) }, h('div', { class: 'b' }, susd(m.openPL))),
+      h('td', null, h('div', { class: 'b' }, R === null ? 'No SL' : rTxt(R))),
+      h('td', null, prot),
+      h('td', null, h('span', { class: 'st ' + l.status }, STATUS_TEXT[l.status]), t.nextReport ? h('div', { class: 's2' }, 'Report ' + dmy(t.nextReport)) : null));
   });
-  const totPL = shown.reduce((a, l) => a + (l.m.openPL ?? 0n), 0n);
-  const loss = C.lossIfAllStopsHit(st);
-  const inMarket = account > 0n ? D.pct(shown.reduce((a, l) => a + (l.m.value ?? 0n), 0n), account) : null;
-  const noStop = lines.filter((l) => num(l.t.currentStop) === null).length;
-  const foot = h('tr', null, h('td', { colspan: 8, class: 'mut', style: { paddingLeft: '10px' } }, `${shown.length} line${shown.length === 1 ? '' : 's'}${filter ? ' (filtered)' : ''} · Loss if all stops hit `, h('b', { class: 'neg' }, signed(loss.loss)), noStop ? ` · ${noStop} line${noStop === 1 ? '' : 's'} without stop not included` : ''),
-    h('td', { class: 'r ' + numClass(totPL) }, h('b', null, signed(totPL))), h('td', { class: 'r' }, h('b', null, pctTxt(inMarket, 1)), ' in market'), h('td', { colspan: showAll ? 10 : 1 }));
-
-  wrap.append(h('section', { class: 'panel', 'aria-label': 'Open positions table' },
-    h('div', { class: 'ph', style: { fontSize: '12.5px', fontWeight: 500 } }, h('span', { class: 'sub' }, 'Template ', h('b', { style: { color: 'var(--ink)' } }, 'Daily'), ' · sorted by most urgent mark first · ✎ = you type this value · estimated account ', h('b', { style: { color: 'var(--ink)' } }, money(account))),
-      h('div', { class: 'row' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => updatePrices(ctx, lines.map((l) => l.t)) }, 'Update prices'),
-        h('label', { class: 'btn sm', style: { cursor: 'pointer' } }, h('input', { type: 'checkbox', checked: showAll, 'aria-label': 'Show all columns', onChange: (e) => { showAll = e.target.checked; ctx.redraw(); } }), ' Show all columns'))),
-    h('div', { class: 'tw fx' }, h('table', { class: 'stk' }, h('thead', null, head), h('tbody', null, rows), h('tfoot', null, foot)))));
+  wrap.append(h('section', { class: 'card', 'aria-label': 'All positions' },
+    h('div', { class: 'card-h', style: { paddingBottom: '14px' } }, h('div', null, h('h2', null, 'All positions'), h('p', { class: 'lead' }, 'Exceptions first. Click a position to update it or decide.')),
+      h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => updatePrices(ctx, lines.map((l) => l.t)) }, 'Update prices')),
+    h('div', { class: 'tw' }, h('table', { class: 'ptable' },
+      h('thead', null, h('tr', null, ['Position', 'Price', 'Result', 'R', 'Protection', 'Status'].map((x) => h('th', null, x)))),
+      h('tbody', null, rows))),
+    h('div', { class: 'pfoot' }, h('span', null, `${lines.length} position${lines.length === 1 ? '' : 's'} · estimated account ${usd(account)}`), h('span', null, 'R uses the Initial stop. Prices are typed by you.'))));
   return wrap;
 }
 
-// ---- one value typed straight into the table (saved at once; Undo for the last one) ----
-function startEdit(ctx, td, t, field, opts) {
-  if (td.querySelector('input')) return;
-  const cur = t[field] ?? '';
-  const shownVal = opts.date ? dmy(cur).replace('–', '') : opts.text ? cur : cur === '' ? '' : D.edit(D.d(cur));
-  const inp = h('input', { class: 'cell', value: shownVal, 'aria-label': 'Edit ' + field, style: opts.text ? { width: '180px', textAlign: 'left' } : null, placeholder: opts.date ? 'dd-mm-yyyy' : '' });
-  td.textContent = ''; td.append(inp); inp.focus(); inp.select();
-  let done = false;
-  const finish = async (save) => {
-    if (done) return; done = true;
-    if (!save || inp.value === shownVal) return ctx.redraw();
-    await commitEdit(ctx, t, field, inp.value, opts);
+// ---- Daily decision detail: all marks, the typed daily values, the facts, and the actions ----
+const DAILY = [['last', 'Last price', 'num'], ['currentStop', 'Current stop', 'num'], ['nextReport', 'Next report', 'date'], ['highest', 'Highest price', 'num'], ['ema10', 'EMA10', 'num']];
+function detail(ctx, id) {
+  document.querySelector('.sheet-scrim')?.remove();
+  const st = ctx.store.state; const t = A.tradeById(st, id); if (!t) return;
+  const sym = A.symbolOf(st, t); const account = C.estimatedAccount(st);
+  const marks = M.lineMarks(st, t, ctx.today(), account); const status = statusOf(marks); const m = C.lineMetrics(st, t, account);
+  const prevFocus = document.activeElement;
+  const inputs = {};
+  const fieldFor = ([f, label, kind]) => {
+    const cur = t[f] ?? '';
+    const inp = kind === 'date' ? h('input', { type: 'date', value: cur, 'aria-label': label })
+      : h('input', { inputmode: 'decimal', value: cur === '' ? '' : D.edit(D.d(cur)), 'aria-label': label, autocomplete: 'off', placeholder: 'Empty' });
+    inputs[f] = { inp, kind, label, before: inp.value };
+    return h('label', { class: 'of' }, h('span', { class: 'l' }, label), h('div', { class: 'box' }, kind === 'num' ? h('span', { class: 'pre' }, '$') : null, inp));
   };
-  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); finish(false); } });
-  inp.addEventListener('blur', () => finish(true));
-}
-async function commitEdit(ctx, t, field, raw, opts) {
-  const st = ctx.store.state; const sym = A.symbolOf(st, t);
-  let value = raw.trim();
-  if (opts.date) { if (value === '') value = ''; else { const iso = parseDMY(value); if (!iso) { toast('That is not a valid date. Use dd-mm-yyyy.'); return ctx.redraw(); } value = iso; } }
-  if (field === 'last' && value !== '') {
-    const j = A.jumpPct(t.last, value);
-    if (j !== null && j > D.d(st.settings.bigJumpPct)) {
-      const ok = await dialog({ title: `Last price of ${sym}: ${priceTxt(num(t.last))} → ${priceTxt(D.parse(value))}?`, body: h('div', null, para(`This is a jump of ${pctTxt(j, 0)}. Check for a typing error.`, ''), changeTable([['Last price', priceTxt(num(t.last)), priceTxt(D.parse(value))]].map((r) => Object.assign(r, { changed: true })))), ok: 'Save anyway' });
-      if (!ok) return ctx.redraw();
+  const com = h('textarea', { 'aria-label': 'Comment', rows: 2 }); com.value = t.comment || ''; inputs.comment = { inp: com, kind: 'text', label: 'Comment', before: com.value };
+  const msg = h('div', { class: 'msg bad', role: 'alert', hidden: true });
+  const close = () => { scrim.remove(); document.removeEventListener('keydown', onKey, true); prevFocus?.focus?.(); };
+  async function save() {
+    const changes = [];
+    for (const [f, x] of Object.entries(inputs)) {
+      const v = x.kind === 'text' ? x.inp.value : x.inp.value.trim(); if (v === x.before) continue;
+      if (x.kind === 'num' && v !== '' && (D.parse(v) === null || D.parse(v) <= 0n)) { msg.textContent = `■ ${x.label} must be a number above 0, or empty.`; msg.hidden = false; x.inp.focus(); return; }
+      if (x.kind === 'date' && v !== '' && !parseDMY(v)) { msg.textContent = '■ Next report is not a valid date.'; msg.hidden = false; return; }
+      changes.push([f, v]);
     }
+    if (!changes.length) return close();
+    const lastCh = changes.find(([f]) => f === 'last');
+    if (lastCh && lastCh[1] !== '') {
+      const j = A.jumpPct(t.last, lastCh[1]);
+      if (j !== null && j > D.d(st.settings.bigJumpPct)) {
+        const ok = await dialog({ title: `Last price of ${sym}: ${priceTxt(num(t.last))} → ${priceTxt(D.parse(lastCh[1]))}?`, body: h('div', null, para(`This is a jump of ${pctTxt(j, 0)}. Check for a typing error.`, ''), changeTable([Object.assign(['Last price', priceTxt(num(t.last)), priceTxt(D.parse(lastCh[1]))], { changed: true })])), ok: 'Save anyway' });
+        if (!ok) return;
+      }
+    }
+    const res = ctx.act((d) => { for (const [f, v] of changes) { const r = A.editDaily(d, t.id, f, v); if (!r.ok) return r; } return { ok: true }; }, { label: `${sym} update`, now: true });
+    if (!res.ok) { msg.textContent = '■ ' + res.error; msg.hidden = false; return; }
+    close(); toast(`${sym} updated.`, 'Undo', () => ctx.store.undo());
   }
-  const old = t[field];
-  const res = ctx.act((d) => A.editDaily(d, t.id, field, value), { label: `${sym} ${LABEL[field] || field}`, now: true });
-  if (!res.ok) toast(res.error);
-  else void old;
+  const onKey = (e) => {
+    if (document.querySelector('.scrim.fixed')) return; // a confirmation is open on top
+    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    else if (e.key === 'Enter' && e.target.tagName === 'INPUT' && scrim.contains(e.target)) { e.preventDefault(); save(); }
+  };
+  const lv = (k, v, cls) => h('div', null, h('dt', null, k), h('dd', { class: cls || '' }, v));
+  const R = openR(t);
+  const setup = st.setups.find((x) => x.id === t.setupId)?.name;
+  const locked = m.lockedAtStop !== null && m.lockedAtStop > 0n;
+  const sheet = h('aside', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': sym + ' details' },
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' } },
+      h('div', null, h('div', { class: 'eyebrow' }, `${t.id}${setup ? ' · ' + setup : ''}`), h('h2', { class: 'sh-title' }, sym), h('span', { class: 'st ' + status }, STATUS_TEXT[status])),
+      h('button', { class: 'x', 'aria-label': 'Close', onClick: close }, '×')),
+    marks.length ? h('div', { class: 'mlist' }, marks.map((x) => h('div', { class: 'mitem ' + x.level }, h('b', null, (x.icon ? x.icon + ' ' : '') + x.text), x.why ? h('span', null, ' · ' + x.why) : null))) : h('div', { class: 'calm' }, '✓ On plan. Nothing to decide today.'),
+    h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Update today'), h('p', { class: 'lead' }, 'Your daily numbers. Leave a field empty to clear it.'))),
+      h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+        h('div', { class: 'fgrid' }, DAILY.map(fieldFor)), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Comment'), com), msg,
+        h('div', { class: 'row' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly, onClick: save }, 'Save update'), h('button', { class: 'btn big', onClick: close }, 'Cancel')))),
+    h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', null, 'Position')), h('div', { class: 'card-b' }, h('dl', { class: 'facts', style: { margin: 0 } },
+      lv('Shares open', qtyTxt(C.openQty(t)) + (t.sales.length ? ` of ${qtyTxt(D.d(t.qty))}` : '')), lv('Buy date', dmy(t.buyDate)), lv('Buy price', usd(D.d(t.buyPrice))), lv('Initial stop', t.initialStop ? usd(D.d(t.initialStop)) : 'No SL'),
+      lv('Open P&L', susd(m.openPL), numClass(m.openPL)), lv('R now', R === null ? 'No SL' : rTxt(R)),
+      lv(locked ? 'Locked in at stop' : 'Loss if stop hit', locked ? susd(m.lockedAtStop) : susd(m.lossIfStop), locked ? 'pos' : numClass(m.lossIfStop)),
+      lv('Risk at stop', m.riskAtStopPct === null ? '–' : pctTxt(m.riskAtStopPct) + ' of capital at open'), lv('Position size', pctTxt(m.positionPct, 1) + ' of account'),
+      m.realized !== null ? lv('Realized so far', susd(m.realized) + (m.rReal === null ? '' : ' · ' + rTxt(m.rReal)), numClass(m.realized)) : null))),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn risk big', disabled: ctx.readOnly, onClick: () => { close(); ctx.go('close-trade', { tradeId: t.id }); } }, 'Close position…'),
+      h('button', { class: 'btn big', disabled: ctx.readOnly, onClick: () => { close(); editTrade(ctx, t.id); } }, 'Edit trade')));
+  const scrim = h('div', { class: 'sheet-scrim', onClick: (e) => { if (e.target === scrim) close(); } }, sheet);
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(scrim);
+  if (ctx.readOnly) { for (const x of Object.values(inputs)) x.inp.disabled = true; sheet.querySelector('.x').focus(); }
+  else { inputs.last.inp.focus(); inputs.last.inp.select(); }
 }
-const LABEL = { last: 'last price', currentStop: 'stop', highest: 'highest', ema10: 'EMA10', nextReport: 'next report', comment: 'comment' };
 
 // ---- Update prices: all lines in one table, one Undo step ----
 function updatePrices(ctx, trades) {
   const st = ctx.store.state; const inputs = [];
   const rows = trades.map((t) => {
     const mk = (f, w = 80) => { const i = h('input', { class: 'cell', 'aria-label': `${A.symbolOf(st, t)} ${f}`, value: t[f] === '' ? '' : D.edit(D.d(t[f])), style: { width: w + 'px' } }); i.dataset.t = t.id; i.dataset.f = f; inputs.push(i); return i; };
-    const rep = h('input', { class: 'cell', 'aria-label': A.symbolOf(st, t) + ' next report', value: dmy(t.nextReport).replace('–', ''), placeholder: 'dd-mm-yyyy', style: { width: '96px' } }); rep.dataset.t = t.id; rep.dataset.f = 'nextReport'; inputs.push(rep);
-    return h('tr', null, h('td', { class: 'mono' }, A.symbolOf(st, t)), h('td', { class: 'r' }, qtyTxt(C.openQty(t))), h('td', { class: 'r' }, priceTxt(D.d(t.buyPrice))), h('td', null, mk('last')), h('td', null, mk('currentStop')), h('td', null, mk('highest')), h('td', null, mk('ema10')), h('td', null, rep));
+    const rep = h('input', { class: 'cell', type: 'date', 'aria-label': A.symbolOf(st, t) + ' next report', value: t.nextReport || '', style: { width: '132px', textAlign: 'left' } }); rep.dataset.t = t.id; rep.dataset.f = 'nextReport'; inputs.push(rep);
+    return h('tr', null, h('td', null, h('b', null, A.symbolOf(st, t))), h('td', { class: 'r' }, qtyTxt(C.openQty(t))), h('td', { class: 'r' }, priceTxt(D.d(t.buyPrice))), h('td', null, mk('last')), h('td', null, mk('currentStop')), h('td', null, mk('highest')), h('td', null, mk('ema10')), h('td', null, rep));
   });
-  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Empty or unchanged fields stay as they are. All changes are saved together and can be undone with one click.'),
+  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Empty or unchanged price fields stay as they are. All changes are saved together and can be undone with one click.'),
     h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Symbol', 'Qty', 'Buy price', 'Last price', 'Current stop', 'Highest', 'EMA10', 'Next report'].map((x, i) => h('th', { class: i > 0 && i < 7 ? 'r' : '' }, x)))), h('tbody', null, rows)))),
     onOk: async () => {
       const changes = []; const jumps = [];
       for (const i of inputs) {
-        const t = trades.find((x) => x.id === i.dataset.t); const f = i.dataset.f; let v = i.value.trim();
-        const before = f === 'nextReport' ? dmy(t.nextReport).replace('–', '') : t[f] === '' ? '' : D.edit(D.d(t[f]));
+        const t = trades.find((x) => x.id === i.dataset.t); const f = i.dataset.f; const v = i.value.trim();
+        const before = f === 'nextReport' ? (t.nextReport || '') : t[f] === '' ? '' : D.edit(D.d(t[f]));
         if (v === before) continue; if (v === '' && f !== 'nextReport') continue;
-        if (f === 'nextReport') { if (v === '') v = ''; else { const iso = parseDMY(v); if (!iso) return `${A.symbolOf(st, t)}: next report is not a valid date (dd-mm-yyyy).`; v = iso; } }
+        if (f === 'nextReport') { if (v !== '' && !parseDMY(v)) return `${A.symbolOf(st, t)}: next report is not a valid date.`; }
         else if (D.parse(v) === null || D.parse(v) <= 0n) return `${A.symbolOf(st, t)}: enter ${f === 'last' ? 'the last price' : f} as a number above 0.`;
         changes.push({ t, f, v });
         if (f === 'last') { const j = A.jumpPct(t.last, v); if (j !== null && j > D.d(st.settings.bigJumpPct)) jumps.push({ t, v, j }); }

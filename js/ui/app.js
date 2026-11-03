@@ -16,19 +16,20 @@ import * as lists from './lists.js';
 import * as data from './data.js';
 import * as settings from './settings.js';
 
+// own: the screen draws its own page header (redesigned screens); otherwise the shell draws eyebrow + title.
 const ROUTES = {
-  open: { title: 'Open positions', mod: openPos },
-  'open-trade': { title: 'Open trade', mod: tradeForms, fn: 'renderOpen', parent: 'open' },
-  'close-trade': { title: 'Close trade', mod: tradeForms, fn: 'renderClose', parent: 'open' },
-  history: { title: 'History', mod: history },
-  capital: { title: 'Capital', mod: capital },
-  lists: { title: 'Lists', mod: lists },
-  data: { title: 'Import / Export', mod: data },
-  settings: { title: 'Settings', mod: settings },
+  open: { title: 'Open Positions', mod: openPos, own: true },
+  'open-trade': { title: 'Open a Position', mod: tradeForms, fn: 'renderOpen', parent: 'open', own: true },
+  'close-trade': { title: 'Close position', eyebrow: 'Exit', mod: tradeForms, fn: 'renderClose', parent: 'open' },
+  history: { title: 'History', eyebrow: 'Learn', mod: history },
+  capital: { title: 'Capital', eyebrow: 'Money', mod: capital },
+  lists: { title: 'Lists', eyebrow: 'Records', mod: lists },
+  data: { title: 'Import / Export', eyebrow: 'Safety centre', mod: data },
+  settings: { title: 'Settings', eyebrow: 'System', mod: settings },
 };
 const MENU = [
-  ['Work', [['open', 'Open positions'], ['dashboard', 'Dashboard', 'Version 2'], ['history', 'History']]],
-  ['Analyse', [['report', 'Report builder', 'Version 3'], ['tax', 'Tax report', 'Version 2']]],
+  ['Trade', [['open', 'Open Positions']]],
+  ['Learn', [['dashboard', 'Dashboard', 'Version 2'], ['history', 'History'], ['report', 'Reports', 'Version 3'], ['tax', 'Tax report', 'Version 2']]],
   ['Records', [['capital', 'Capital'], ['lists', 'Lists']]],
   ['System', [['data', 'Import / Export'], ['settings', 'Settings']]],
 ];
@@ -50,7 +51,7 @@ function welcome(errorText) {
   clear(root);
   const canGoogle = googleReady(); ctx.auth.preload();
   root.append(h('main', { class: 'welcome', id: 'main' },
-    h('div', { class: 'brand', style: { color: 'var(--ink)', padding: 0 } }, h('i'), 'Trade Journal'),
+    h('div', { class: 'brand', style: { padding: 0 } }, h('i', null, 'TJ'), 'Trade Journal'),
     h('h1', null, 'Your trades, in your own Google Drive'),
     para('Your data is one file in your own Google Drive. It is never stored on this website or on any other server. Nothing is installed on this computer.', ''),
     errorText ? h('div', { class: 'msg bad', role: 'alert' }, '■ ' + errorText) : null,
@@ -200,17 +201,19 @@ function draw() {
     ? h('a', { 'aria-disabled': 'true', title: 'Comes in ' + later.toLowerCase() }, label, h('span', { class: 'later' }, later))
     : h('a', { href: '#/' + key, class: key === menuKey ? 'on' : '', 'aria-current': key === menuKey ? 'page' : null, onClick: (e) => { e.preventDefault(); ctx.go(key); } }, label,
       key === 'open' && attentionCount() ? h('span', { class: 'cnt', 'aria-label': attentionCount() + ' lines need attention' }, attentionCount()) : null))]);
-  const side = h('nav', { class: 'side', 'aria-label': 'Main' }, h('div', { class: 'brand' }, h('i'), 'Trade Journal'), menu,
+  const side = h('nav', { class: 'side', 'aria-label': 'Main' }, h('div', { class: 'brand' }, h('i', null, 'TJ'), 'Trade Journal'), menu,
     h('div', { class: 'foot' }, ctx.demo ? 'Demo · not saved' : 'Google Drive', h('br'), 'Version 1.0'));
   statusEl = h('span');
   bannerEl = h('div');
-  const body = h('main', { id: 'main', class: 'body' }, ctx.readOnly ? h('div', { class: 'note' }, 'Read-only window: you can look and copy, but not change anything.') : null);
+  const body = h('main', { id: 'main', class: 'body' }, ctx.readOnly ? h('div', { class: 'note' }, 'Read-only window: you can look and copy, but not change anything.') : null,
+    route.own ? null : h('header', { class: 'pg-head' }, h('div', null, h('div', { class: 'eyebrow' }, route.eyebrow || ''), h('h1', null, route.title))));
   const mod = route.mod; const fn = route.fn || 'render';
   try { body.append(mod[fn](ctx)); } catch (e) { console.error(e); body.append(h('div', { class: 'msg bad', role: 'alert' }, '■ This screen could not be drawn: ' + e.message)); }
   const t = todayISO();
-  const top = h('header', { class: 'top' }, h('h1', null, route.title), statusEl, h('span', { class: 'note', style: { whiteSpace: 'nowrap' } }, `Today · ${weekdayName(t).slice(0, 3)} ${dmy(t)}`),
-    ctx.store.canUndo() && !ctx.readOnly ? h('button', { class: 'btn', onClick: () => { const l = ctx.store.undoLabel(); ctx.store.undo(); toast('Undone: ' + (l || 'last change')); } }, '↶ Undo ' + ctx.store.undoLabel()) : null,
-    h('button', { class: 'btn', onClick: () => ctx.go('open-trade'), disabled: ctx.readOnly }, '+ Open trade'));
+  const top = h('header', { class: 'top', 'aria-label': 'Status' },
+    ctx.store.canUndo() && !ctx.readOnly ? h('button', { class: 'btn sm', onClick: () => { const l = ctx.store.undoLabel(); ctx.store.undo(); toast('Undone: ' + (l || 'last change')); } }, '↶ Undo ' + ctx.store.undoLabel()) : null,
+    h('span', { class: 'spacer' }), statusEl, h('span', { class: 'note', style: { whiteSpace: 'nowrap' } }, `Today · ${weekdayName(t).slice(0, 3)} ${dmy(t)}`),
+    route.own ? null : h('button', { class: 'btn sm', onClick: () => ctx.go('open-trade'), disabled: ctx.readOnly }, '+ Open position'));
   root.append(h('div', { class: 'app' }, side, h('div', { class: 'main' }, top, bannerEl, body)));
   paintStatus(); drawBanner();
   if (scroll) { const tw = document.querySelector('.tw.fx'); if (tw) tw.scrollTop = scroll; }
