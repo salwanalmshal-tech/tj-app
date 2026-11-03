@@ -5,6 +5,7 @@ import * as C from '../calc.js';
 import { checkFile, migrate } from '../model.js';
 import { buildFromSheets, toSheets } from '../importer.js';
 import { safetyBackup } from './app.js';
+import { excelCopiesToDelete } from '../storage.js';
 
 let XLSXp;
 function loadXLSX() {
@@ -16,7 +17,7 @@ const stampName = () => new Date().toISOString().slice(0, 10);
 export function render(ctx) {
   const st = ctx.store.state;
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '980px' } },
-    exportPanel(ctx), importPanel(ctx), backupPanel(ctx), trashPanel(ctx), logPanel(ctx));
+    exportPanel(ctx), importPanel(ctx), backupPanel(ctx), excelPanel(ctx), trashPanel(ctx), logPanel(ctx));
 }
 
 // ------------------------------------------------------------- export
@@ -85,6 +86,23 @@ async function replaceWith(ctx, next, what) {
   return dialog({ title: `Replace all data with ${what}?`, wide: true, danger: true, ok: 'Replace all data', confirmWord: 'DELETE', body: h('div', null,
     h('p', { style: { margin: '0 0 8px' } }, `The copy contains ${next.trades.length} trades, ${next.dividends.length} dividends and ${next.capital.flows.length} capital lines. The program holds ${st.trades.length} trades, ${st.dividends.length} dividends and ${st.capital.flows.length} capital lines now.`), para('A full backup of the current data is made first.', '')),
     onOk: async () => { if (!(await safetyBackup('before-restore'))) return 'The backup could not be made, so nothing was replaced.'; ctx.store.replace(next, 'restore'); toast('Data replaced. A backup of the previous data was made first.'); return true; } });
+}
+
+// ------------------------------------------------------------- weekly Excel copy (readable copy in the Backups folder)
+export async function makeExcelCopy(ctx) {
+  const X = await loadXLSX(); const blob = toXlsx(X, toSheets(ctx.store.state));
+  await ctx.storage.writeExcelCopy(blob);
+  for (const id of excelCopiesToDelete(await ctx.storage.listExcelCopies(), ctx.store.state.settings.excelCopyKeep)) await ctx.storage.deleteExcelCopy(id);
+}
+function excelPanel(ctx) {
+  const S = ctx.store.state.settings; const box = h('div', { class: 'pb' }, 'Loading…');
+  ctx.storage.listExcelCopies().then((list) => box.replaceChildren(list.length ? h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['When', 'File', ''].map((x) => h('th', null, x)))),
+    h('tbody', null, list.map((b) => h('tr', null, h('td', null, dmy(b.time.slice(0, 10)) + ' · ' + new Date(b.time).toTimeString().slice(0, 5)), h('td', { class: 'mut' }, b.name),
+      h('td', { class: 'r' }, h('button', { class: 'btn sm', onClick: async () => { try { const blob = await ctx.storage.readExcelCopy(b.id); if (blob) download(b.name, blob); } catch (e) { toast(e.message); } } }, 'Download')))))))
+    : h('p', { class: 'note' }, 'No Excel copy yet. The first one is made the next time the program makes a backup, or with the button below.'))).catch((e) => box.replaceChildren(h('p', { class: 'err' }, 'Could not load the Excel copies: ' + e.message)));
+  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Excel copies', h('span', { class: 'sub' }, `every ${S.excelCopyDays} day${S.excelCopyDays === 1 ? '' : 's'}, newest ${S.excelCopyKeep} kept · change in Settings`)),
+    h('div', { class: 'pb', style: { paddingBottom: 0 } }, para('A readable Excel file of your journal, in the Backups folder next to your data file. Open it in Excel or Google Sheets. To restore, use the JSON backups above.', '')), box,
+    h('div', { class: 'pb' }, h('button', { class: 'btn', disabled: ctx.readOnly, onClick: async () => { try { await makeExcelCopy(ctx); toast('Excel copy made.'); ctx.redraw(); } catch (e) { toast('The Excel copy could not be made: ' + e.message); } } }, 'Make an Excel copy now')));
 }
 
 // ------------------------------------------------------------- backups

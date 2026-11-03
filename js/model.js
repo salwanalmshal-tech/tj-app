@@ -21,6 +21,8 @@ export function defaultSettings() {
     stopDistance: [['3', 'Tight'], ['7', 'Good'], ['10', 'Wide']], stopDistanceElse: 'High Risk',
     // saving
     saveDelaySec: 3,
+    // weekly Excel copy in the Backups folder (readable copy; restore always uses the JSON backups)
+    excelCopyDays: 7, excelCopyKeep: 4,
     // price jump check on typed prices. NOT yet decided by the owner: value below is a starting value, shown in Settings.
     bigJumpPct: '20',
   };

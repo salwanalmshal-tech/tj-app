@@ -1,6 +1,7 @@
 // Storage back ends. The program talks only to this interface:
 //   open() -> { data|null }, save(data), lockInfo(), acquireLock(force), renewLock(), releaseLock(),
-//   writeBackup(kind, data), listBackups(), readBackup(id), deleteBackup(id), describe()
+//   writeBackup(kind, data), listBackups(), readBackup(id), deleteBackup(id), describe(),
+//   writeExcelCopy(blob), listExcelCopies(), readExcelCopy(id) -> Blob, deleteExcelCopy(id)   (weekly readable Excel copy, not used for restore)
 // DriveStorage keeps ONE readable JSON file in the user's own Google Drive. MemoryStorage is the "try without Google" mode: nothing is kept.
 
 export const LOCK_MINUTES = 3;
@@ -25,7 +26,13 @@ export class MemoryStorage {
   async listBackups() { return this.backups.map(({ id, kind, name, time }) => ({ id, kind, name, time })); }
   async readBackup(id) { const b = this.backups.find((x) => x.id === id); return b ? structuredClone(b.data) : null; }
   async deleteBackup(id) { this.backups = this.backups.filter((x) => x.id !== id); }
+  async writeExcelCopy(blob) { this.excel ??= []; const id = `excel-${stamp()}-${this.excel.length}`; this.excel.push({ id, name: excelName(), time: new Date().toISOString(), blob }); return id; }
+  async listExcelCopies() { return (this.excel ?? []).map(({ id, name, time }) => ({ id, name, time })).sort((a, b) => (a.time < b.time ? 1 : -1)); }
+  async readExcelCopy(id) { return (this.excel ?? []).find((x) => x.id === id)?.blob ?? null; }
+  async deleteExcelCopy(id) { this.excel = (this.excel ?? []).filter((x) => x.id !== id); }
 }
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const excelName = () => `excel-copy-${stamp()}.xlsx`;
 
 // ------------------------------------------------------------------ Google Drive ----
 // Content fingerprint of a Drive file: changes only when the file's content changes.
@@ -118,10 +125,34 @@ export class DriveStorage {
   }
   async listBackups() {
     const { backups } = await this._folders(); const r = await this._json(this._q(`'${backups}' in parents and trashed=false`));
-    return (r.files || []).map((f) => ({ id: f.id, name: f.name, kind: f.appProperties?.tjKind || (/-([a-z-]+)\.json$/.exec(f.name)?.[1] ?? 'auto'), time: f.createdTime })).sort((a, b) => (a.time < b.time ? 1 : -1));
+    return (r.files || []).filter((f) => !f.name.endsWith('.xlsx')).map((f) => ({ id: f.id, name: f.name, kind: f.appProperties?.tjKind || (/-([a-z-]+)\.json$/.exec(f.name)?.[1] ?? 'auto'), time: f.createdTime })).sort((a, b) => (a.time < b.time ? 1 : -1));
   }
   async readBackup(id) { return this._read(id); }
   async deleteBackup(id) { await this._req(`https://www.googleapis.com/drive/v3/files/${id}`, { method: 'DELETE' }); }
+  // weekly Excel copy: same Backups folder, its own file type, never mixed into the JSON backups or their retention
+  async writeExcelCopy(blob) {
+    const { backups } = await this._folders();
+    const meta = await this._json('https://www.googleapis.com/drive/v3/files?fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: excelName(), parents: [backups], mimeType: XLSX_MIME, appProperties: { tjKind: 'excel' } }) });
+    await this._req(`https://www.googleapis.com/upload/drive/v3/files/${meta.id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': XLSX_MIME }, body: blob });
+    return meta.id;
+  }
+  async listExcelCopies() {
+    const { backups } = await this._folders(); const r = await this._json(this._q(`'${backups}' in parents and trashed=false`));
+    return (r.files || []).filter((f) => f.name.endsWith('.xlsx')).map((f) => ({ id: f.id, name: f.name, time: f.createdTime })).sort((a, b) => (a.time < b.time ? 1 : -1));
+  }
+  async readExcelCopy(id) { return (await this._req(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`)).blob(); }
+  async deleteExcelCopy(id) { await this.deleteBackup(id); }
+}
+
+// ------------------------------------------------------------------ weekly Excel copy policy ----
+// Due when the newest copy is older than `days` (or there is none). Keep only the newest `keep` copies.
+export function excelCopyDue(list, days, now = Date.now()) {
+  if (!list.length) return true;
+  const newest = list.reduce((a, b) => (a.time > b.time ? a : b));
+  return now - Date.parse(newest.time) >= Number(days) * 86400000;
+}
+export function excelCopiesToDelete(list, keep) {
+  return list.slice().sort((a, b) => (a.time < b.time ? 1 : -1)).slice(Math.max(1, Number(keep))).map((b) => b.id);
 }
 
 // ------------------------------------------------------------------ backup policy (B4) ----

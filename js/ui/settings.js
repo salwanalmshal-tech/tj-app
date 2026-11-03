@@ -2,6 +2,7 @@ import { h, dialog, para, toast, field, infoBtn } from './dom.js';
 import * as D from '../decimal.js';
 
 const GROUPS = [
+  ['Excel copy of your journal', [['excelCopyDays', 'Make an Excel copy every (days)', 'int', 'An Excel file with the same sheets as “Download Excel”, saved in the Backups folder in your Drive. It is for reading in Excel or Google Sheets; restoring always uses the JSON backups.'], ['excelCopyKeep', 'Keep the newest (Excel copies)', 'int', 'Older Excel copies are deleted when a new one is made. The JSON backups are not affected.']]],
   ['Saving', [['saveDelaySec', 'Seconds to wait after your last edit before saving', 'int'], ['bigJumpPct', 'Ask before saving a last price that jumps more than (%)', 'num', 'Starting value. Typed prices that jump more than this ask “Save anyway?”.']]],
   ['Stops check', [['stopBelowBuy.raiseAbove', 'Stop below buy price: “Raise stop” when price is more than (%) above the stop', 'num'], ['stopBelowBuy.closeWithin', 'Stop below buy price: “Close to stop” within (%)', 'num'], ['stopAboveBuy.raiseAbove', 'Stop above buy price: “Raise stop” when more than (%)', 'num'], ['stopAboveBuy.closeWithin', 'Stop above buy price: “Close to stop” within (%)', 'num']]],
   ['Other line marks', [['reportedAgoDays', 'Show “Reported N days ago” for (days)', 'int'], ['highestToStop', 'Stop far below highest price: more than (%)', 'num'], ['emaNear', 'Near EMA10: less than (%) above', 'num'], ['stopFarBelowBuy', 'Stop far below buy price: more than (%)', 'num'], ['profitLocked', 'Profit locked in: stop more than (%) above buy', 'num'],
@@ -20,6 +21,8 @@ export function render(ctx) {
     msg.style.display = 'none'; const ns = structuredClone(st.settings);
     for (const [path, [i, kind]] of inputs) { const v = D.parse(i.value); if (v === null || v < 0n || (kind === 'int' && v % D.SCALE !== 0n)) { msg.textContent = `■ “${i.getAttribute('aria-label')}” must be a ${kind === 'int' ? 'whole ' : ''}number (0 or more).`; msg.style.display = 'flex'; return; } setP(ns, path, kind === 'int' ? String(Number(v / D.SCALE)) : D.toStr(v)); if (kind === 'int') setP(ns, path, Number(v / D.SCALE)); }
     for (const t of tIn) { ns[t.k] = []; for (const [l, n] of t.rows) { const v = D.parse(l.value); if (v === null) { msg.textContent = '■ A label limit is not a number.'; msg.style.display = 'flex'; return; } ns[t.k].push([D.toStr(v), n.value.trim()]); } ns[t.e] = t.other.value.trim(); }
+    if (ns.excelCopyDays < 1 || ns.excelCopyDays > 365) { msg.textContent = '■ Make an Excel copy every 1 to 365 days.'; msg.style.display = 'flex'; return; }
+    if (ns.excelCopyKeep < 1 || ns.excelCopyKeep > 52) { msg.textContent = '■ Keep between 1 and 52 Excel copies.'; msg.style.display = 'flex'; return; }
     if (ns.saveDelaySec > 120) { msg.textContent = '■ Waiting more than 120 seconds before saving is too long.'; msg.style.display = 'flex'; return; }
     const ok = await dialog({ title: 'Save the new settings?', body: para('Marks and labels are recalculated on every screen. Saved trades keep their data.', ''), ok: 'Save settings' }); if (!ok) return;
     const r = ctx.act((d) => { d.settings = ns; return { ok: true }; }, { label: 'settings', now: true }); toast(r.ok ? 'Settings saved.' : r.error);

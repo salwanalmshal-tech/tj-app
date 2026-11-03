@@ -26,7 +26,7 @@ function fakeDrive() {
     }
     const m = /\/files\/(\w+)$/.exec(u.pathname);
     if (m && method === 'GET') { const f = files.get(m[1]); if (!f) return json({}, 404); return u.searchParams.get('alt') === 'media' ? json(f.content) : json(fmeta(f)); }
-    if (m && method === 'PATCH') { const f = files.get(m[1]); f.content = JSON.parse(opts.body); f.version = String(+f.version + 1); const r = fmeta(f); f.version = String(+f.version + 1); return json(r); }
+    if (m && method === 'PATCH') { const f = files.get(m[1]); f.content = typeof opts.body === 'string' ? JSON.parse(opts.body) : { binary: true }; f.version = String(+f.version + 1); const r = fmeta(f); f.version = String(+f.version + 1); return json(r); }
     if (m && method === 'DELETE') { files.delete(m[1]); return { ok: true, status: 204, json: async () => ({}) }; }
     return json({}, 404);
   };
@@ -82,4 +82,19 @@ test('saver: collects edits, one upload at a time, status labels, conflict -> re
   await new Promise((r) => setTimeout(r, 400)); assert.equal(saves, 3); assert.equal(sv.hasUnsaved(), false);
   mem.save = async () => ({ ok: false, conflict: true }); sv.markDirty({ now: true }); await new Promise((r) => setTimeout(r, 50));
   assert.equal(sv.readOnly, true); assert.equal(seen.at(-1), 'conflict');
+});
+test('weekly Excel copy: due after N days, keep only the newest N, never mixed with JSON backups', async () => {
+  const { excelCopyDue, excelCopiesToDelete } = await import('../js/storage.js');
+  const day = 86400000, now = Date.UTC(2026, 10, 3);
+  const c = (n) => ({ id: 'x' + n, time: new Date(now - n * day).toISOString() });
+  assert.equal(excelCopyDue([], 7, now), true);
+  assert.equal(excelCopyDue([c(3)], 7, now), false);
+  assert.equal(excelCopyDue([c(7), c(14)], 7, now), true);
+  assert.deepEqual(excelCopiesToDelete([c(35), c(0), c(7), c(14), c(21), c(28)], 4), ['x28', 'x35']);
+  // Drive: Excel copies are listed apart and the JSON retention never sees them
+  const fake = fakeDrive(); const s = mk(fake); await s.open(); await s.writeBackup('auto', emptyState());
+  const fid = await s.writeExcelCopy(new Blob(['PK']));
+  assert.ok(fake.files.get(fid).name.endsWith('.xlsx'));
+  assert.equal((await s.listBackups()).length, 1);
+  assert.equal((await s.listExcelCopies()).length, 1);
 });

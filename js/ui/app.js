@@ -3,7 +3,7 @@ import { h, clear, dialog, para, toast, dmy, download } from './dom.js';
 import { emptyState, checkFile, migrate } from '../model.js';
 import { Store } from '../store.js';
 import { Saver } from '../saver.js';
-import { MemoryStorage, DriveStorage, backupsToDelete } from '../storage.js';
+import { MemoryStorage, DriveStorage, backupsToDelete, excelCopyDue } from '../storage.js';
 import { Auth, googleReady } from '../auth.js';
 import { CLIENT_ID, FOLDER_NAME } from '../config.js';
 import { todayISO, weekdayName } from '../dates.js';
@@ -148,6 +148,7 @@ export async function backupIfDue(kind) {
   if (ctx.demo || ctx.readOnly) return;
   if (kind === 'auto' && Date.now() - lastBackupCheck < 10 * 60000) return;
   lastBackupCheck = Date.now();
+  if (kind === 'auto') excelCopyIfDue();
   try {
     const list = await ctx.storage.listBackups(); const today = new Date().toISOString().slice(0, 10);
     if (kind === 'auto' && list.some((b) => b.time.slice(0, 10) === today && b.kind === 'auto')) return;
@@ -155,6 +156,14 @@ export async function backupIfDue(kind) {
     for (const id of backupsToDelete(await ctx.storage.listBackups())) await ctx.storage.deleteBackup(id);
     ctx.lastBackup = new Date(); paintStatus();
   } catch { /* backups are best effort; the main file is already saved */ }
+}
+// weekly Excel copy (settings excelCopyDays / excelCopyKeep); best effort, never blocks or slows the program
+async function excelCopyIfDue() {
+  try {
+    const S = ctx.store.state.settings;
+    if (!excelCopyDue(await ctx.storage.listExcelCopies(), S.excelCopyDays)) return;
+    await data.makeExcelCopy(ctx);
+  } catch { /* the JSON backups are the real backups; try again next session */ }
 }
 export async function safetyBackup(kind) {
   if (ctx.demo) { await ctx.storage.writeBackup(kind, ctx.store.state); return true; }
