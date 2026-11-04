@@ -113,3 +113,13 @@ test('exceptions: report with profit locked stays calm (G2), without profit it n
   A.editDaily(st, t.id, 'last', '50'); // at or below the stop
   assert.equal(lineStatus(lineMarks(st, t, '2026-11-03', C.estimatedAccount(st))), 'act');
 });
+test('Q11 missing stops: no Current stop = Act now (red); no Initial stop = Review; both always in Needs your attention', async () => {
+  const { lineStatus, isException } = await import('../js/marks.js');
+  const st = fresh(); const t = A.openTrade(st, { symbol: 'XYZ', buyDate: '2026-11-02', qty: '10', buyPrice: '50', buyCommission: '1' }).data; // no stops at all
+  let mk = lineMarks(st, t, '2026-11-04', C.estimatedAccount(st));
+  assert.equal(lineStatus(mk), 'act'); assert.ok(mk.some((m) => m.text === 'Missing: stop' && m.level === 'crit')); assert.ok(mk.some((m) => m.text === 'Missing: Initial stop'));
+  A.editDaily(st, t.id, 'currentStop', '48'); mk = lineMarks(st, t, '2026-11-04', C.estimatedAccount(st));
+  assert.equal(lineStatus(mk), 'rev'); assert.ok(mk.filter(isException).some((m) => m.text === 'Missing: Initial stop'));
+  A.correctInitialStop(st, t.id, '47'); mk = lineMarks(st, t, '2026-11-04', C.estimatedAccount(st));
+  assert.ok(!mk.some((m) => m.text.startsWith('Missing')));
+});

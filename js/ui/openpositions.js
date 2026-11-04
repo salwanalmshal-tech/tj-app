@@ -12,6 +12,8 @@ export const usd = (a) => (a === null || a === undefined ? '–' : (a < 0n ? '�
 export const susd = (a) => (a === null || a === undefined ? '–' : (a > 0n ? '+$' : a < 0n ? '−$' : '$') + money(D.abs(a)));
 const spct = (a, dp = 1) => (a === null || a === undefined ? '–' : (a > 0n ? '+' : '') + pctTxt(a, dp));
 const rTxt = (r) => (r === null || r === undefined ? '–' : (r > 0n ? '+' : '') + D.fmt(r, 2) + ' R');
+// short texts for the table (the full text is shown on hover and in the line panel)
+const SHORT = { 'Missing: stop': 'No stop', 'Missing: Initial stop': 'No Initial stop', 'Missing: last price': 'No last price' };
 const STATUS_TEXT = { act: 'Act now', rev: 'Review', ok: 'On plan' };
 const ORDER = { act: 0, rev: 1, ok: 2 };
 const isMissing = (marks) => marks.some((m) => m.text.startsWith('Missing'));
@@ -143,7 +145,7 @@ export function render(ctx) {
     const td = (v, cls = 'r') => h('td', { class: cls }, v);
     return h('tr', { tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${STATUS_TEXT[l.status]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
       h('td', { class: 'stick', title: t.id + (t.sales.length ? ' · partly sold' : '') }, h('div', { class: 'sym' }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null)),
-      h('td', { class: 'marks' }, h('div', { class: 'mk' }, vis.map((x) => pill({ ...x, text: x.text.split(':')[0], why: x.text + (x.why ? ' · ' + x.why : '') })), hid.length ? h('span', { class: 'pill more', title: hid.map((x) => x.text).join('; ') }, '+' + hid.length) : null)),
+      h('td', { class: 'marks' }, h('div', { class: 'mk' }, vis.map((x) => pill({ ...x, text: SHORT[x.text] ?? x.text.split(':')[0], why: x.text + (x.why ? ' · ' + x.why : '') })), hid.length ? h('span', { class: 'pill more', title: hid.map((x) => x.text).join('; ') }, '+' + hid.length) : null)),
       td(qtyTxt(C.openQty(t))), td(priceTxt(D.d(t.buyPrice))), td(priceTxt(num(t.last))), td(priceTxt(num(t.highest))), td(priceTxt(num(t.currentStop))), td(priceTxt(num(t.ema10))),
       td(dmy(t.nextReport), ''),
       td(pctTxt(c.hiToStop, 1)), h('td', { class: 'r ' + (c.toStop !== null && c.toStop <= 0n ? 'neg' : '') }, pctTxt(c.toStop, 1)), h('td', { class: 'r ' + (c.lastToEma !== null && c.lastToEma < 0n ? 'neg' : '') }, spct(c.lastToEma)),

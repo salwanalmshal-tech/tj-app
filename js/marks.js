@@ -19,7 +19,9 @@ export function lineMarks(state, t, today, account) {
       if (m.toStopPct <= D.d(lim.closeWithin)) add('warn', '●', 'Close to stop', `Price is within ${lim.closeWithin.replace('.', ',')} % of the stop.`);
       else if (m.toStopPct > D.d(lim.raiseAbove)) add('info', '↑', 'Raise stop', `Price is more than ${lim.raiseAbove.replace('.', ',')} % above the stop.`);
     }
-  } else if (stop === null) add('warn', '◆', 'Missing: stop', 'No stop entered, risk cannot be calculated.');
+  } else if (stop === null) add('crit', '■', 'Missing: stop', 'No Current stop entered. Check that the position has a stop in your broker: without it the loss is not limited.');
+  // Q11: no Initial stop -> R and risk cannot be calculated; always shown in "Needs your attention"
+  if (C.N(t.initialStop) === null) add('warn', '◆', 'Missing: Initial stop', 'R cannot be calculated. Add it with Edit trade → Initial stop.');
   if (last === null) add('warn', '◆', 'Missing: last price', 'No last price entered.');
 
   // G2 next report
