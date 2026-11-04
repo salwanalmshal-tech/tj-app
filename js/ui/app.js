@@ -1,6 +1,6 @@
 // Program shell: start-up (sign in / demo), menu, status pill, banners, routing.
 import { h, clear, dialog, para, toast, dmy, download } from './dom.js';
-import { emptyState, checkFile, migrate } from '../model.js';
+import { emptyState, checkFile, migrate, needsUpdateBackup, APP_VERSION } from '../model.js';
 import { Store } from '../store.js';
 import { Saver } from '../saver.js';
 import { MemoryStorage, DriveStorage, backupsToDelete, excelCopyDue } from '../storage.js';
@@ -81,6 +81,12 @@ async function openStorage(storage) {
     if (raw) {
       const c = checkFile(raw);
       if (!c.ok) { await dialog({ title: 'Cannot open the data file', body: para(c.reason, ''), info: true }); return welcome(); }
+      // B5: the first time a new version opens the data, the file as it was is backed up before anything changes
+      if (needsUpdateBackup(raw)) {
+        let done = false; try { await storage.writeBackup('before-update', raw); done = true; } catch { /* asked below */ }
+        if (!done && !(await dialog({ title: 'The backup before this update could not be made', ok: 'Open anyway', cancel: 'Cancel',
+          body: para(`Program version ${APP_VERSION} is opening your data for the first time (saved by version ${raw.meta?.version ?? 'unknown'}). A backup of your data should be made first, but it failed (check your connection). Cancel and try again, or open anyway.`, '') }))) return welcome();
+      }
       state = migrate(raw);
     } else state = emptyState();
     // lock: someone else (another window) has the file open?
@@ -211,7 +217,7 @@ function draw() {
     : h('a', { href: '#/' + key, class: key === menuKey ? 'on' : '', 'aria-current': key === menuKey ? 'page' : null, onClick: (e) => { e.preventDefault(); ctx.go(key); } }, label,
       key === 'open' && attentionCount() ? h('span', { class: 'cnt', 'aria-label': attentionCount() + ' lines need attention' }, attentionCount()) : null))]);
   const side = h('nav', { class: 'side', 'aria-label': 'Main' }, h('div', { class: 'brand' }, h('i', null, 'TJ'), 'Trade Journal'), menu,
-    h('div', { class: 'foot' }, ctx.demo ? 'Demo · not saved' : 'Google Drive', h('br'), 'Version 1.0'));
+    h('div', { class: 'foot' }, ctx.demo ? 'Demo · not saved' : 'Google Drive', h('br'), 'Version ' + APP_VERSION));
   statusEl = h('span');
   bannerEl = h('div');
   const body = h('main', { id: 'main', class: 'body' }, ctx.readOnly ? h('div', { class: 'note' }, 'Read-only window: you can look and copy, but not change anything.') : null,

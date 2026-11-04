@@ -86,6 +86,12 @@ export function capitalBefore(state, date, seq = Infinity, ev = capitalEvents(st
   return c;
 }
 export const capitalNow = (state) => capitalEvents(state).reduce((a, e) => a + e.amount, 0n);
+// Fast lookup for many trades at once: sorted events + running totals + binary search (same result as capitalBefore).
+export function capitalLookup(state, ev = capitalEvents(state)) {
+  const run = []; let c = 0n; for (const e of ev) { c += e.amount; run.push(c); }
+  const before = (e, date, seq) => e.date < date || (e.date === date && e.seq < seq);
+  return (date, seq = Infinity) => { let lo = 0, hi = ev.length; while (lo < hi) { const m = (lo + hi) >> 1; if (before(ev[m], date, seq)) lo = m + 1; else hi = m; } return lo ? run[lo - 1] : 0n; };
+}
 export const invested = (state) => {
   let s = state.capital.start ? D.d(state.capital.start.amount) : 0n;
   for (const f of state.capital.flows) if (f.type === 'deposit') s += D.d(f.amount);

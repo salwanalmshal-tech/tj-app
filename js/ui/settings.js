@@ -1,3 +1,4 @@
+import { APP_VERSION } from '../model.js';
 import { h, dialog, para, toast, field, infoBtn } from './dom.js';
 import * as D from '../decimal.js';
 
@@ -34,6 +35,6 @@ export function render(ctx) {
     groupEls, tableEls, msg,
     h('div', { class: 'row' }, h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: save }, 'Save settings'), h('button', { class: 'btn', onClick: () => ctx.redraw() }, 'Cancel')),
     h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Account'), h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } },
-      h('dl', { class: 'kv' }, h('dt', null, 'Program version'), h('dd', null, '1.0.0 (Version 1)'), h('dt', null, 'Data file'), h('dd', null, ctx.demo ? 'Demo, nothing saved' : ctx.storage.describe().file + ' in “' + ctx.storage.describe().folder + '”'), h('dt', null, 'Google account'), h('dd', null, ctx.account || '–')),
+      h('dl', { class: 'kv' }, h('dt', null, 'Program version'), h('dd', null, APP_VERSION + ' (Version 1)'), h('dt', null, 'Data file'), h('dd', null, ctx.demo ? 'Demo, nothing saved' : ctx.storage.describe().file + ' in “' + ctx.storage.describe().folder + '”'), h('dt', null, 'Google account'), h('dd', null, ctx.account || '–')),
       ctx.demo ? null : h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', onClick: async () => { const ok = await dialog({ title: 'Disconnect from Google?', ok: 'Disconnect', danger: true, body: para('The program forgets the connection and reloads. Your data stays in your Drive. You can sign in again at any time.', '') }); if (!ok) return; await ctx.saver.flush(); await ctx.storage.releaseLock?.(); ctx.auth.revoke(); location.reload(); } }, 'Disconnect…')))));
 }

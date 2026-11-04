@@ -98,3 +98,44 @@ test('weekly Excel copy: due after N days, keep only the newest N, never mixed w
   assert.equal((await s.listBackups()).length, 1);
   assert.equal((await s.listExcelCopies()).length, 1);
 });
+
+// ======================= 10-scenario test plan (M3), part 1: saving, connection, windows, locks =======================
+test('S1 save fails (offline / server 5xx): status says so, nothing half-saved, it retries by itself and then saves', async () => {
+  const fake = fakeDrive(); const s = mk(fake); await s.open(); const st = emptyState(); await s.save(st);
+  let down = true; const realF = s.f; s.f = async (u, o) => (down && (o?.method === 'PATCH') ? { ok: false, status: 503, json: async () => ({ error: { message: 'backend error' } }) } : realF(u, o));
+  const seen = []; const sv = new Saver({ storage: s, getData: () => st, getDelay: () => 0, onStatus: (x) => seen.push(x.status) }); sv.retryMs = 40;
+  st.settings.saveDelaySec = 5; sv.markDirty({ now: true }); await new Promise((r) => setTimeout(r, 20));
+  assert.equal(seen.at(-1), 'failed'); assert.equal(sv.hasUnsaved(), true);
+  const file = [...fake.files.values()].find((f) => f.name === 'TradeJournal.json'); assert.notEqual(file.content.settings.saveDelaySec, 5, 'Drive still has the old complete file');
+  down = false; await new Promise((r) => setTimeout(r, 120));
+  assert.equal(seen.at(-1), 'saved'); assert.equal(file.content.settings.saveDelaySec, 5); assert.equal(sv.hasUnsaved(), false);
+});
+test('S2 Google access expires: saving stops with Reconnect, nothing is lost; after reconnecting the file is checked again', async () => {
+  const fake = fakeDrive(); let exp = Date.now() + 3600000;
+  const s = new DriveStorage({ auth: { token: () => 'T', expiresAt: () => exp }, fetchImpl: fake.fetchImpl }); await s.open(); const st = emptyState(); await s.save(st);
+  const seen = []; const sv = new Saver({ storage: s, getData: () => st, getDelay: () => 0, onStatus: (x) => seen.push(x.status) });
+  exp = Date.now() + 1000; st.settings.saveDelaySec = 7; sv.markDirty({ now: true }); await new Promise((r) => setTimeout(r, 20));
+  assert.equal(seen.at(-1), 'reconnect'); assert.equal(sv.hasUnsaved(), true);
+  exp = Date.now() + 3600000; sv.error = null; assert.equal(await sv.flush(), true); assert.equal(seen.at(-1), 'saved');
+  // meanwhile another window changed the file: the check after reconnecting refuses to overwrite
+  const other = mk(fake); await other.open(); const o = emptyState(); o.settings.saveDelaySec = 9; await other.save(o);
+  st.settings.saveDelaySec = 8; sv.markDirty({ now: true }); await new Promise((r) => setTimeout(r, 20));
+  assert.equal(seen.at(-1), 'conflict'); assert.equal(sv.readOnly, true);
+  const c = mk(fake); assert.equal((await c.open()).data.settings.saveDelaySec, 9);
+});
+test('S3 two tabs + take-over: the second tab sees the lock; after take-over the first tab cannot save over newer data', async () => {
+  const fake = fakeDrive(); const a = mk(fake, 'A'), b = mk(fake, 'B'); const st = emptyState();
+  await a.open(); await a.acquireLock(); await a.save(st);
+  await b.open(); assert.equal((await b.lockInfo()).session, 'A');
+  await b.acquireLock(); assert.equal(await a.stillMine(), false);
+  const nb = emptyState(); nb.settings.saveDelaySec = 4; assert.ok((await b.save(nb)).ok);
+  const na = emptyState(); na.settings.saveDelaySec = 1; assert.equal((await a.save(na)).conflict, true);
+  assert.equal((await mk(fake).open()).data.settings.saveDelaySec, 4);
+});
+test('S4 two devices / sleep: an old lock expires by itself; a closed tab frees it at once', async () => {
+  const fake = fakeDrive(); const a = mk(fake, 'A'); await a.open(); await a.acquireLock();
+  const lock = [...fake.files.values()].find((f) => f.name.endsWith('.lock.json'));
+  lock.content.renewedAt = Date.now() - 2 * 60000; assert.ok(await mk(fake, 'C').lockInfo(), 'still active after 2 min');
+  lock.content.renewedAt = Date.now() - 4 * 60000; assert.equal(await mk(fake, 'C').lockInfo(), null, 'expired after the lock time (sleeping laptop)');
+  await a.renewLock(); await a.releaseLock(); assert.equal(await mk(fake, 'D').lockInfo(), null);
+});

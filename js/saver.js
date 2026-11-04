@@ -13,7 +13,7 @@ export class Saver {
     this.timer = setTimeout(() => this.flush(), now ? 0 : this.getDelay() * 1000);
   }
   async flush() {
-    clearTimeout(this.timer);
+    clearTimeout(this.timer); clearTimeout(this.retry);
     if (this.readOnly) return false;
     if (this.busy) { this.again = true; return false; }
     if (!this.dirty) return true;
@@ -29,7 +29,8 @@ export class Saver {
       return true;
     } catch (e) {
       this.dirty = true; this.error = e;
-      if (e.auth) { this.setStatus('reconnect'); this.onAuth?.(e); } else this.setStatus('failed', { message: e.message });
+      if (e.auth) { this.setStatus('reconnect'); this.onAuth?.(e); }
+      else { this.setStatus('failed', { message: e.message }); clearTimeout(this.retry); this.retry = setTimeout(() => { this.error = null; this.flush(); }, this.retryMs ?? 30000); } // connection lost: try again by itself
       return false;
     } finally {
       this.busy = false;

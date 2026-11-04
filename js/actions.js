@@ -219,11 +219,11 @@ export function purgeTrash(st, now = Date.now(), days = 15) { st.trash = st.tras
 
 // ---------- capital at open: preview and recalculation (D2) ----------
 export function capitalDiffs(st) {
-  const ev = C.capitalEvents(st); const out = [];
-  for (const t of st.trades) { const c = C.capitalBefore(st, t.buyDate, t.seq, ev); if (S(c) !== t.capitalAtOpen) out.push({ id: t.id, symbol: symbolOf(st, t), before: t.capitalAtOpen, after: S(c) }); }
+  const at = C.capitalLookup(st); const out = [];
+  for (const t of st.trades) { const c = at(t.buyDate, t.seq); if (S(c) !== t.capitalAtOpen) out.push({ id: t.id, symbol: symbolOf(st, t), before: t.capitalAtOpen, after: S(c) }); }
   return out;
 }
-export function recalcCapital(st) { const ev = C.capitalEvents(st); for (const t of st.trades) t.capitalAtOpen = S(C.capitalBefore(st, t.buyDate, t.seq, ev)); return ok(); }
+export function recalcCapital(st) { const at = C.capitalLookup(st); for (const t of st.trades) t.capitalAtOpen = S(at(t.buyDate, t.seq)); return ok(); }
 
 // ---------- split (D5) ----------
 export function splitPreview(st, stockId, ratioNew, ratioOld, date) {
