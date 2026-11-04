@@ -36,6 +36,20 @@ function cols(t, m) {
   };
 }
 
+// In market / Cash as one bar (Q4): blue = in market, light grey = cash; the bigger value gets the bigger part.
+function marketCard(inMarket, value, account) {
+  const why = `In market = value of all open lines at the last price (${usd(value)}) as % of the estimated account (${usd(account)} = Capital (closed trades) + open result). Cash = the rest.`;
+  const head = h('span', { class: 'eyebrow' }, 'In market / Cash', infoBtn('In market / Cash', why));
+  if (inMarket === null) return h('div', { class: 'metric' }, head, h('span', { class: 'v' }, '–'));
+  const p = Math.max(0, Math.min(100, Number(inMarket) / Number(D.SCALE)));
+  const cash = D.sub(D.d('100'), inMarket);
+  // both values are always written on the bar; a small part keeps a minimum width so its value stays readable
+  const seg = (cls, w, label, v) => h('div', { class: 'mseg ' + cls, style: { flex: `${w} 1 0`, minWidth: w > 0 ? '58px' : '0' }, title: `${label} ${pctTxt(v, 1)}` }, w >= 30 ? h('span', { class: 'ml' }, label) : null, h('b', null, pctTxt(v, 1)));
+  return h('div', { class: 'metric' }, head,
+    h('div', { class: 'mbar', role: 'img', 'aria-label': `In market ${pctTxt(inMarket, 1)}, cash ${pctTxt(cash, 1)}` }, p > 0 ? seg('in', p, 'In market', inMarket) : null, p < 100 ? seg('cash', 100 - p, 'Cash', cash) : null),
+    h('span', { class: 'd' }, `${usd(value)} in the market`));
+}
+
 export function render(ctx) {
   const st = ctx.store.state; const today = ctx.today();
   const account = C.estimatedAccount(st);
@@ -59,7 +73,7 @@ export function render(ctx) {
     metric('Capital (closed trades)', `Start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included. Now: ${usd(capital)}.`, usd(capital), '', 'Start capital, deposits, dividends and sales'),
     metric('Open P&L', `(Last price − buy price) × open shares, summed over all open lines. Commissions count when you sell. Now: ${susd(openPL)} on ${all.length} lines.`, susd(openPL), numClass(openPL), `${all.length} open line${all.length === 1 ? '' : 's'}`),
     metric('Loss if all stops hit', `From now: (Current stop − last price) × open shares, summed over all lines with a stop, as % of the estimated account (capital + open result = ${usd(account)}). Lines without a stop are not included.`, susd(loss.loss), loss.loss < 0n ? 'neg' : '', (loss.pctOfAccount === null ? '' : `${pctTxt(D.abs(loss.pctOfAccount))} of estimated account`) + (noStop ? ` · ${noStop} without stop` : '')),
-    metric('In market', `Value of all open lines at the last price (${usd(value)}) as % of the estimated account (${usd(account)}). Cash is the rest.`, pctTxt(inMarket, 1), '', inMarket === null ? '' : `Cash ${pctTxt(D.sub(D.d('100'), inMarket), 1)}`)));
+    marketCard(inMarket, value, account)));
 
   if (!all.length) {
     wrap.append(h('section', { class: 'card' }, h('div', { class: 'card-b', style: { paddingTop: '22px' } }, h('div', { class: 'calm' }, '✓ You have no open positions.'))));
@@ -104,7 +118,7 @@ export function render(ctx) {
   const shown = filter === 'attention' ? exc : filter === 'missing' ? all.filter((l) => isMissing(l.marks)) : all;
   const chip = (key, label, n) => h('button', { class: 'chip', 'aria-pressed': String(filter === key), onClick: () => { filter = key; ctx.redraw(); } }, `${label} · ${n}`);
   const COLS = [
-    ['Symbol', '', 'The stock. Each buy line is its own row (one trade per buy line).'],
+    ['Symbol', '', 'The stock. Each buy line is its own row (one trade per buy line). Hover the symbol to see the Trade ID; ½ = partly sold.'],
     ['Marks', '', 'Quiet hints about this line. They never change anything and never block you. The line panel shows all of them.'],
     ['Qty', 'r', 'Open shares of this line (bought − already sold).'],
     ['Buy price', 'r', 'Price paid per share for this line.'],
@@ -128,7 +142,7 @@ export function render(ctx) {
     const open = () => detail(ctx, t.id);
     const td = (v, cls = 'r') => h('td', { class: cls }, v);
     return h('tr', { tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${STATUS_TEXT[l.status]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
-      h('td', { class: 'stick' }, h('div', { class: 'sym' }, l.sym), h('div', { class: 's2' }, t.id, t.sales.length ? ' · partly sold' : '')),
+      h('td', { class: 'stick', title: t.id + (t.sales.length ? ' · partly sold' : '') }, h('div', { class: 'sym' }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null)),
       h('td', { class: 'marks' }, h('div', { class: 'mk' }, vis.map((x) => pill({ ...x, text: x.text.split(':')[0], why: x.text + (x.why ? ' · ' + x.why : '') })), hid.length ? h('span', { class: 'pill more', title: hid.map((x) => x.text).join('; ') }, '+' + hid.length) : null)),
       td(qtyTxt(C.openQty(t))), td(priceTxt(D.d(t.buyPrice))), td(priceTxt(num(t.last))), td(priceTxt(num(t.highest))), td(priceTxt(num(t.currentStop))), td(priceTxt(num(t.ema10))),
       td(dmy(t.nextReport), ''),
@@ -146,7 +160,7 @@ export function render(ctx) {
       h('thead', null, h('tr', null, COLS.map(([label, cls, why], i) => h('th', { class: (cls ? cls + ' ' : '') + (i === 0 ? 'stick' : '') }, label, infoBtn(label, why))))),
       h('tbody', null, rows))),
     h('div', { class: 'pfoot' }, h('span', null, `${shown.length} line${shown.length === 1 ? '' : 's'}${filter === 'all' ? '' : ' (filtered)'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} without stop not included` : ''),
-      h('span', null, `In market ${pctTxt(inMarket, 1)} · estimated account ${usd(account)}`))));
+      h('span', null, `In market ${pctTxt(inMarket, 1)}`))));
   return wrap;
 }
 
@@ -208,7 +222,7 @@ function detail(ctx, id) {
     h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Update today'), h('p', { class: 'lead' }, 'Your daily values. Leave a field empty to clear it.'))),
       h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
         h('div', { class: 'fgrid' }, numField('last', 'Last price'), numField('currentStop', 'Current stop'),
-          h('label', { class: 'of' }, h('span', { class: 'l' }, 'Next report'), h('div', { class: 'box' }, rep)), numField('highest', 'Highest price'), numField('ema10', 'EMA10')),
+          numField('ema10', 'EMA10'), numField('highest', 'Highest price'), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Next report'), h('div', { class: 'box' }, rep))),
         h('label', { class: 'of' }, h('span', { class: 'l' }, 'Comment'), com), msg,
         h('div', { class: 'row' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly, onClick: save }, 'Save'), h('button', { class: 'btn big', onClick: close }, 'Cancel')))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', null, 'Line')), h('div', { class: 'card-b' }, h('dl', { class: 'facts', style: { margin: 0 } },

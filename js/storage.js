@@ -156,7 +156,7 @@ export function excelCopiesToDelete(list, keep) {
 }
 
 // ------------------------------------------------------------------ backup policy (B4) ----
-const SAFETY = new Set(['before-update', 'before-restore', 'before-replace']);
+const SAFETY = new Set(['before-update', 'before-restore', 'before-replace', 'before-clear']);
 // Keep: last 10 + 1 per day for 30 days + 1 per month for a year. Safety copies are never counted and are removed after 90 days.
 export function backupsToDelete(list, now = Date.now()) {
   const keep = new Set(); const normal = list.filter((b) => !SAFETY.has(b.kind)).sort((a, b) => (a.time < b.time ? 1 : -1));

@@ -2,8 +2,9 @@ import { h, dialog, para, toast, download, dmy, field, changeTable } from './dom
 import * as D from '../decimal.js';
 import * as A from '../actions.js';
 import * as C from '../calc.js';
-import { checkFile, migrate } from '../model.js';
-import { buildFromSheets, toSheets } from '../importer.js';
+import { checkFile, migrate, emptyState } from '../model.js';
+import { buildFromSheets, toSheets, mergeImport } from '../importer.js';
+import { askRecalc } from './capital.js';
 import { safetyBackup } from './app.js';
 import { excelCopiesToDelete } from '../storage.js';
 
@@ -17,7 +18,7 @@ const stampName = () => new Date().toISOString().slice(0, 10);
 export function render(ctx) {
   const st = ctx.store.state;
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '980px' } },
-    exportPanel(ctx), importPanel(ctx), backupPanel(ctx), excelPanel(ctx), trashPanel(ctx), logPanel(ctx));
+    exportPanel(ctx), importPanel(ctx), backupPanel(ctx), excelPanel(ctx), trashPanel(ctx), logPanel(ctx), clearPanel(ctx));
 }
 
 // ------------------------------------------------------------- export
@@ -48,13 +49,23 @@ function toXlsx(X, sheets) {
 
 // ------------------------------------------------------------- import / restore
 function importPanel(ctx) {
-  const xin = h('input', { type: 'file', accept: '.xlsx,.xls', style: { display: 'none' }, onChange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importExcel(ctx, f); } });
+  let mode = 'update';
+  const xin = h('input', { type: 'file', accept: '.xlsx,.xls', style: { display: 'none' }, onChange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importExcel(ctx, f, mode); } });
   const jin = h('input', { type: 'file', accept: '.json,application/json', style: { display: 'none' }, onChange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importJson(ctx, f); } });
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Import', h('span', { class: 'sub' }, 'replaces ALL data')),
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, h('div', { class: 'msg warn' }, '◆ Import replaces everything in the program with the file. A full backup is made first. Any error stops the import and nothing is replaced.'),
-      h('div', { class: 'row' }, h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => xin.click() }, 'Choose Excel file to replace all data…'), h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => jin.click() }, 'Restore from a data file (.json)…'), xin, jin)));
+  // Q10: first step asks which kind of import this is
+  const choose = () => {
+    const opt = (value, title, text, checked) => h('label', { class: 'pick' + (checked ? ' on' : '') }, h('input', { type: 'radio', name: 'imode', value, checked, onChange: (e) => { mode = value; e.target.closest('.picks').querySelectorAll('.pick').forEach((x) => x.classList.toggle('on', x.contains(e.target))); } }), h('div', null, h('b', null, title), h('span', null, text)));
+    mode = 'update';
+    dialog({ title: 'What kind of import is this?', ok: 'Choose Excel file…', body: h('div', { class: 'picks' },
+      opt('update', 'Update: keep my data and add what is new', 'Your trades, capital and lists stay. New rows from the file are added. Rows that are already in the program are skipped and listed. A backup is made first.', true),
+      opt('new', 'New start: replace all data', 'Everything in the program is replaced by the file. A backup is made first, and you confirm by typing DELETE.', false)),
+      onOk: () => { xin.click(); return true; } });
+  };
+  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Import', h('span', { class: 'sub' }, 'update your data, or start new')),
+    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, para('First you choose the kind of import: Update keeps your data and adds what is new; New start replaces everything. Any error stops the import and nothing changes.', ''),
+      h('div', { class: 'row' }, h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: choose }, 'Import from Excel…'), h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => jin.click() }, 'Restore from a data file (.json)…'), xin, jin)));
 }
-async function importExcel(ctx, file) {
+async function importExcel(ctx, file, mode = 'new') {
   let result;
   try {
     const X = await loadXLSX(); const wb = X.read(await file.arrayBuffer(), { type: 'array' });
@@ -64,7 +75,8 @@ async function importExcel(ctx, file) {
   const list = (items, cls) => h('ul', { style: { margin: '6px 0', paddingLeft: '18px', maxHeight: '180px', overflow: 'auto' }, class: cls }, items.slice(0, 60).map((x) => h('li', null, (x.sheet ? `${x.sheet}${x.row ? ' row ' + x.row : ''}: ` : '') + x.msg)), items.length > 60 ? h('li', null, `… and ${items.length - 60} more`) : null);
   if (!result.ok) return dialog({ title: 'Import stopped: nothing was changed', wide: true, info: true, ok: 'Close', body: h('div', null, h('div', { class: 'msg bad' }, `■ ${result.errors.length} error${result.errors.length === 1 ? '' : 's'} found. Correct the file and try again.`), list(result.errors, 'err'), result.warnings.length ? h('p', { class: 'note' }, `${result.warnings.length} warning(s) not shown.`) : null) });
   const s = result.summary; const st = ctx.store.state;
-  const ok = await dialog({ title: 'Replace all data with this file?', wide: true, danger: true, ok: 'Replace all data', confirmWord: 'DELETE', body: h('div', null,
+  if (mode === 'update') return importUpdate(ctx, result, list);
+  const ok = await dialog({ title: 'New start: replace all data with this file?', wide: true, danger: true, ok: 'Replace all data', confirmWord: 'DELETE', body: h('div', null,
     h('p', { style: { margin: '0 0 8px' } }, 'The file contains: ', h('b', null, `${s.trades} trades (${s.open} open, ${s.closed} closed), ${s.sales} sales, ${s.flows} deposits/withdrawals, ${s.dividends} dividends, ${s.stocks} stocks.`)),
     h('p', { class: 'sub', style: { margin: '0 0 8px' } }, `This removes what is in the program now: ${st.trades.length} trades, ${st.dividends.length} dividends, ${st.capital.flows.length} capital lines, your saved layouts and your settings. A full backup is made first.`),
     result.ignoredSheets.length ? h('p', { class: 'note' }, 'Ignored sheets: ' + result.ignoredSheets.join(', ')) : null,
@@ -75,6 +87,24 @@ async function importExcel(ctx, file) {
       ctx.store.replace(fresh, 'import'); toast('Imported. A backup of the old data was made first.'); return true;
     } });
   void ok;
+}
+async function importUpdate(ctx, result, list) {
+  const m = mergeImport(ctx.store.state, result.state); const msg = (x) => ({ msg: x });
+  if (!m.ok) return dialog({ title: 'Import stopped: nothing was changed', wide: true, info: true, ok: 'Close', body: h('div', null,
+    h('div', { class: 'msg bad' }, `■ ${m.conflicts.length} conflict${m.conflicts.length === 1 ? '' : 's'} between the file and your data. Correct them and try again.`), list(m.conflicts.map(msg), 'err'),
+    m.skipped.length ? h('p', { class: 'note' }, `${m.skipped.length} row(s) are already in the program and would be skipped.`) : null) });
+  const a = m.added; const n = Object.values(a).reduce((x, y) => x + y, 0);
+  if (!n) return dialog({ title: 'Nothing new in this file', info: true, ok: 'Close', body: h('div', null, para('Every row of the file is already in the program. Nothing was changed.', ''), m.skipped.length ? list(m.skipped.map(msg), 'note') : null) });
+  const line = (k, label) => (a[k] ? h('li', null, `${a[k]} ${label}`) : null);
+  await dialog({ title: 'Update: add these rows to your data?', wide: true, ok: 'Add to my data', body: h('div', null,
+    h('b', null, 'Will be added:'), h('ul', { style: { margin: '6px 0 10px', paddingLeft: '18px' } }, line('trades', 'trades (new T-numbers)'), line('sales', 'sales'), line('flows', 'deposits/withdrawals'), line('dividends', 'dividends'), line('stocks', 'stocks'), line('setups', 'setups'), line('errors', 'errors')),
+    m.skipped.length ? h('div', null, h('b', null, `Already in the program, skipped (${m.skipped.length}):`), list(m.skipped.map(msg), 'note')) : null,
+    result.warnings.length ? h('div', null, h('b', null, `${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'} (still added):`), list(result.warnings, 'note')) : null,
+    para('Your existing trades, capital, lists and settings stay. A full backup is made first.', 'note')),
+    onOk: async () => {
+      if (!(await safetyBackup('before-replace'))) return 'The backup could not be made, so nothing was added. Check your connection and try again.';
+      ctx.store.replace(m.state, 'import update'); toast(`Added ${n} row${n === 1 ? '' : 's'}. A backup was made first.`); setTimeout(() => askRecalc(ctx), 0); return true;
+    } });
 }
 async function importJson(ctx, file) {
   let raw; try { raw = JSON.parse(await file.text()); } catch { return dialog({ title: 'The file could not be read', body: para('It is not a valid data file.', ''), info: true }); }
@@ -106,7 +136,7 @@ function excelPanel(ctx) {
 }
 
 // ------------------------------------------------------------- backups
-const KIND = { auto: 'Automatic', 'before-update': 'Before an update', 'before-restore': 'Before a restore', 'before-replace': 'Before an import' };
+const KIND = { auto: 'Automatic', manual: 'Made by you', 'before-update': 'Before an update', 'before-restore': 'Before a restore', 'before-replace': 'Before an import', 'before-clear': 'Before clearing all data' };
 function backupPanel(ctx) {
   const box = h('div', { class: 'pb' }, 'Loading…');
   ctx.storage.listBackups().then((list) => {
@@ -138,4 +168,23 @@ function logPanel(ctx) {
   const st = ctx.store.state; const log = st.changeLog.slice(-100).reverse();
   return h('details', { class: 'panel' }, h('summary', { class: 'ph', style: { cursor: 'pointer' } }, `Change log (${st.changeLog.length} entries, never erased)`),
     h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['When', 'What', 'Details'].map((x) => h('th', null, x)))), h('tbody', null, log.map((l) => h('tr', null, h('td', null, dmy(l.ts.slice(0, 10)) + ' ' + l.ts.slice(11, 16)), h('td', null, l.type), h('td', { class: 'mut' }, Object.entries(l).filter(([k]) => !['ts', 'type'].includes(k)).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · '))))))));
+}
+
+// ------------------------------------------------------------- clear all data (Q9)
+function clearPanel(ctx) {
+  const run = async () => {
+    const st = ctx.store.state;
+    const first = await dialog({ title: 'Do you really want to delete all data?', danger: true, ok: 'Yes, delete all data', body: h('div', null,
+      para(`This deletes everything in the program: ${st.trades.length} trades, the start capital, ${st.capital.flows.length} deposits/withdrawals, ${st.dividends.length} dividends, all lists (stocks, setups, errors), the trash, the change log and the stop history. Settings go back to their starting values.`, ''),
+      para('A full backup is made first and cannot be skipped, so you can get everything back with Restore. Your backups and Excel copies in Google Drive are not deleted.', 'note')) });
+    if (!first) return;
+    await dialog({ title: 'Last step: delete all data', danger: true, ok: 'Delete all data', confirmWord: 'DELETE', body: para('After this the program is empty and starts from the beginning with the start capital.', ''),
+      onOk: async () => {
+        if (!(await safetyBackup('before-clear'))) return 'The backup could not be made, so nothing was deleted. Check your connection and try again.';
+        ctx.store.replace(emptyState(), 'clear all data'); toast('All data deleted. A backup was made first.'); setTimeout(() => ctx.go('capital', { first: true }), 0); return true;
+      } });
+  };
+  return h('section', { class: 'panel', style: { borderColor: 'var(--negline)' } }, h('div', { class: 'ph' }, 'Clear all data', h('span', { class: 'sub' }, 'start again from the beginning')),
+    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, para('Deletes every trade, the capital, all lists and the logs, so the program is empty. A full backup is made first. Backups and Excel copies in Google Drive stay.', ''),
+      h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', disabled: ctx.readOnly, onClick: run }, 'Clear all data…'))));
 }

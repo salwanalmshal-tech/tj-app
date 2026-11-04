@@ -1,5 +1,5 @@
 // Excel import / export logic (pure: works on plain rows, so it can be tested). The Excel reading itself is done by SheetJS in the screen.
-// Import REPLACES everything. Any error stops the import and nothing is replaced.
+// Import has two modes: New start (REPLACES everything) and Update (mergeImport: adds what is new). Any error stops the import and nothing changes.
 import * as D from './decimal.js';
 import * as C from './calc.js';
 import * as A from './actions.js';
@@ -206,4 +206,65 @@ export function toSheets(state) {
 export function plainSheets(sheets) {
   const iso2serial = (iso) => { const [y, m, d] = iso.split('-').map(Number); return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000); };
   return Object.fromEntries(Object.entries(sheets).map(([k, rows]) => [k, rows.map((r) => Object.fromEntries(Object.entries(r).map(([h, v]) => [h, v && v.d ? iso2serial(v.d) : v && v.n !== undefined ? Number(v.n) : v])))]));
+}
+
+// ---- import mode "Update" (Q10): keep the program's data and ADD what is new in the file.
+// `inc` is the state built by buildFromSheets. Rows already in the program are skipped and listed; conflicts stop the
+// whole import (nothing changes). New trades get the next T-numbers; lists are merged by name. Nothing is recalculated
+// for existing trades: the caller asks the user (D2) if their capital at open no longer matches.
+export function mergeImport(current, inc) {
+  const st = structuredClone(current); const S = D.toStr;
+  const added = { trades: 0, sales: 0, flows: 0, dividends: 0, stocks: 0, setups: 0, errors: 0 }; const skipped = [], conflicts = [];
+  const symOf = (state, stockId) => state.stocks.find((x) => x.id === stockId)?.symbol ?? '?';
+  const key = (sym, date, price) => `${sym.toUpperCase()}|${date}|${S(D.d(price))}`;
+  // start capital
+  const a = current.capital.start, b = inc.capital.start;
+  if (!a && b) st.capital.start = { amount: b.amount, date: b.date, seq: nextSeq(st) };
+  else if (a && b && (S(D.d(a.amount)) !== S(D.d(b.amount)) || a.date !== b.date)) conflicts.push(`Start capital differs: the program has ${S(D.d(a.amount))} on ${a.date.split('-').reverse().join('-')}, the file has ${S(D.d(b.amount))} on ${b.date.split('-').reverse().join('-')}. Make them the same, or use New start.`);
+  // lists by name
+  const mapList = (list, field, extra) => {
+    const m = new Map();
+    for (const x of inc[list]) {
+      let y = st[list].find((z) => z[field].toLowerCase() === x[field].toLowerCase());
+      if (!y) { y = { id: nextId(st, list === 'stocks' ? 's' : list === 'setups' ? 'u' : 'e'), [field]: x[field], archived: false, ...(extra ? extra(x) : {}) }; st[list].push(y); added[list]++; }
+      else if (list === 'stocks') for (const k of ['sector', 'industry', 'exchange']) if (!y[k] && x[k]) y[k] = x[k];
+      m.set(x.id, y.id);
+    }
+    return m;
+  };
+  const stockMap = mapList('stocks', 'symbol', (x) => ({ sector: x.sector, industry: x.industry, exchange: x.exchange }));
+  const setupMap = mapList('setups', 'name'), errorMap = mapList('errors', 'name');
+  // trades: same Symbol + Buy date + Buy price = the same trade (K4 key)
+  const have = new Map(current.trades.map((t) => [key(symOf(current, t.stockId), t.buyDate, t.buyPrice), t]));
+  const soldOf = (t) => t.sales.reduce((s, x) => s + D.d(x.qty), 0n);
+  const startDate = st.capital.start?.date;
+  for (const t of inc.trades.slice().sort((x, y) => x.seq - y.seq)) {
+    const sym = symOf(inc, t.stockId); const k = key(sym, t.buyDate, t.buyPrice); const old = have.get(k);
+    const label = `${sym} bought ${t.buyDate.split('-').reverse().join('-')} at ${S(D.d(t.buyPrice))}`;
+    if (old) {
+      if (D.d(old.qty) === D.d(t.qty) && soldOf(old) === soldOf(t)) skipped.push(`${label}: already in the program as ${old.id}.`);
+      else conflicts.push(`${label} is already in the program as ${old.id}, but with ${D.d(old.qty) !== D.d(t.qty) ? 'a different quantity' : 'different sales'}. Correct it in the program, or use New start.`);
+      continue;
+    }
+    if (startDate && t.buyDate < startDate) { conflicts.push(`${label}: the buy date is before the start capital date.`); continue; }
+    const nt = { ...structuredClone(t), id: nextTradeId(st), seq: nextSeq(st), stockId: stockMap.get(t.stockId), setupId: t.setupId ? setupMap.get(t.setupId) : null, errorId: t.errorId ? errorMap.get(t.errorId) : null };
+    nt.sales = t.sales.map((s) => ({ ...s, id: nextId(st, 'x'), seq: nextSeq(st) }));
+    nt.capitalAtOpen = S(C.capitalBefore(st, nt.buyDate, nt.seq));
+    st.trades.push(nt); added.trades++; added.sales += nt.sales.length;
+  }
+  // deposits / withdrawals and dividends: same date and amount (and type / stock) = already there
+  for (const f of inc.capital.flows) {
+    if (st.capital.flows.some((x) => x.date === f.date && x.type === f.type && D.d(x.amount) === D.d(f.amount))) { skipped.push(`${f.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of ${S(D.d(f.amount))} on ${f.date.split('-').reverse().join('-')}: already in the program.`); continue; }
+    if (startDate && f.date < startDate) { conflicts.push(`${f.type} on ${f.date.split('-').reverse().join('-')}: the date is before the start capital date.`); continue; }
+    st.capital.flows.push({ ...f, id: nextId(st, 'f'), seq: nextSeq(st) }); added.flows++;
+  }
+  for (const dv of inc.dividends) {
+    const sid = stockMap.get(dv.stockId);
+    if (st.dividends.some((x) => x.stockId === sid && x.payDate === dv.payDate && D.d(x.amount) === D.d(dv.amount))) { skipped.push(`Dividend ${symOf(inc, dv.stockId)} ${S(D.d(dv.amount))} on ${dv.payDate.split('-').reverse().join('-')}: already in the program.`); continue; }
+    st.dividends.push({ ...dv, id: nextId(st, 'd'), stockId: sid, seq: nextSeq(st) }); added.dividends++;
+  }
+  if (!conflicts.length) for (const t of st.trades) if (C.quantityProblems(t).length) conflicts.push(`${symOf(st, t.stockId)} ${t.id}: quantities do not add up.`);
+  if (conflicts.length) return { ok: false, conflicts, skipped, added };
+  st.changeLog.push({ ts: new Date().toISOString(), type: 'import-update', added: Object.entries(added).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing new' });
+  return { ok: true, state: st, conflicts, skipped, added };
 }

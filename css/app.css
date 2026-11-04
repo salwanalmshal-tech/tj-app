@@ -327,3 +327,17 @@ input.cell:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(
 .panel .dp input{height:100%;border:0;padding:0}
 .panel input:focus,.panel select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(50,107,158,.12)}
 .panel .row .btn.sm{height:30px}
+/* In market / Cash bar */
+.mbar{display:flex;height:34px;border-radius:9px;overflow:hidden;background:#EEF1F5;margin-top:2px}
+.mseg{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 9px;font-size:11.5px;white-space:nowrap;overflow:hidden}
+.mseg b{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.mseg.in{background:var(--accent);color:#fff}
+.mseg.cash{background:#E4E9F0;color:var(--ink)}
+.mseg .ml{opacity:.85}
+/* import mode choice */
+.picks{display:grid;gap:10px}
+.pick{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;transition:border-color .15s,background .15s}
+.pick.on{border-color:var(--accent);background:var(--infobg)}
+.pick input{margin-top:3px;accent-color:var(--accent)}
+.pick b{display:block;font-size:13.5px;color:var(--ink);margin-bottom:3px}
+.pick span{font-size:12.5px;color:var(--muted);line-height:1.45}

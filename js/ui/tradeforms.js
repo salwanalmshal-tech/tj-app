@@ -25,7 +25,6 @@ export function renderOpen(ctx) {
   const bd = datePicker({ iso: today, label: 'Buy date' }), bc = inp('Buy commission', { inputmode: 'decimal', placeholder: '0,00' });
   const is = inp('Initial stop', { inputmode: 'decimal', placeholder: '0,00' });
   const setup = pick(st.setups.filter((x) => !x.archived), 'Setup', 'No setup');
-  const err = pick(st.errors.filter((x) => !x.archived), 'Mistake', 'None');
   const com = h('textarea', { 'aria-label': 'Trade thesis', rows: 3, placeholder: 'Why is this trade worth taking?' });
   const cs = inp('Current stop', { inputmode: 'decimal', placeholder: 'Same as Initial stop' }), last = inp('Last price', { inputmode: 'decimal', placeholder: 'Same as buy price' });
   const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = datePicker({ label: 'Next report' });
@@ -45,7 +44,7 @@ export function renderOpen(ctx) {
   const nowRisk = account > 0n ? D.pct(D.abs(loss.loss), account) : null;
 
   function values() {
-    return { symbol: sym.value.trim(), buyDate: bd.getISO() || null, qty: qty.value, buyPrice: bp.value, buyCommission: bc.value, initialStop: is.value, currentStop: cs.value, last: last.value, highest: hi.value, ema10: ema.value, nextReport: nr.getISO() || '', setupId: setup.value || null, errorId: err.value || null, comment: com.value, stockInfo: { sector: sector.value, industry: industry.value, exchange: exch.value } };
+    return { symbol: sym.value.trim(), buyDate: bd.getISO() || null, qty: qty.value, buyPrice: bp.value, buyCommission: bc.value, initialStop: is.value, currentStop: cs.value, last: last.value, highest: hi.value, ema10: ema.value, nextReport: nr.getISO() || '', setupId: setup.value || null, errorId: null, comment: com.value, stockInfo: { sector: sector.value, industry: industry.value, exchange: exch.value } };
   }
   function check() {
     const f = values(); const v = A.validateOpen(st, f);
@@ -101,7 +100,7 @@ export function renderOpen(ctx) {
     if (again) { ctx.go('open-trade'); } else back(ctx);
   }
   bd.input.addEventListener('input', () => check()); nr.input.addEventListener('input', () => check());
-  for (const x of [sym, qty, bp, bc, is, cs, last, hi, ema, setup, err, com, sector, industry, exch]) x.addEventListener('input', () => check());
+  for (const x of [sym, qty, bp, bc, is, cs, last, hi, ema, setup, com, sector, industry, exch]) x.addEventListener('input', () => check());
   setTimeout(() => { check(); sym.focus(); }, 0);
 
   const more = h('details', { class: 'more' }, h('summary', null, 'More: setup, current stop, last price, highest, EMA10, next report'),
@@ -120,7 +119,7 @@ export function renderOpen(ctx) {
             of('Buy commission', box(bc, '$'))), newNote, newStock),
         card('Plan', 'Define the protection.', h('div', { class: 'fgrid' }, of('Initial stop', isBox)), more),
         h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Note'), h('p', { class: 'lead' }, 'Optional. Keep only what is worth remembering.'))),
-          h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, of('Trade thesis', com), h('div', { class: 'fgrid' }, of('Mistake (if any)', box(err)))))),
+          h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, of('Trade thesis', com)))),
       h('aside', { class: 'card acc op-check', 'aria-label': 'Decision check' }, h('div', { class: 'card-b' },
         h('div', null, h('div', { class: 'eyebrow' }, 'Decision check'), cSym), cLine, rbox, ck, conds,
         h('button', { class: 'btn go', disabled: ctx.readOnly, onClick: () => submit(false) }, 'Open position →'), accept,
@@ -138,6 +137,9 @@ export function renderClose(ctx) {
   const inputs = new Map(); const linesBox = h('div'); const status = h('div'); const prevBox = h('div'); const dnote = h('span', { class: 'note' });
   const btn = h('button', { class: 'btn pri', disabled: true, onClick: submit }, 'Close trade…');
   let touchedLines = false;
+  // Q6: the mistake is chosen when closing; it is saved on every trade closed in this sale (empty = keep what the trade has)
+  const mistake = h('select', { 'aria-label': 'Mistake' }, h('option', { value: '' }, 'None'), st.errors.filter((x) => !x.archived).map((x) => h('option', { value: x.id }, x.name)));
+  let mistakeTouched = false; mistake.addEventListener('change', () => { mistakeTouched = true; });
 
   function lines() { return (bySym.get(symSel.value) || []).slice().sort((a, b) => (a.buyDate < b.buyDate ? -1 : a.seq - b.seq)); }
   function buildLines(auto) {
@@ -182,18 +184,34 @@ export function renderClose(ctx) {
     prevBox.dataset.reason = reason;
     if (!valid && reason && ok === false && assigned > 0n) { /* keep quiet until complete */ }
     ctx._closeAlloc = allocations;
+    if (!mistakeTouched) { const ids = [...new Set(allocations.map((a) => A.tradeById(st, a.tradeId)?.errorId).filter(Boolean))]; mistake.value = ids.length === 1 ? ids[0] : ''; }
   }
   async function submit() {
     const iso = parseDMY(date.value); const allocations = ctx._closeAlloc;
-    const draft = structuredClone(st); const res0 = A.closeSale(draft, { date: iso, price: price.value, commission: comm.value, allocations }); if (!res0.ok) return toast(res0.error);
+    // Q1: missing commissions are asked for in a pop-up, but never stop the sale
+    const buyFix = {}; const missBuy = allocations.map((a) => A.tradeById(st, a.tradeId)).filter((t) => t.buyCommission === '');
+    if (comm.value.trim() === '' || missBuy.length) {
+      const sellIn = comm.value.trim() === '' ? numInput('', 'Sell commission') : null;
+      const buyIns = missBuy.map((t) => [t, numInput('', 'Buy commission ' + t.id)]);
+      const fill = await dialog({ title: 'Commission missing', ok: 'Save commissions and continue', cancel: 'Continue without',
+        body: h('div', { style: { display: 'grid', gap: '10px' } }, para('Without the commission the result is calculated without it, and the line is marked as missing data. You can fill it in now, or continue without it.', ''),
+          sellIn ? field('Sell commission of this sale (USD)', sellIn) : null,
+          buyIns.map(([t, i]) => field(`Buy commission of ${t.id} (bought ${dmy(t.buyDate)}) (USD)`, i))),
+        onOk: () => { for (const i of [sellIn, ...buyIns.map((x) => x[1])]) if (i && i.value.trim() && D.parse(i.value) === null) return 'Commissions must be numbers (or leave the field empty).'; return true; } });
+      if (fill) { if (sellIn && sellIn.value.trim()) comm.value = sellIn.value.trim(); for (const [t, i] of buyIns) if (i.value.trim()) buyFix[t.id] = i.value.trim(); refresh(); }
+    }
+    const errId = mistake.value || null;
+    const apply = (d) => { for (const [id, v] of Object.entries(buyFix)) { const r = A.editBuyData(d, id, { buyCommission: v }); if (!r.ok) return r; } const r = A.closeSale(d, { date: iso, price: price.value, commission: comm.value, allocations }); if (!r.ok) return r; if (errId) for (const a of allocations) A.tradeById(d, a.tradeId).errorId = errId; return r; };
+    const draft = structuredClone(st); const res0 = apply(draft); if (!res0.ok) return toast(res0.error);
     const rows = res0.data.map(({ tradeId, sale }) => { const t0 = A.tradeById(st, tradeId), t1 = A.tradeById(draft, tradeId); return { t0, t1, sale, net: C.salesDetail(t1).find((x) => x.sale.id === sale.id).net }; });
     const sym = A.symbolOf(st, rows[0].t0); const capBefore = C.capitalNow(st), capAfter = C.capitalNow(draft); const net = rows.reduce((a, r) => a + r.net, 0n);
     const tbl = changeTable([...rows.map((r) => Object.assign([`Open shares in ${r.t0.id}`, qtyTxt(C.openQty(r.t0)), qtyTxt(C.openQty(r.t1))], { changed: true })),
       Object.assign(['Net result of this sale', '–', signed(net)], { changed: true }), Object.assign(['Capital (closed trades)', money(capBefore), money(capAfter)], { changed: true }),
       ...rows.filter((r) => C.openQty(r.t1) === 0n).map((r) => ['Trade ' + r.t0.id, 'Open', `Closed · R ${C.rMultiple(r.t1) === null ? '–' : D.fmt(C.rMultiple(r.t1), 2)} · ${C.holdingDays(r.t1)} days`])]);
-    const ok = await dialog({ title: `Sell ${qtyTxt(D.parse(total.value))} shares of ${sym}?`, ok: 'Close trade', body: h('div', null, para('The result is calculated with exact numbers.'), tbl) });
+    const notes = [Object.keys(buyFix).length ? `Buy commission saved for ${Object.keys(buyFix).join(', ')} (written to the change log).` : null, errId ? `Mistake “${st.errors.find((x) => x.id === errId)?.name}” is saved on ${rows.map((r) => r.t0.id).join(', ')}.` : null].filter(Boolean);
+    const ok = await dialog({ title: `Sell ${qtyTxt(D.parse(total.value))} shares of ${sym}?`, ok: 'Close trade', body: h('div', null, para('The result is calculated with exact numbers.'), tbl, notes.map((n) => h('p', { class: 'note', style: { margin: '8px 0 0' } }, n))) });
     if (!ok) return;
-    const res = ctx.act((d) => A.closeSale(d, { date: iso, price: price.value, commission: comm.value, allocations }), { label: 'sale ' + sym, now: true });
+    const res = ctx.act((d) => apply(d), { label: 'sale ' + sym, now: true });
     if (!res.ok) return toast(res.error);
     toast(`${sym} sold. Net result ${signed(net)}.`); back(ctx);
   }
@@ -203,7 +221,7 @@ export function renderClose(ctx) {
   buildLines(!!startTrade); setTimeout(() => (startTrade ? price : total).focus(), 0);
   return h('div', { class: 'cols' }, h('section', { class: 'panel', style: { flex: '1 1 100%' } },
     h('div', { class: 'ph' }, '1. The sale', h('span', { class: 'sub' }, 'one sale, one price')),
-    h('div', { class: 'pb' }, h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', alignItems: 'start' } }, field('Symbol', symSel), field('Total shares sold', total), field('Sell date', date, dnote), field('Sell price (USD)', price), field('Sell commission (USD)', comm))),
+    h('div', { class: 'pb' }, h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', alignItems: 'start' } }, field('Symbol', symSel), field('Total shares sold', total), field('Sell date', date, dnote), field('Sell price (USD)', price), field('Sell commission (USD)', comm), field('Mistake (if any)', mistake))),
     h('div', { class: 'ph', style: { borderTop: '1px solid var(--line)' } }, '2. Choose the lines', status), linesBox,
     h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, h('div', { class: 'row' }, btn, h('button', { class: 'btn', onClick: () => back(ctx) }, 'Cancel')), h('span', { class: 'note' }, 'The button stays off until every share is assigned and the price is filled in. It opens a confirmation first.'))),
     h('aside', { class: 'panel', style: { flex: '1 1 100%' }, 'aria-label': 'Preview' }, h('div', { class: 'ph' }, 'Preview before saving'), h('div', { class: 'pb' }, prevBox)));
