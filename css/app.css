@@ -425,3 +425,22 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 .pc-size .sz{font-size:12px;font-weight:600}
 .pc-size .sz.c-g{color:var(--pos)}.pc-size .sz.c-o{color:var(--warn)}.pc-size .sz.c-r{color:var(--neg)}
 .selnew{display:grid}.selnew>select{width:100%}
+/* Settings (2026-11-06): two cards side by side, label and value close together */
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:14px;align-items:start}
+.set-card{margin:0}
+.set-h{padding:16px 18px 6px}
+.set-h h3{margin:0;font-size:14.5px;font-weight:650;color:var(--ink)}
+.set-h p{margin:3px 0 0;font-size:12px;color:var(--muted);line-height:1.4}
+.set-b{padding:6px 18px 14px;display:flex;flex-direction:column}
+.set-sub{font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:12px 0 2px}
+.set-sub:first-child{margin-top:4px}
+.set-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--raised);font-size:13px;color:var(--ink)}
+.set-row:last-child{border-bottom:0}
+.set-l{line-height:1.35}
+.set-val{display:inline-flex;align-items:center;gap:6px;justify-self:end}
+.set-val input{width:74px;height:32px;text-align:right;border:1px solid var(--field);border-radius:8px;padding:0 9px;font:inherit;font-variant-numeric:tabular-nums;font-weight:600;background:var(--panel);color:var(--ink)}
+.set-val input:focus,.set-row input.set-name:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.set-u{min-width:44px;font-size:12px;color:var(--muted)}
+.set-val.else{font-size:12px;color:var(--muted);padding-right:50px}
+.set-row input.set-name{height:32px;border:1px solid var(--field);border-radius:8px;padding:0 10px;font:inherit;font-size:13px;font-weight:600;background:var(--panel);color:var(--ink);min-width:0}
+@media (max-width:520px){.set-grid{grid-template-columns:1fr}}

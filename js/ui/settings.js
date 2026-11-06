@@ -2,22 +2,61 @@ import { APP_VERSION } from '../model.js';
 import { h, dialog, para, toast, field, infoBtn } from './dom.js';
 import * as D from '../decimal.js';
 
+// 2026-11-06 layout: grouped by what the limits are about, two cards side by side, label left and value right (close
+// together), the unit next to the value. Entries: [path, label, kind, unit, why]; a plain string starts a small sub-heading.
 const GROUPS = [
-  ['Excel copy of your journal', [['excelCopyDays', 'Make an Excel copy every (days)', 'int', 'An Excel file with the same sheets as “Download Excel”, saved in the Backups folder in your Drive. It is for reading in Excel or Google Sheets; restoring always uses the JSON backups.'], ['excelCopyKeep', 'Keep the newest (Excel copies)', 'int', 'Older Excel copies are deleted when a new one is made. The JSON backups are not affected.']]],
-  ['Saving', [['saveDelaySec', 'Seconds to wait after your last edit before saving', 'int'], ['bigJumpPct', 'Ask before saving a last price that jumps more than (%)', 'num', 'Starting value. Typed prices that jump more than this ask “Save anyway?”.']]],
-  ['Stops check', [['stopBelowBuy.raiseAbove', 'Stop below buy price: “Raise stop” when price is more than (%) above the stop', 'num'], ['stopBelowBuy.closeWithin', 'Stop below buy price: “Close to stop” within (%)', 'num'], ['stopAboveBuy.raiseAbove', 'Stop above buy price: “Raise stop” when more than (%)', 'num'], ['stopAboveBuy.closeWithin', 'Stop above buy price: “Close to stop” within (%)', 'num']]],
-  ['Other line marks', [['reportedAgoDays', 'Show “Reported N days ago” for (days)', 'int'], ['reportStaleDays', 'Report date too old: orange after (days)', 'int', 'When the report date is this many days in the past and no new date is entered, the line needs attention.'], ['highestToStop', 'Stop far below highest price: more than (%)', 'num'], ['emaNear', 'Near EMA10: less than (%) above', 'num'], ['stopFarBelowBuy', 'Stop far below buy price: stop more than (%) below buy price', 'num', 'One rule with two settings: it shows only when both are true.'], ['stopFarBelowBuyRisk', 'Stop far below buy price: and risk at stop above (% of capital)', 'num'], ['profitLocked', 'Profit locked in: stop more than (%) above buy', 'num'],
-    ['riskWarn', 'Risk at stop, warning above (% of capital)', 'num'], ['riskRed', 'Risk at stop, red above (% of capital)', 'num'], ['posTooBig', 'Position too big above (% of account)', 'num'], ['posNear', 'Near size limit from (%)', 'num'], ['posSmallFrom', 'Small position from (%)', 'num'], ['posSmallTo', 'Small position up to (%)', 'num']]],
-  ['History marks', [['histLoss', 'Loss above (% of capital at open)', 'num'], ['histGain', 'Gain above (% of capital at open)', 'num'], ['stockLoss1', 'Per stock: loss above (%)', 'num'], ['stockLoss2', 'Per stock: big loss above (%)', 'num'], ['stockGain1', 'Per stock: gain above (%)', 'num'], ['stockGain2', 'Per stock: big gain above (%)', 'num']]],
+  ['Stops check', 'When the price is close to the stop, or far enough above it to raise the stop.', [
+    'Stop below buy price',
+    ['stopBelowBuy.raiseAbove', '“Raise stop” when price is above the stop by more than', 'num', '%'],
+    ['stopBelowBuy.closeWithin', '“Close to stop” when price is within', 'num', '%'],
+    'Stop above buy price',
+    ['stopAboveBuy.raiseAbove', '“Raise stop” when price is above the stop by more than', 'num', '%'],
+    ['stopAboveBuy.closeWithin', '“Close to stop” when price is within', 'num', '%']]],
+  ['Stop placement', 'Where the stop sits compared with the highest and the buy price.', [
+    ['highestToStop', 'Stop far below highest price: more than', 'num', '%'],
+    ['stopFarBelowBuy', 'Stop far below buy price: more than', 'num', '%', 'One rule with two settings: it shows only when both are true.'],
+    ['stopFarBelowBuyRisk', '… and risk at stop above', 'num', '% cap.'],
+    ['profitLocked', 'Profit locked in: stop above buy price by more than', 'num', '%']]],
+  ['Risk and position size', 'Risk at stop is % of the capital at open; size is % of the estimated account.', [
+    'Risk at stop',
+    ['riskWarn', 'Orange above', 'num', '%'],
+    ['riskRed', 'Red above', 'num', '%'],
+    'Position size',
+    ['posNear', 'Orange from', 'num', '%'],
+    ['posTooBig', 'Red above', 'num', '%'],
+    ['posSmallFrom', 'Small position from', 'num', '%'],
+    ['posSmallTo', 'Small position up to', 'num', '%']]],
+  ['EMA10 and reports', 'Marks for the trend line and the report dates.', [
+    ['emaNear', 'Near EMA10: price less than this above EMA10', 'num', '%'],
+    ['reportedAgoDays', 'Show “Reported N days ago” for', 'int', 'days'],
+    ['reportStaleDays', 'Report date too old: orange after', 'int', 'days', 'When the report date is this many days in the past and no new date is entered, the line needs attention.']]],
+  ['History marks', 'Result marks on closed trades and per stock (% of capital at open).', [
+    'Per trade',
+    ['histLoss', 'Loss above', 'num', '%'],
+    ['histGain', 'Gain above', 'num', '%'],
+    'Per stock',
+    ['stockLoss1', 'Loss above', 'num', '%'],
+    ['stockLoss2', 'Big loss above', 'num', '%'],
+    ['stockGain1', 'Gain above', 'num', '%'],
+    ['stockGain2', 'Big gain above', 'num', '%']]],
+  ['Saving and Excel copy', 'How the program saves, and the weekly Excel copy in your Drive.', [
+    ['saveDelaySec', 'Save after your last edit, wait', 'int', 'sec'],
+    ['bigJumpPct', 'Ask before saving a last price that jumps more than', 'num', '%', 'Typed prices that jump more than this ask “Save anyway?”.'],
+    ['excelCopyDays', 'Make an Excel copy every', 'int', 'days', 'An Excel file with the same sheets as “Download Excel”, saved in the Backups folder in your Drive. It is for reading in Excel or Google Sheets; restoring always uses the JSON backups.'],
+    ['excelCopyKeep', 'Keep the newest', 'int', 'copies', 'Older Excel copies are deleted when a new one is made. The JSON backups are not affected.']]],
 ];
 const getP = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
 const setP = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
 
 export function render(ctx) {
   const st = ctx.store.state; const S = structuredClone(st.settings); const inputs = new Map(); const msg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
-  const mk = (path, label, kind, why) => { const i = h('input', { value: String(getP(S, path)).replace('.', ','), inputmode: 'decimal', style: { width: '90px', textAlign: 'right' }, 'aria-label': label }); inputs.set(path, [i, kind]); return h('label', { class: 'fld', style: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '12px' } }, h('span', null, label, why ? infoBtn(label, why) : null), i); };
-  const tables = [['rCategories', 'rCategoryElse', 'Trade R labels (from this R upwards)'], ['stopDistance', 'stopDistanceElse', 'Stop distance labels (up to this %)']];
-  const tIn = tables.map(([k, e, title]) => ({ k, e, title, rows: S[k].map(([lim, name]) => [h('input', { value: lim.replace('.', ','), style: { width: '70px', textAlign: 'right' }, 'aria-label': title + ' limit' }), h('input', { value: name, 'aria-label': title + ' name' })]), other: h('input', { value: S[e], 'aria-label': title + ' else' }) }));
+  const unitBox = (input, unit) => h('span', { class: 'set-val' }, input, unit ? h('span', { class: 'set-u' }, unit) : null);
+  const mk = (path, label, kind, unit, why) => {
+    const i = h('input', { value: String(getP(S, path)).replace('.', ','), inputmode: 'decimal', 'aria-label': label }); inputs.set(path, [i, kind]);
+    return h('label', { class: 'set-row' }, h('span', { class: 'set-l' }, label, why ? infoBtn(label, why) : null), unitBox(i, unit));
+  };
+  const tables = [['rCategories', 'rCategoryElse', 'Trade R labels', 'R', 'A trade gets the first label whose R it reaches (from this R upwards).'], ['stopDistance', 'stopDistanceElse', 'Stop distance labels', '%', 'Buy price to Initial stop: the first label whose limit it stays within (up to this %).']];
+  const tIn = tables.map(([k, e, title, unit, lead]) => ({ k, e, title, unit, lead, rows: S[k].map(([lim, name]) => [h('input', { value: lim.replace('.', ','), inputmode: 'decimal', 'aria-label': title + ' limit' }), h('input', { class: 'set-name', value: name, 'aria-label': title + ' name' })]), other: h('input', { class: 'set-name', value: S[e], 'aria-label': title + ' else' }) }));
   const save = async () => {
     msg.style.display = 'none'; const ns = structuredClone(st.settings);
     for (const [path, [i, kind]] of inputs) { const v = D.parse(i.value); if (v === null || v < 0n || (kind === 'int' && v % D.SCALE !== 0n)) { msg.textContent = `■ “${i.getAttribute('aria-label')}” must be a ${kind === 'int' ? 'whole ' : ''}number (0 or more).`; msg.style.display = 'flex'; return; } setP(ns, path, kind === 'int' ? String(Number(v / D.SCALE)) : D.toStr(v)); if (kind === 'int') setP(ns, path, Number(v / D.SCALE)); }
@@ -28,11 +67,13 @@ export function render(ctx) {
     const ok = await dialog({ title: 'Save the new settings?', body: para('Marks and labels are recalculated on every screen. Saved trades keep their data.', ''), ok: 'Save settings' }); if (!ok) return;
     const r = ctx.act((d) => { d.settings = ns; return { ok: true }; }, { label: 'settings', now: true }); toast(r.ok ? 'Settings saved.' : r.error);
   };
-  const groupEls = GROUPS.map(([title, rows]) => h('section', { class: 'panel' }, h('div', { class: 'ph' }, title), h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, rows.map(([p, l, k, why]) => mk(p, l, k, why)))));
-  const tableEls = tIn.map((t) => h('section', { class: 'panel' }, h('div', { class: 'ph' }, t.title), h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, t.rows.map(([a, b]) => h('div', { class: 'row' }, a, b)), h('div', { class: 'row' }, h('span', { class: 'note' }, 'Anything else:'), t.other))));
-  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '900px' } },
+  const card = (title, lead, kids) => h('section', { class: 'panel set-card' }, h('div', { class: 'set-h' }, h('h3', null, title), lead ? h('p', null, lead) : null), h('div', { class: 'set-b' }, kids));
+  const groupEls = GROUPS.map(([title, lead, rows]) => card(title, lead, rows.map((r) => (typeof r === 'string' ? h('div', { class: 'set-sub' }, r) : mk(...r)))));
+  const tableEls = tIn.map((t) => card(t.title, t.lead, [...t.rows.map(([a, b]) => h('label', { class: 'set-row' }, b, unitBox(a, t.unit))),
+    h('div', { class: 'set-row' }, t.other, h('span', { class: 'set-val else' }, 'anything else'))]));
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '1120px' } },
     h('div', { class: 'note' }, 'Numbers use a decimal comma. These limits only change which marks you see; they never block anything.'),
-    groupEls, tableEls, msg,
+    h('div', { class: 'set-grid' }, groupEls, tableEls), msg,
     h('div', { class: 'row' }, h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: save }, 'Save settings'), h('button', { class: 'btn', onClick: () => ctx.redraw() }, 'Cancel')),
     h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Account'), h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } },
       h('dl', { class: 'kv' }, h('dt', null, 'Program version'), h('dd', null, APP_VERSION + ' (Version 1)'), h('dt', null, 'Data file'), h('dd', null, ctx.demo ? 'Demo, nothing saved' : ctx.storage.describe().file + ' in “' + ctx.storage.describe().folder + '”'), h('dt', null, 'Google account'), h('dd', null, ctx.account || '–')),
