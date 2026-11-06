@@ -110,7 +110,9 @@ function ownOrder(list, order) {
 // Smooth mouse drag and drop of the cards (agreed 2026-11-06): the dragged card follows the mouse fully visible,
 // slightly lifted with a soft shadow; the other cards slide gently aside to show where it will land.
 // A short click (no movement) still opens the line; a click right after a drag is ignored.
-const DRAG_START_PX = 6, SLIDE_MS = 200, DROP_MS = 180;
+// 2026-11-06 refinement: slower, softer motion; the place is decided by the MIDDLE of the dragged card (not the mouse),
+// only when it is well inside another card; one move at a time (no new move while the cards are still sliding)
+const DRAG_START_PX = 6, SLIDE_MS = 350, DROP_MS = 300, EASE = 'cubic-bezier(.22,.61,.36,1)', INNER = 0.22;
 // the click that follows a drag must not open a line (one listener for the whole page)
 let blockNextClick = false;
 window.addEventListener('click', (e) => { if (blockNextClick) { e.stopPropagation(); e.preventDefault(); blockNextClick = false; } }, true);
@@ -122,19 +124,19 @@ function dragCards(grid, onDone) {
   const slide = (change) => {
     const cards = [...grid.querySelectorAll(':scope > .pcard')];
     const before = new Map(cards.map((c) => [c, c.getBoundingClientRect()]));
-    change();
+    change(); d && (d.busyUntil = performance.now() + SLIDE_MS);
     for (const c of cards) {
       const a = before.get(c), b = c.getBoundingClientRect(); const dx = a.left - b.left, dy = a.top - b.top;
       if (!dx && !dy) continue;
       c.style.transition = 'none'; c.style.transform = `translate(${dx}px,${dy}px)`;
-      requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = `transform ${SLIDE_MS}ms cubic-bezier(.2,.7,.3,1)`; c.style.transform = ''; }));
+      requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = `transform ${SLIDE_MS}ms ${EASE}`; c.style.transform = ''; }));
     }
   };
   const begin = (e) => {
     const c = d.card, r = c.getBoundingClientRect();
     d.ph = h('div', { class: 'pcard-ph' }); d.ph.dataset.ph = c.dataset.id; d.ph.style.height = r.height + 'px';
     grid.insertBefore(d.ph, c);
-    d.dx = e.clientX - r.left; d.dy = e.clientY - r.top;
+    d.dx = e.clientX - r.left; d.dy = e.clientY - r.top; d.w = r.width; d.h = r.height; d.busyUntil = 0;
     Object.assign(c.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', margin: '0', zIndex: '1000', pointerEvents: 'none', transition: 'box-shadow .15s, transform .15s' });
     c.classList.add('lifted'); document.body.append(c); document.body.classList.add('grabbing');
     d.active = true;
@@ -146,14 +148,17 @@ function dragCards(grid, onDone) {
     d.card.style.left = e.clientX - d.dx + 'px'; d.card.style.top = e.clientY - d.dy + 'px';
     // scroll the page when the card is near the top or bottom edge
     if (e.clientY < 70) window.scrollBy(0, -14); else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
-    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.pcard');
-    if (!over || over.parentNode !== grid) return;
-    const r = over.getBoundingClientRect();
-    const sameRow = Math.abs(e.clientY - (r.top + r.height / 2)) < r.height / 2;
-    const multiCol = grid.children.length > 1 && getComputedStyle(grid).gridTemplateColumns.split(' ').length > 1;
-    const after = multiCol && sameRow ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2;
-    const ref = after ? over.nextSibling : over;
-    if (ref === d.ph || ref === d.ph.nextSibling) return; // already there
+    if (performance.now() < (d.busyUntil || 0)) return; // the last move is still sliding
+    // middle of the dragged card
+    const cx = e.clientX - d.dx + d.w / 2, cy = e.clientY - d.dy + d.h / 2;
+    let target = null;
+    for (const c of grid.querySelectorAll(':scope > .pcard')) {
+      const r = c.getBoundingClientRect(); const mx = r.width * INNER, my = r.height * INNER;
+      if (cx > r.left + mx && cx < r.right - mx && cy > r.top + my && cy < r.bottom - my) { target = c; break; }
+    }
+    if (!target) return;
+    const kids = [...grid.children]; const iT = kids.indexOf(target), iP = kids.indexOf(d.ph);
+    const ref = iP < iT ? target.nextSibling : target; // take the target's place; the cards in between move one step
     slide(() => grid.insertBefore(d.ph, ref));
   };
   const end = (e) => {
@@ -163,7 +168,7 @@ function dragCards(grid, onDone) {
     if (!cur.active) return; // a plain click: the card opens as usual
     blockNextClick = true; setTimeout(() => { blockNextClick = false; }, 0);
     const c = cur.card, r = cur.ph.getBoundingClientRect();
-    c.style.transition = `left ${DROP_MS}ms ease, top ${DROP_MS}ms ease, box-shadow ${DROP_MS}ms ease, transform ${DROP_MS}ms ease`;
+    c.style.transition = `left ${DROP_MS}ms ${EASE}, top ${DROP_MS}ms ${EASE}, box-shadow ${DROP_MS}ms ${EASE}, transform ${DROP_MS}ms ${EASE}`;
     c.classList.remove('lifted'); c.style.left = r.left + 'px'; c.style.top = r.top + 'px';
     setTimeout(() => {
       grid.replaceChild(c, cur.ph); document.body.classList.remove('grabbing');
