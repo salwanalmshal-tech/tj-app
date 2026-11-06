@@ -56,60 +56,79 @@ export function render(ctx) {
     return wrap;
   }
 
-  // ---- Capital (closed trades) and what it is made of (Q8: one capital number + its parts) ----
-  let deps = 0n, wds = 0n, divT = 0n, sales = 0n;
-  for (const e of C.capitalEvents(st)) { if (e.kind === 'deposit') deps += e.amount; else if (e.kind === 'withdrawal') wds += e.amount; else if (e.kind === 'dividend') divT += e.amount; else if (e.kind === 'sale') sales += e.amount; }
-  const part = (label, v, cls) => h('div', null, h('dt', null, label), h('dd', { class: cls || '' }, v));
-  wrap.append(h('section', { class: 'card acc', 'aria-label': 'Capital (closed trades)' }, h('div', { class: 'card-b', style: { display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) minmax(0,2fr)', gap: '28px', alignItems: 'center', paddingTop: '22px' } },
-    h('div', null, h('div', { class: 'eyebrow' }, 'Capital (closed trades)', infoBtn('Capital (closed trades)', 'Start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included.')), h('div', { style: { fontSize: '30px', fontWeight: 800, letterSpacing: '-.02em', marginTop: '6px' } }, usd(capNow))),
-    h('dl', { class: 'facts', style: { margin: 0 } }, part('Start capital · ' + dmy(start.date), usd(D.d(start.amount))), part('Deposits', susd(deps), deps ? 'pos' : ''), part('Withdrawals', susd(wds), wds ? 'neg' : ''), part('Dividends', susd(divT), divT ? 'pos' : ''), part('Net result of sales', susd(sales), numClass(sales))))));
+  // ---- Layout 2026-11-06 (his Capital example): one capital number with its parts, four actions, one activity list ----
+  // Rules unchanged: D1 (calculated, closed trades only), Q2 (start capital edited with before → after), Q3 (each change asks
+  // first with capital before → after), D2 (Recalculate / Keep old values), D4 (dividend duplicate warning), D5 (split preview).
+  let deps = 0n, wds = 0n, divT = 0n, sales = 0n, nSales = 0;
+  for (const e of C.capitalEvents(st)) { if (e.kind === 'deposit') deps += e.amount; else if (e.kind === 'withdrawal') wds += e.amount; else if (e.kind === 'dividend') divT += e.amount; else if (e.kind === 'sale') { sales += e.amount; nSales++; } }
+  const invested = D.d(start.amount) + deps; const progress = invested > 0n ? D.pct(sales + divT, invested) : null;
+  const tone = (v) => (v > 0n ? 'pos' : v < 0n ? 'neg' : '');
+  const spct = (v) => (v === null ? '–' : (v > 0n ? '+' : v < 0n ? '−' : '') + D.fmt(D.abs(v), 2) + ' %');
 
-  wrap.append(h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Start capital', h('span', { class: 'sub' }, 'the program never uses a fixed number')),
-    h('div', { class: 'tw', style: { padding: '8px 22px 18px' } }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Start date'), h('th', { class: 'r' }, 'Amount'), h('th'))),
-      h('tbody', null, h('tr', null, h('td', null, dmy(start.date)), h('td', { class: 'r' }, usd(D.d(start.amount))), h('td', { class: 'r' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: editStart }, 'Edit…'))))))));
+  // hero
+  wrap.append(h('section', { class: 'cap-hero' },
+    h('div', null,
+      h('div', { class: 'eyebrow' }, 'Capital (closed trades)', infoBtn('Capital (closed trades)', 'Start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included.')),
+      h('div', { class: 'cap-big' }, usd(capNow)),
+      h('div', { class: 'cap-start' }, 'Started with ', h('b', null, usd(D.d(start.amount))), ' on ' + dmy(start.date) + ' · ', h('button', { class: 'linkbtn', disabled: ctx.readOnly, onClick: editStart }, 'Edit start capital'))),
+    h('div', { class: 'cap-side' },
+      h('div', { class: 'cap-res ' + tone(sales) }, h('b', null, susd(sales)), ' from closed trades'),
+      h('div', { class: 'cap-res ' + tone(progress ?? 0n) }, h('b', null, spct(progress)), ' on invested capital', infoBtn('On invested capital', '(Net result of sales + dividends) ÷ (start capital + all deposits). Withdrawals are never counted as a loss.')))));
 
-  // ---- deposits / withdrawals (Q3: fill → confirm with capital before → after → listed, fields emptied) ----
-  const fd = datePicker({ iso: today, label: 'Date' }), ft = h('select', { 'aria-label': 'Type' }, h('option', { value: 'deposit' }, 'Deposit'), h('option', { value: 'withdrawal' }, 'Withdrawal')), fa = nm('', 'Amount'); const fmsg = errBox();
-  const addFlow = async () => {
-    fmsg.hidden = true; const iso = fd.getISO(); if (!iso) return fail(fmsg, 'Enter a valid date (dd-mm-yyyy).');
-    const f = { date: iso, type: ft.value, amount: fa.value };
-    const trial = structuredClone(st); const r = A.addFlow(trial, f); if (!r.ok) return fail(fmsg, r.error);
-    const word = f.type === 'deposit' ? 'Deposit' : 'Withdrawal'; const amt = D.parse(f.amount);
-    const ok = await dialog({ title: `Add a ${word.toLowerCase()} of ${usd(amt)} on ${dmy(iso)}?`, ok: 'Add ' + word.toLowerCase(),
-      body: h('div', null, changeTable([['Capital (closed trades)', usd(capNow), usd(C.capitalNow(trial))], Object.assign([word, '', (f.type === 'deposit' ? '+' : '−') + usd(amt)], { changed: true })], ['', 'Before', 'After']),
+  // the sum: start + deposits/withdrawals + dividends + closed trades = capital
+  const term = (icon, label, v, cls = '') => h('div', { class: 'cap-term' }, h('span', { class: 'ci ' + cls }, icon), h('div', null, h('span', null, label), h('b', { class: cls }, v)));
+  wrap.append(h('section', { class: 'cap-sum' },
+    term('◎', 'Start capital', usd(D.d(start.amount))), h('span', { class: 'op' }, '+'),
+    term('⇅', 'Deposits − withdrawals', susd(deps + wds), tone(deps + wds)), h('span', { class: 'op' }, '+'),
+    term('$', 'Dividends', susd(divT), tone(divT)), h('span', { class: 'op' }, '+'),
+    term('▮', 'Closed trades', susd(sales), tone(sales)), h('span', { class: 'op' }, '='),
+    h('div', { class: 'cap-term total' }, h('div', null, h('span', null, 'Capital (closed trades)'), h('b', null, usd(capNow))))));
+
+  // actions
+  const act = (icon, cls, title, text, fn, disabled) => h('button', { type: 'button', class: 'cap-act', disabled: ctx.readOnly || disabled, onClick: fn }, h('span', { class: 'ai ' + cls }, icon), h('span', { class: 'at' }, h('b', null, title), h('span', null, text)), h('span', { class: 'chev' }, '›'));
+  const hasOpen = st.stocks.some((s) => st.trades.some((t) => t.stockId === s.id && C.openQty(t) > 0n));
+  wrap.append(h('div', { class: 'cap-acts' },
+    act('+', 'pos', 'Deposit', 'Add money to your capital', () => flowDialog('deposit')),
+    act('−', 'neg', 'Withdrawal', 'Money leaving your capital', () => flowDialog('withdrawal')),
+    act('$', 'info', 'Dividend', st.stocks.length ? 'Record dividend income' : 'Add a stock in Lists first', () => dividendDialog(), !st.stocks.length),
+    act('2:1', 'violet', 'Stock split', hasOpen ? 'Adjust shares of open trades' : 'No stock with open trades', () => splitDialog(ctx), !hasOpen)));
+
+  async function flowDialog(type) {
+    const word = type === 'deposit' ? 'Deposit' : 'Withdrawal';
+    const fd = datePicker({ iso: today, label: 'Date' }), fa = nm('', 'Amount');
+    const f0 = await dialog({ title: word, ok: 'Next', body: h('div', { class: 'grid', style: { gridTemplateColumns: '1fr 1fr' } }, field('Date', fd), field('Amount (USD)', fa)),
+      onOk: () => { const iso = fd.getISO(); if (!iso) return 'Enter a valid date (dd-mm-yyyy).'; const r = A.addFlow(structuredClone(st), { date: iso, type, amount: fa.value }); return r.ok ? true : r.error; } });
+    if (!f0) return;
+    const f = { date: fd.getISO(), type, amount: fa.value }; const trial = structuredClone(st); A.addFlow(trial, f); const amt = D.parse(f.amount);
+    const ok = await dialog({ title: `Add a ${word.toLowerCase()} of ${usd(amt)} on ${dmy(f.date)}?`, ok: 'Add ' + word.toLowerCase(),
+      body: h('div', null, changeTable([['Capital (closed trades)', usd(capNow), usd(C.capitalNow(trial))], Object.assign([word, '', (type === 'deposit' ? '+' : '−') + usd(amt)], { changed: true })], ['', 'Before', 'After']),
         h('p', { class: 'note', style: { marginTop: '8px' } }, 'Deposits and withdrawals change capital only, never win/loss or statistics.')) });
     if (!ok) return;
     const res = ctx.act((d) => A.addFlow(d, f), { label: word.toLowerCase(), now: true });
-    if (!res.ok) return fail(fmsg, res.error);
+    if (!res.ok) return toast(res.error);
     toast(word + ' added.', 'Undo', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0);
-  };
-  const flows = st.capital.flows.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
-  const delFlow = async (f) => {
-    const ok = await dialog({ title: `Delete the ${f.type} of ${usd(D.d(f.amount))} on ${dmy(f.date)}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for 15 days. Capital changes.', '') }); if (!ok) return;
-    const r = ctx.act((d) => A.deleteFlow(d, f.id), { label: 'delete line', now: true });
-    if (r.ok) { toast('Moved to the Trash.', 'Restore', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0); } else toast(r.error);
-  };
-  wrap.append(h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Deposits and withdrawals', h('span', { class: 'sub' }, 'change capital only')),
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, h('div', { class: 'row', style: { alignItems: 'flex-end' } }, field('Date', fd), field('Type', ft), field('Amount (USD)', fa), h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: addFlow }, 'Add…')), fmsg),
-    flows.length ? h('div', { class: 'tw', style: { padding: '0 22px 18px' } }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Date'), h('th', null, 'Type'), h('th', { class: 'r' }, 'Amount'), h('th'))), h('tbody', null, flows.map((f) => h('tr', null, h('td', null, dmy(f.date)), h('td', null, f.type === 'deposit' ? 'Deposit' : 'Withdrawal'), h('td', { class: 'r ' + (f.type === 'deposit' ? 'pos' : 'neg') }, (f.type === 'deposit' ? '+' : '−') + usd(D.d(f.amount))),
-      h('td', { class: 'r' }, h('button', { class: 'btn sm quiet-dng', disabled: ctx.readOnly, onClick: () => delFlow(f) }, 'Delete…'))))))) : h('div', { class: 'pb note' }, 'No deposits or withdrawals yet.')));
-
-  // ---- dividends (Q3 with the duplicate warning of D4) ----
-  const ds = h('select', { 'aria-label': 'Stock' }, st.stocks.filter((s) => !s.archived).map((s) => h('option', { value: s.id }, s.symbol))), dd = datePicker({ iso: today, label: 'Pay date' }), da = nm('', 'Net amount'); const dmsg = errBox();
-  const addDiv = async () => {
-    dmsg.hidden = true; const iso = dd.getISO(); if (!iso) return fail(dmsg, 'Enter a valid pay date (dd-mm-yyyy).');
-    const v = { stockId: ds.value, payDate: iso, amount: da.value };
-    const trial = structuredClone(st); const r = A.addDividend(trial, v); if (!r.ok) return fail(dmsg, r.error);
+  }
+  async function dividendDialog() {
+    const ds = h('select', { 'aria-label': 'Stock' }, st.stocks.filter((s) => !s.archived).map((s) => h('option', { value: s.id }, s.symbol))), dd = datePicker({ iso: today, label: 'Pay date' }), da = nm('', 'Net amount');
+    const f0 = await dialog({ title: 'Dividend', ok: 'Next', body: h('div', { class: 'grid', style: { gridTemplateColumns: '1fr 1fr 1fr' } }, field('Stock', ds), field('Pay date', dd), field('Net amount (USD)', da)),
+      onOk: () => { const iso = dd.getISO(); if (!iso) return 'Enter a valid pay date (dd-mm-yyyy).'; const r = A.addDividend(structuredClone(st), { stockId: ds.value, payDate: iso, amount: da.value }); return r.ok ? true : r.error; } });
+    if (!f0) return;
+    const v = { stockId: ds.value, payDate: dd.getISO(), amount: da.value }; const trial = structuredClone(st); A.addDividend(trial, v);
     const sym = A.stockById(st, v.stockId)?.symbol ?? '?'; const amt = D.parse(v.amount);
-    const dup = st.dividends.find((x) => x.stockId === v.stockId && x.payDate === iso);
-    const ok = await dialog({ title: `Add a dividend of ${usd(amt)} from ${sym} on ${dmy(iso)}?`, ok: 'Add dividend',
-      body: h('div', null, dup ? h('div', { class: 'msg warn', style: { marginBottom: '8px' } }, `◆ ${sym} already has a dividend of ${usd(D.d(dup.amount))} on ${dmy(iso)}. Check that this is not the same one.`) : null,
+    const dup = st.dividends.find((x) => x.stockId === v.stockId && x.payDate === v.payDate);
+    const ok = await dialog({ title: `Add a dividend of ${usd(amt)} from ${sym} on ${dmy(v.payDate)}?`, ok: 'Add dividend',
+      body: h('div', null, dup ? h('div', { class: 'msg warn', style: { marginBottom: '8px' } }, `◆ ${sym} already has a dividend of ${usd(D.d(dup.amount))} on ${dmy(v.payDate)}. Check that this is not the same one.`) : null,
         changeTable([['Capital (closed trades)', usd(capNow), usd(C.capitalNow(trial))], Object.assign(['Dividend ' + sym, '', '+' + usd(amt)], { changed: true })], ['', 'Before', 'After']),
         h('p', { class: 'note', style: { marginTop: '8px' } }, 'Net amount in USD. Dividends add to capital on the pay date, never to win/loss.')) });
     if (!ok) return;
     const res = ctx.act((d) => A.addDividend(d, v), { label: 'dividend', now: true });
-    if (!res.ok) return fail(dmsg, res.error);
+    if (!res.ok) return toast(res.error);
     toast('Dividend added.', 'Undo', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0);
+  }
+  const delFlow = async (f) => {
+    const ok = await dialog({ title: `Delete the ${f.type} of ${usd(D.d(f.amount))} on ${dmy(f.date)}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for 15 days. Capital changes.', '') }); if (!ok) return;
+    const r = ctx.act((d) => A.deleteFlow(d, f.id), { label: 'delete line', now: true });
+    if (r.ok) { toast('Moved to the Trash.', 'Restore', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0); } else toast(r.error);
   };
   const delDiv = async (x) => {
     const sym = A.stockById(st, x.stockId)?.symbol ?? '?';
@@ -117,32 +136,49 @@ export function render(ctx) {
     const r = ctx.act((d) => A.deleteDividend(d, x.id), { label: 'delete dividend', now: true });
     if (r.ok) { toast('Dividend moved to the Trash.', 'Restore', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0); } else toast(r.error);
   };
-  const divs = st.dividends.slice().sort((a, b) => (a.payDate < b.payDate ? 1 : -1));
-  wrap.append(h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Dividends', h('span', { class: 'sub' }, 'net amount received; adds to capital')),
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, st.stocks.length ? h('div', { class: 'row', style: { alignItems: 'flex-end' } }, field('Stock', ds), field('Pay date', dd), field('Net amount (USD)', da), h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: addDiv }, 'Add…')) : h('p', { class: 'note' }, 'Add a stock first (open a trade, or use Lists).'), dmsg),
-    divs.length ? h('div', { class: 'tw', style: { padding: '0 22px 18px' } }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Pay date'), h('th', null, 'Stock'), h('th', { class: 'r' }, 'Net amount'), h('th'))), h('tbody', null, divs.map((x) => h('tr', null, h('td', null, dmy(x.payDate)), h('td', { class: 'mono' }, A.stockById(st, x.stockId)?.symbol ?? '?'), h('td', { class: 'r pos' }, '+' + usd(D.d(x.amount))),
-      h('td', { class: 'r' }, h('button', { class: 'btn sm quiet-dng', disabled: ctx.readOnly, onClick: () => delDiv(x) }, 'Delete…'))))))) : null));
+
+  // activity (newest first) + breakdown
+  const ev = [];
+  ev.push({ date: start.date, icon: '⚑', cls: 'info', kind: 'start', event: 'Start capital', details: 'Account baseline', amount: usd(D.d(start.amount)), act: h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: editStart }, 'Edit…') });
+  for (const f of st.capital.flows) ev.push({ date: f.date, icon: f.type === 'deposit' ? '+' : '−', cls: f.type === 'deposit' ? 'pos' : 'neg', kind: 'flow', event: f.type === 'deposit' ? 'Deposit' : 'Withdrawal', details: 'Changes capital only', amount: (f.type === 'deposit' ? '+' : '−') + usd(D.d(f.amount)), tone: f.type === 'deposit' ? 'pos' : 'neg', act: h('button', { class: 'btn sm quiet-dng', disabled: ctx.readOnly, onClick: () => delFlow(f) }, 'Delete…') });
+  for (const x of st.dividends) ev.push({ date: x.payDate, icon: '$', cls: 'info', kind: 'div', event: 'Dividend', details: A.stockById(st, x.stockId)?.symbol ?? '?', amount: '+' + usd(D.d(x.amount)), tone: 'pos', act: h('button', { class: 'btn sm quiet-dng', disabled: ctx.readOnly, onClick: () => delDiv(x) }, 'Delete…') });
+  ev.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  const filt = h('select', { 'aria-label': 'Show' }, h('option', { value: 'all' }, 'All events'), h('option', { value: 'flow' }, 'Deposits and withdrawals'), h('option', { value: 'div' }, 'Dividends'));
+  const tbody = h('tbody');
+  const fill = () => {
+    const f = filt.value; const rows = ev.filter((e) => f === 'all' || e.kind === f);
+    const salesRow = f === 'all' ? [h('tr', null, h('td', { class: 'mut' }, 'All sales'), h('td', null, h('span', { class: 'evi ' + (tone(sales) || 'info') }, '▮'), ' Net result of closed trades'), h('td', { class: 'mut' }, `${nSales} sale${nSales === 1 ? '' : 's'}, after commissions`), h('td', { class: 'r ' + tone(sales) }, h('b', null, susd(sales))), h('td'))] : [];
+    tbody.replaceChildren(...salesRow, ...rows.map((e) => h('tr', null, h('td', null, dmy(e.date)), h('td', null, h('span', { class: 'evi ' + e.cls }, e.icon), ' ' + e.event), h('td', { class: 'mut' }, e.details), h('td', { class: 'r ' + (e.tone || '') }, h('b', null, e.amount)), h('td', { class: 'r' }, e.act))),
+      ...(rows.length ? [] : [h('tr', null, h('td', { colspan: 5, class: 'mut', style: { textAlign: 'center', padding: '18px' } }, 'Nothing recorded yet.'))]));
+  };
+  filt.addEventListener('change', fill); fill();
+  const br = (label, v, cls = '') => h('div', { class: 'brk-row' }, h('span', null, label), h('b', { class: cls }, v));
+  wrap.append(h('div', { class: 'cap-grid' },
+    h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, 'Capital activity'), filt),
+      h('div', { class: 'tw' }, h('table', { class: 'cap-table' }, h('thead', null, h('tr', null, h('th', null, 'Date'), h('th', null, 'Event'), h('th', null, 'Details'), h('th', { class: 'r' }, 'Amount (USD)'), h('th'))), tbody)),
+      h('div', { class: 'cap-note' }, 'ⓘ Deposits, withdrawals and dividends change capital only. They never count as win or loss and do not change open positions.')),
+    h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, 'Breakdown'), h('span', { class: 'stag' }, 'Current')),
+      h('div', { class: 'scb brk' }, br('Start capital', usd(D.d(start.amount))), br('Deposits', susd(deps), tone(deps)), br('Withdrawals', susd(wds), tone(wds)), br('Dividends', susd(divT), tone(divT)), br('Closed trades', susd(sales), tone(sales)),
+        h('div', { class: 'brk-row total' }, h('span', null, 'Capital (closed trades)'), h('b', null, usd(capNow)))))));
 
   // ---- recalculation of capital at open (only when something differs) ----
   const diffs = A.capitalDiffs(st);
   if (diffs.length) wrap.append(h('div', { class: 'msg warn', role: 'status' }, `◆ The capital at open of ${diffs.length} trade${diffs.length === 1 ? '' : 's'} no longer matches your capital history. `, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: async () => { const ok = await dialog({ title: 'Recalculate capital at open?', wide: true, ok: 'Recalculate', body: changeTable(diffs.map((x) => Object.assign([x.id + ' ' + x.symbol, money(D.d(x.before)), money(D.d(x.after))], { changed: true }))) }); if (ok) ctx.act((d) => A.recalcCapital(d), { label: 'capital at open', now: true }); } }, 'Review…')));
 
   // ---- stock split ----
-  wrap.append(splitPanel(ctx));
   return wrap;
 }
 
-function splitPanel(ctx) {
+async function splitDialog(ctx) {
   const st = ctx.store.state; const withOpen = st.stocks.filter((s) => st.trades.some((t) => t.stockId === s.id && C.openQty(t) > 0n));
-  const sel = h('select', { 'aria-label': 'Stock' }, withOpen.map((s) => h('option', { value: s.id }, s.symbol))), rn = h('input', { value: '2', style: { width: '60px', textAlign: 'right' }, 'aria-label': 'New shares' }), ro = h('input', { value: '1', style: { width: '60px', textAlign: 'right' }, 'aria-label': 'Old shares' }), date = datePicker({ iso: ctx.today(), label: 'Split date' });
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Stock split', h('span', { class: 'sub' }, 'changes quantity and prices of open trades')),
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, withOpen.length ? h('div', { class: 'row', style: { alignItems: 'flex-end' } }, field('Stock', sel), field('New shares', rn), field('for old shares', ro), field('Split date', date),
-      h('button', { class: 'btn', disabled: ctx.readOnly, onClick: async () => {
-        const iso = parseDMY(date.value); if (!iso) return toast('Enter a valid split date (dd-mm-yyyy).');
-        const p = A.splitPreview(st, sel.value, rn.value, ro.value, iso); if (!p.ok) return toast(p.error); if (!p.data.rows.length) return toast('This stock has no open trades to convert.');
-        const sym = A.stockById(st, sel.value).symbol;
-        const ok = await dialog({ title: `Apply the ${rn.value}:${ro.value} split of ${sym}?`, wide: true, ok: 'Apply split', body: h('div', null, para('Open trades are converted, including the sold part of partly sold trades, so quantities and prices stay consistent. Results and R do not change.'),
-          changeTable(p.data.rows.flatMap((r) => [Object.assign([`${r.trade.id} quantity`, qtyTxt(r.qtyBefore), qtyTxt(r.qtyAfter)], { changed: true }), Object.assign([`${r.trade.id} buy price`, priceTxt(r.priceBefore), priceTxt(r.priceAfter)], { changed: true })]))) });
-        if (ok) { const r = ctx.act((d) => A.applySplit(d, sel.value, rn.value, ro.value, iso), { label: 'split ' + sym, now: true }); toast(r.ok ? `${sym} split applied.` : r.error); } } }, 'Preview split…'))
-      : h('p', { class: 'note' }, 'No stock with open trades.')));
+  const sel = h('select', { 'aria-label': 'Stock' }, withOpen.map((s) => h('option', { value: s.id }, s.symbol))), rn = h('input', { value: '2', style: { textAlign: 'right' }, 'aria-label': 'New shares' }), ro = h('input', { value: '1', style: { textAlign: 'right' }, 'aria-label': 'Old shares' }), date = datePicker({ iso: ctx.today(), label: 'Split date' });
+  let p = null;
+  const go = await dialog({ title: 'Stock split', ok: 'Preview split', body: h('div', null, para('Changes the quantity and prices of the open trades of this stock. Results and R do not change.', 'note'),
+    h('div', { class: 'grid', style: { gridTemplateColumns: '1.2fr 1fr 1fr 1.4fr', marginTop: '8px' } }, field('Stock', sel), field('New shares', rn), field('for old shares', ro), field('Split date', date))),
+    onOk: () => { const iso = date.getISO(); if (!iso) return 'Enter a valid split date (dd-mm-yyyy).'; p = A.splitPreview(st, sel.value, rn.value, ro.value, iso); if (!p.ok) return p.error; if (!p.data.rows.length) return 'This stock has no open trades to convert.'; p.iso = iso; return true; } });
+  if (!go) return;
+  const sym = A.stockById(st, sel.value).symbol;
+  const ok = await dialog({ title: `Apply the ${rn.value}:${ro.value} split of ${sym}?`, wide: true, ok: 'Apply split', body: h('div', null, para('Open trades are converted, including the sold part of partly sold trades, so quantities and prices stay consistent. Results and R do not change.'),
+    changeTable(p.data.rows.flatMap((r) => [Object.assign([`${r.trade.id} quantity`, qtyTxt(r.qtyBefore), qtyTxt(r.qtyAfter)], { changed: true }), Object.assign([`${r.trade.id} buy price`, priceTxt(r.priceBefore), priceTxt(r.priceAfter)], { changed: true })]))) });
+  if (ok) { const r = ctx.act((d) => A.applySplit(d, sel.value, rn.value, ro.value, p.iso), { label: 'split ' + sym, now: true }); toast(r.ok ? `${sym} split applied.` : r.error); }
 }
