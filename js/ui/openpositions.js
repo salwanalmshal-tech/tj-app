@@ -1,6 +1,6 @@
 // Open positions: the daily workspace. Look from the UX/UI specification; content, names and rules from the agreed decisions.
-// Hierarchy: page header + four account numbers, "Needs your attention" (exceptions, 3-4 cards with a slider), and
-// "All open positions" as cards (2026-11-06) with filters. A card opens the daily detail panel. All numbers come from calc.js / marks.js.
+// Hierarchy: page header + four account numbers, then "All open positions" as cards straight on the page (1.2.1) with
+// filters and an Auto | Drag and drop order switch. A card opens the daily detail panel. All numbers come from calc.js / marks.js.
 import { h, dialog, para, toast, money, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, changeTable, infoBtn, pill, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
@@ -69,53 +69,65 @@ export function render(ctx) {
     return wrap;
   }
 
-  // ---- Needs your attention: 3-4 cards visible, the rest behind the slider
+  // ---- All open positions as cards, straight on the page (1.2.1: the separate "Needs your attention" slider is removed;
+  // the cards, their status and the "Needs attention" filter show it). Order: Auto (most urgent first) or his own (drag and drop).
   const exc = all.filter((l) => l.status !== 'ok');
-  const track = h('div', { class: 'attn-track', tabindex: exc.length > 1 ? 0 : null, 'aria-label': 'Lines that need attention' }, exc.map((l) => {
-    const top = l.exc[0]; const rest = l.exc.slice(1);
-    return h('div', { class: 'attn-c ' + l.status },
-      h('div', { class: 'sym' }, l.sym, h('span', { class: 's2' }, ' · ' + l.t.id)),
-      h('div', { class: 'kind' }, (l.status === 'act' ? 'Act now' : 'Review') + ' · ' + top.text),
-      h('p', { class: 'why' }, top.why, rest.length ? ` Also: ${rest.map((x) => x.text).join('; ')}.` : ''),
-      h('div', { class: 'row' },
-        l.status === 'act' ? h('button', { class: 'btn sm risk', disabled: ctx.readOnly, onClick: () => ctx.go('close-trade', { tradeId: l.t.id }) }, 'Close…') : null,
-        h('button', { class: 'btn sm', onClick: () => detail(ctx, l.t.id) }, 'Open line')));
-  }));
-  const counter = h('span', { class: 'note', 'aria-live': 'polite' });
-  const prev = h('button', { class: 'btn sm', 'aria-label': 'Previous cards', onClick: () => slide(-1) }, '‹');
-  const next = h('button', { class: 'btn sm', 'aria-label': 'Next cards', onClick: () => slide(1) }, '›');
-  function slide(dir) { track.scrollBy({ left: dir * track.clientWidth, behavior: 'smooth' }); }
-  function paintSlider() {
-    const card = track.firstElementChild; if (!card || !track.isConnected || track.clientWidth === 0) { prev.hidden = next.hidden = counter.hidden = true; return; }
-    const w = card.getBoundingClientRect().width + 12; const per = Math.max(1, Math.round(track.clientWidth / w));
-    const first = Math.round(track.scrollLeft / w) + 1; const lastShown = Math.min(exc.length, first + per - 1);
-    const show = exc.length > per; prev.hidden = next.hidden = !show; counter.hidden = !show;
-    counter.textContent = `${first}–${lastShown} of ${exc.length}`; prev.disabled = first <= 1; next.disabled = lastShown >= exc.length;
-  }
-  track.addEventListener('scroll', () => requestAnimationFrame(paintSlider));
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => paintSlider()).observe(track);
-  track.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') { e.preventDefault(); slide(1); } if (e.key === 'ArrowLeft') { e.preventDefault(); slide(-1); } });
-  prev.hidden = next.hidden = counter.hidden = true;
-  wrap.append(h('section', { class: 'card', 'aria-label': 'Needs your attention' },
-    h('div', { class: 'card-h' }, h('div', null, h('h2', null, exc.length ? `Needs your attention (${exc.length})` : 'Needs your attention'), h('p', { class: 'lead' }, 'Only lines that may need a decision. Most urgent first.')),
-      exc.length ? h('div', { class: 'row' }, counter, prev, next) : null),
-    h('div', { class: 'card-b' }, exc.length ? track : h('div', { class: 'calm' }, '✓ Nothing needs a decision today. All lines are on plan.'))));
-
-  // ---- All open positions as cards (2026-11-06): one card per buy line, most urgent first; the related value is highlighted
   const nAtt = exc.length, nMiss = all.filter((l) => isMissing(l.marks)).length;
   if (filter === 'attention' && !nAtt || filter === 'missing' && !nMiss) filter = 'all';
   const shown = filter === 'attention' ? exc : filter === 'missing' ? all.filter((l) => isMissing(l.marks)) : all;
   const chip = (key, label, n) => h('button', { class: 'chip', 'aria-pressed': String(filter === key), onClick: () => { filter = key; ctx.redraw(); } }, `${label} · ${n}`);
-  const cardsSorted = [...shown].sort((a, b) => CS_ORDER[M.cardStatus(a.marks)] - CS_ORDER[M.cardStatus(b.marks)] || a.sym.localeCompare(b.sym) || (a.t.seq ?? 0) - (b.t.seq ?? 0));
+  const lay = st.layouts?.openCards || {}; const mode = lay.mode === 'drag' ? 'drag' : 'auto';
+  const autoSort = (list) => [...list].sort((a, b) => CS_ORDER[M.cardStatus(a.marks)] - CS_ORDER[M.cardStatus(b.marks)] || a.sym.localeCompare(b.sym) || (a.t.seq ?? 0) - (b.t.seq ?? 0));
+  const cardsSorted = mode === 'drag' ? ownOrder(shown, lay.order || []) : autoSort(shown);
+  const canDrag = mode === 'drag' && filter === 'all' && !ctx.readOnly;
+  const setLayout = (patch, label) => ctx.act((d) => { d.layouts ??= {}; d.layouts.openCards = { ...(d.layouts.openCards || {}), ...patch }; return { ok: true }; }, { label, now: true });
+  const seg = (key, label) => h('button', { class: 'seg-b', 'aria-pressed': String(mode === key), disabled: ctx.readOnly, onClick: () => { if (mode !== key) setLayout(key === 'drag' && !lay.order?.length ? { mode: key, order: autoSort(all).map((l) => l.t.id) } : { mode: key }, 'card order mode'); } }, label);
+  const grid = h('div', { class: 'pcards' + (canDrag ? ' dragmode' : '') }, cardsSorted.map((l) => posCard(ctx, l, today)));
+  if (canDrag) dragCards(grid, (ids) => setLayout({ order: ids }, 'card order'));
   const totPL = shown.reduce((a, l) => a + (l.m.openPL ?? 0n), 0n);
-  wrap.append(h('section', { class: 'card', 'aria-label': 'All open positions' },
-    h('div', { class: 'card-h', style: { paddingBottom: '6px' } }, h('div', null, h('h2', null, 'All open positions'), h('p', { class: 'lead' }, 'Most urgent first. The value that needs a look is highlighted. Click a card to update, close or edit the line.')),
+  wrap.append(h('section', { class: 'cards-sec', 'aria-label': 'All open positions' },
+    h('div', { class: 'cards-head' }, h('h2', null, 'All open positions'),
       h('div', { class: 'row' }, chip('all', 'All', all.length), nAtt ? chip('attention', 'Needs attention', nAtt) : null, nMiss ? chip('missing', 'Missing data', nMiss) : null,
+        h('div', { class: 'seg', role: 'group', 'aria-label': 'Card order' }, seg('drag', 'Drag and drop'), seg('auto', 'Auto')),
         h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => updatePrices(ctx, all.map((l) => l.t)) }, 'Update prices'))),
-    h('div', { class: 'pcards' }, cardsSorted.map((l) => posCard(ctx, l, today))),
-    h('div', { class: 'pfoot' }, h('span', null, `${shown.length} line${shown.length === 1 ? '' : 's'}${filter === 'all' ? '' : ' (filtered)'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} without stop not included` : ''),
+    mode === 'drag' && filter !== 'all' ? h('div', { class: 'note' }, 'Your own order. Select “All” to move cards.') : null,
+    grid,
+    h('div', { class: 'cards-foot' }, h('span', null, `${shown.length} line${shown.length === 1 ? '' : 's'}${filter === 'all' ? '' : ' (filtered)'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} without stop not included` : ''),
       h('span', null, `In market ${pctTxt(inMarket, 1)}`))));
   return wrap;
+}
+
+// His own order (drag and drop): lines not in the saved order yet (new trades) come first, newest on top.
+function ownOrder(list, order) {
+  const pos = new Map(order.map((id, i) => [id, i]));
+  return [...list].sort((a, b) => {
+    const pa = pos.get(a.t.id), pb = pos.get(b.t.id);
+    if (pa === undefined && pb === undefined) return (b.t.seq ?? 0) - (a.t.seq ?? 0);
+    if (pa === undefined) return -1; if (pb === undefined) return 1;
+    return pa - pb;
+  });
+}
+// Mouse drag and drop of the cards; a short click still opens the line (the browser sends no click after a drag).
+function dragCards(grid, onDone) {
+  let dragEl = null;
+  for (const c of grid.children) {
+    c.draggable = true;
+    c.addEventListener('dragstart', (e) => { dragEl = c; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.id); });
+    c.addEventListener('dragend', () => {
+      c.classList.remove('dragging'); dragEl = null;
+      const ids = [...grid.children].map((x) => x.dataset.id);
+      if (ids.join() !== grid.dataset.start) onDone(ids);
+    });
+  }
+  grid.dataset.start = [...grid.children].map((x) => x.dataset.id).join();
+  grid.addEventListener('dragover', (e) => {
+    if (!dragEl) return; e.preventDefault();
+    const over = e.target.closest('.pcard'); if (!over || over === dragEl) return;
+    const r = over.getBoundingClientRect();
+    const after = r.width > r.height * 1.6 && Math.abs(e.clientY - (r.top + r.height / 2)) < r.height / 2 ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2;
+    over.parentNode.insertBefore(dragEl, after ? over.nextSibling : over);
+  });
+  grid.addEventListener('drop', (e) => e.preventDefault());
 }
 
 // ---- Position card (agreed 2026-11-05/06) ----
@@ -156,7 +168,7 @@ function posCard(ctx, l, today) {
   const tick = Math.min(100, Number(D.d(S.posSmallTo)) / Number(D.SCALE) / SIZE_FULL * 100);
   const sizeCls = hl.size ? hl.size.c : 'g';
   const open = () => detail(ctx, t.id);
-  return h('article', { class: 'pcard ' + cs, tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${CS_WORD[cs]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
+  return h('article', { class: 'pcard ' + cs, 'data-id': t.id, tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${CS_WORD[cs]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
     h('div', { class: 'pc-top' }, h('span', { class: 'pc-sym', title: t.id + (t.sales.length ? ' · partly sold' : '') }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null), h('span', { class: 'pc-st ' + cs }, CS_WORD[cs])),
     h('div', { class: 'pc-main' },
       h('div', { class: 'pc-left' },
@@ -168,8 +180,8 @@ function posCard(ctx, l, today) {
           h('div', null, lab('EMA10'), val('ema', priceTxt(num(t.ema10))))),
         h('div', { class: 'pc-small' }, h('span', null, 'Report: ', val('rep', reportText(t.nextReport, today))), h('span', null, 'Initial stop: ', val('init', init === null ? 'None' : priceTxt(init))))),
       h('div', { class: 'pc-right' },
-        h('div', null, lab('Risk'), val('risk', risk, 'mid')),
-        h('div', null, lab('Result'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'From buy price to last price' }, result === null ? '–' : spct(result, 2))))),
+        h('div', null, lab('Risk of Capital'), val('risk', risk, 'mid')),
+        h('div', null, lab('Performance'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'From buy price to last price' }, result === null ? '–' : spct(result, 2))))),
     h('div', { class: 'pc-size', title: 'Position size: last price × open shares as % of the estimated account' },
       h('div', { class: 'sbar' }, h('i', { class: 'fill ' + sizeCls, style: { width: Math.min(100, sizeN / SIZE_FULL * 100) + '%' } }), h('i', { class: 'tick', style: { left: tick + '%' } })),
       h('span', { class: 'sz' + (hl.size ? ' t-' + hl.size.c : ''), title: hl.size ? hl.size.why.join(' · ') : null }, 'Size ' + pctTxt(size, 1))));
