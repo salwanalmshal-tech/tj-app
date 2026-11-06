@@ -239,7 +239,7 @@ function posCard(ctx, l, today) {
         h('div', null, lab('Performance'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'From buy price to last price' }, result === null ? '–' : spct(result, 2))))),
     h('div', { class: 'pc-size', title: 'Position size: last price × open shares as % of the estimated account' },
       // 2026-11-06: the size line is removed; its colours now go to the size text (green / orange / red, same limits)
-      h('span', { class: 'sz c-' + sizeCls, title: hl.size ? hl.size.why.join(' · ') : null }, 'Size ' + pctTxt(size, 1))));
+      h('span', { class: 'sz c-' + sizeCls, title: hl.size ? hl.size.why.join(' · ') : null }, 'Position size ' + pctTxt(size, 1))));
 }
 
 // ---- Line panel: all marks, the daily values (B2: saved at once, Undo for the last change), the facts, and the actions ----
