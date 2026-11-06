@@ -1,30 +1,92 @@
 import { h, dialog, para, toast, field } from './dom.js';
 import * as A from '../actions.js';
 
-let showArchived = false;
-const NAMES = { stocks: ['Stocks', 'symbol'], setups: ['Setups', 'name'], errors: ['Errors', 'name'] };
+// Layout 2026-11-06 (his Lists example + Q12): tabs Stocks / Setups / Errors with counts, search, filters, sortable columns,
+// a missing-info filter, count and pages; one "…" menu per row (Edit, Archive/Restore, Delete). Rules J1–J3 unchanged.
+const NAMES = { stocks: ['Stocks', 'symbol', 'stock'], setups: ['Setups', 'name', 'setup'], errors: ['Errors', 'name', 'error'] };
+const LEADS = { stocks: 'Your stocks with sector, industry and exchange. Typing a symbol in Open trade fills these in.', setups: 'Reusable trade setups. Usually a short list.', errors: 'Trading mistakes you want to recognize across your journal.' };
+const PAGE = 25;
+const V = { tab: 'stocks', q: '', sector: '', exch: '', status: 'active', sort: { stocks: ['trades', -1], setups: ['trades', -1], errors: ['trades', -1] }, page: 0 };
+const missingInfo = (it) => !it.sector || !it.industry || !it.exchange;
 
 export function render(ctx) {
-  const st = ctx.store.state;
-  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
-    h('label', { class: 'row note' }, h('input', { type: 'checkbox', checked: showArchived, onChange: (e) => { showArchived = e.target.checked; ctx.redraw(); } }), ' Show archived items'),
-    ['stocks', 'setups', 'errors'].map((list) => panel(ctx, st, list)));
+  const st = ctx.store.state; const list = V.tab; const [title, key, one] = NAMES[list];
+  const count = (l) => st[l].filter((x) => !x.archived).length;
+  const tabs = h('div', { class: 'ltabs', role: 'tablist' }, Object.keys(NAMES).map((l) => h('button', { type: 'button', role: 'tab', class: l === list ? 'on' : '', 'aria-selected': String(l === list), onClick: () => { V.tab = l; V.q = ''; V.sector = ''; V.exch = ''; V.status = 'active'; V.page = 0; ctx.redraw(); } }, `${NAMES[l][0]} · ${count(l)}`)));
+  const addBtn = h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: () => addItem(ctx, list) }, '+ Add ' + one);
+  return h('div', { class: 'lists' }, h('div', { class: 'lbar' }, tabs, addBtn), h('p', { class: 'lead', style: { margin: '-4px 0 0' } }, LEADS[list]), table(ctx, st, list, key));
 }
-function panel(ctx, st, list) {
-  const [title, key] = NAMES[list]; const items = st[list].filter((x) => showArchived || !x.archived).sort((a, b) => a[key].localeCompare(b[key]));
-  const add = h('input', { 'aria-label': 'New ' + title.toLowerCase().slice(0, -1), placeholder: list === 'stocks' ? 'Symbol' : 'Name', style: list === 'stocks' ? { textTransform: 'uppercase' } : null }); const msg = h('span', { class: 'err', role: 'alert' });
-  const doAdd = () => { const r = ctx.act((d) => A.addListItem(d, list, add.value), { label: 'new ' + title.toLowerCase().slice(0, -1), now: true }); if (!r.ok) msg.textContent = r.error; };
-  add.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
-  const head = ['Name', ...(list === 'stocks' ? ['Sector', 'Industry', 'Exchange'] : []), 'Used by', 'Status', ''];
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, title, h('span', { class: 'sub' }, `${items.length} item${items.length === 1 ? '' : 's'}`)),
-    h('div', { class: 'pb row' }, add, h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: doAdd }, 'Add'), msg),
-    items.length ? h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, head.map((x) => h('th', null, x)))), h('tbody', null, items.map((it) => {
-      const used = A.listUsage(st, list, it.id);
-      return h('tr', { class: it.archived ? 'mut' : '' }, h('td', { class: list === 'stocks' ? 'mono' : '' }, it[key]), ...(list === 'stocks' ? [it.sector, it.industry, it.exchange].map((x) => h('td', null, x || '–')) : []), h('td', null, used ? String(used) : '–'), h('td', null, it.archived ? h('span', { class: 'pill' }, 'Archived') : 'Active'),
-        h('td', { class: 'r' }, h('div', { class: 'row', style: { justifyContent: 'flex-end' } }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => edit(ctx, list, it) }, 'Edit'),
-          h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => archive(ctx, list, it) }, it.archived ? 'Restore' : 'Archive'),
-          h('button', { class: 'btn sm quiet-dng', disabled: ctx.readOnly, onClick: () => del(ctx, list, it, used) }, 'Delete'))));
-    })))) : h('div', { class: 'pb note' }, 'Nothing here yet.'));
+
+function table(ctx, st, list, key) {
+  const usage = new Map(st[list].map((it) => [it.id, A.listUsage(st, list, it.id)]));
+  // filters
+  let rows = st[list].filter((it) => V.status === 'all' ? true : V.status === 'archived' ? it.archived : V.status === 'missing' ? !it.archived && list === 'stocks' && missingInfo(it) : !it.archived);
+  const q = V.q.trim().toLowerCase();
+  if (q) rows = rows.filter((it) => [it[key], it.sector, it.industry, it.exchange].some((x) => (x || '').toLowerCase().includes(q)));
+  if (list === 'stocks' && V.sector) rows = rows.filter((it) => (it.sector || '') === V.sector);
+  if (list === 'stocks' && V.exch) rows = rows.filter((it) => (it.exchange || '') === V.exch);
+  // sort
+  const [sk, sd] = V.sort[list];
+  const val = (it) => (sk === 'trades' ? usage.get(it.id) : (it[sk] || '').toLowerCase());
+  rows.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * sd || a[key].localeCompare(b[key]); });
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE)); if (V.page >= pages) V.page = pages - 1;
+  const shown = rows.slice(V.page * PAGE, V.page * PAGE + PAGE);
+
+  // toolbar
+  const search = h('input', { class: 'lsearch', type: 'search', value: V.q, placeholder: list === 'stocks' ? 'Search symbol, sector or industry' : 'Search name', 'aria-label': 'Search' });
+  search.addEventListener('input', () => { V.q = search.value; V.page = 0; ctx.redraw(); });
+  search.dataset.keep = 'lsearch'; search.addEventListener('focus', () => { const n = search.value.length; search.setSelectionRange(n, n); });
+  const sel = (value, opts, onPick, label) => { const s = h('select', { 'aria-label': label }, opts.map(([v, t]) => h('option', { value: v, selected: v === value }, t))); s.addEventListener('change', () => { onPick(s.value); V.page = 0; ctx.redraw(); }); return s; };
+  const uniq = (f) => [...new Set(st.stocks.map((x) => x[f]).filter(Boolean))].sort();
+  const nMissing = list === 'stocks' ? st.stocks.filter((x) => !x.archived && missingInfo(x)).length : 0;
+  const tools = h('div', { class: 'ltools' }, search, h('div', { class: 'lfilters' },
+    list === 'stocks' ? sel(V.sector, [['', 'All sectors'], ...uniq('sector').map((x) => [x, x])], (v) => { V.sector = v; }, 'Sector') : null,
+    list === 'stocks' ? sel(V.exch, [['', 'All exchanges'], ...uniq('exchange').map((x) => [x, x])], (v) => { V.exch = v; }, 'Exchange') : null,
+    sel(V.status, [['active', 'Active'], ...(list === 'stocks' ? [['missing', `Missing info · ${nMissing}`]] : []), ['archived', 'Archived'], ['all', 'All']], (v) => { V.status = v; }, 'Status')));
+
+  // table
+  const cols = list === 'stocks' ? [['symbol', 'Symbol'], ['sector', 'Sector'], ['industry', 'Industry'], ['exchange', 'Exchange'], ['trades', 'Trades'], [null, 'Status'], [null, '']] : [['name', 'Name'], ['trades', 'Trades'], [null, 'Status'], [null, '']];
+  const th = ([k, t]) => k ? h('th', { class: 'sortable' + (k === sk ? ' on' : ''), 'aria-sort': k === sk ? (sd > 0 ? 'ascending' : 'descending') : 'none' },
+    h('button', { type: 'button', onClick: () => { V.sort[list] = [k, k === sk ? -sd : k === 'trades' ? -1 : 1]; ctx.redraw(); } }, t, h('span', { class: 'sa' }, k === sk ? (sd > 0 ? '▲' : '▼') : '↕'))) : h('th', null, t);
+  const miss = h('span', { class: 'lmiss' }, 'Missing');
+  const cell = (v) => (v ? v : miss.cloneNode(true));
+  const body = shown.map((it) => {
+    const n = usage.get(it.id);
+    const status = h('span', { class: 'lst ' + (it.archived ? 'arch' : 'act') }, it.archived ? 'Archived' : 'Active');
+    const trades = h('span', { class: 'ltr' + (n ? '' : ' zero') }, n === 1 ? '1 trade' : n + ' trades');
+    const menu = rowMenu(ctx, list, it, n);
+    return list === 'stocks'
+      ? h('tr', { class: it.archived ? 'arch' : '' }, h('td', null, h('b', { class: 'lsym' }, it.symbol)), h('td', null, cell(it.sector)), h('td', null, cell(it.industry)), h('td', null, cell(it.exchange)), h('td', null, trades), h('td', null, status), h('td', { class: 'r' }, menu))
+      : h('tr', { class: it.archived ? 'arch' : '' }, h('td', null, h('b', null, it.name)), h('td', null, trades), h('td', null, status), h('td', { class: 'r' }, menu));
+  });
+  const empty = h('div', { class: 'empty' }, h('b', null, st[list].length ? 'Nothing matches' : 'Nothing here yet'), h('span', null, st[list].length ? 'Change the search or the filters.' : `Add your first ${NAMES[list][2]} with “+ Add ${NAMES[list][2]}”.`));
+  const pager = pages > 1 ? h('div', { class: 'row lpager' }, ...Array.from({ length: pages }, (_, i) => h('button', { type: 'button', class: 'btn sm' + (i === V.page ? ' on' : ''), onClick: () => { V.page = i; ctx.redraw(); } }, String(i + 1))),
+    h('button', { type: 'button', class: 'btn sm', disabled: V.page >= pages - 1, onClick: () => { V.page++; ctx.redraw(); } }, 'Next ›')) : null;
+  return h('section', { class: 'scard ltable' }, h('div', { class: 'lhead' }, tools),
+    shown.length ? h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, cols.map(th))), h('tbody', null, body))) : empty,
+    h('div', { class: 'lfoot' }, h('span', { class: 'note' }, `Showing ${shown.length} of ${rows.length} ${NAMES[list][0].toLowerCase()}`), pager));
+}
+
+// "…" menu per row: Edit, Archive / Restore, Delete (rules J2: archive instead of delete; delete only when unused)
+let openMenu = null;
+document.addEventListener('click', (e) => { if (openMenu && !openMenu.contains(e.target)) { openMenu.classList.remove('open'); openMenu = null; } });
+function rowMenu(ctx, list, it, used) {
+  const item = (label, fn, cls = '') => h('button', { type: 'button', class: cls, disabled: ctx.readOnly, onClick: (e) => { e.stopPropagation(); wrap.classList.remove('open'); openMenu = null; fn(); } }, label);
+  const wrap = h('div', { class: 'lmenu' },
+    h('button', { type: 'button', class: 'btn sm ldots', 'aria-label': 'Actions for ' + it[NAMES[list][1]], onClick: (e) => { e.stopPropagation(); const was = wrap.classList.contains('open'); if (openMenu) openMenu.classList.remove('open'); wrap.classList.toggle('open', !was); openMenu = was ? null : wrap; } }, '•••'),
+    h('div', { class: 'lpop' }, item('Edit…', () => edit(ctx, list, it)), item(it.archived ? 'Restore' : 'Archive', () => archive(ctx, list, it)), item('Delete…', () => del(ctx, list, it, used), 'dng')));
+  return wrap;
+}
+function addItem(ctx, list) {
+  const [, key, one] = NAMES[list];
+  const name = h('input', { 'aria-label': list === 'stocks' ? 'Symbol' : 'Name', style: list === 'stocks' ? { textTransform: 'uppercase' } : null, autocomplete: 'off' });
+  const extra = list === 'stocks' ? { sector: h('input', { 'aria-label': 'Sector' }), industry: h('input', { 'aria-label': 'Industry' }), exchange: h('input', { 'aria-label': 'Exchange' }) } : null;
+  setTimeout(() => name.focus(), 0);
+  dialog({ title: 'Add ' + one, ok: 'Add', body: h('div', { style: { display: 'grid', gap: '10px' } }, field(list === 'stocks' ? 'Symbol' : 'Name', name), extra ? [field('Sector', extra.sector), field('Industry', extra.industry), field('Exchange', extra.exchange)] : null),
+    onOk: () => {
+      const r = ctx.act((d) => A.addListItem(d, list, name.value, extra ? { sector: extra.sector.value.trim(), industry: extra.industry.value.trim(), exchange: extra.exchange.value.trim() } : {}), { label: 'new ' + one, now: true });
+      if (!r.ok) return r.error; toast(`${r.data[key]} added.`); return true;
+    } });
 }
 function edit(ctx, list, it) {
   const key = NAMES[list][1]; const name = h('input', { value: it[key], 'aria-label': 'Name' });
