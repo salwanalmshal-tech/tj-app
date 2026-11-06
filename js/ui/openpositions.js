@@ -194,7 +194,7 @@ function highlights(marks) {
   for (const m of marks) {
     const k = hlKey(m.text); const c = m.level === 'crit' || m.level === 'neg' ? 'r' : m.level === 'warn' ? 'o' : null;
     if (!k || !c) continue;
-    out[k] ??= { c, why: [] }; if (c === 'r') out[k].c = 'r'; out[k].why.push(m.text);
+    out[k] ??= { c, why: [] }; if (c === 'r') out[k].c = 'r'; out[k].why.push(m.say ?? m.text);
   }
   return out;
 }
@@ -306,7 +306,7 @@ function detail(ctx, id) {
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' } },
       h('div', null, h('div', { class: 'eyebrow' }, `${t.id}${setup ? ' · ' + setup : ''}`), h('h2', { class: 'sh-title' }, sym), h('span', { class: 'st ' + status }, STATUS_TEXT[status])),
       h('button', { class: 'x', 'aria-label': 'Close', onClick: close }, '×')),
-    marks.length ? h('div', { class: 'mlist' }, marks.map((x) => h('div', { class: 'mitem ' + x.level }, h('b', null, (x.icon ? x.icon + ' ' : '') + x.text), x.why ? h('span', null, ' · ' + x.why) : null))) : h('div', { class: 'calm' }, '✓ On plan. Nothing to decide today.'),
+    marks.length ? h('div', { class: 'mlist' }, marks.map((x) => h('div', { class: 'mitem ' + x.level }, h('b', null, (x.icon ? x.icon + ' ' : '') + (x.say ?? x.text)), x.why ? h('span', null, ' · ' + x.why) : null))) : h('div', { class: 'calm' }, '✓ On plan. Nothing to decide today.'),
     h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Update today'), h('p', { class: 'lead' }, 'Your daily values. Leave a field empty to clear it.'))),
       h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
         h('div', { class: 'fgrid' }, numField('last', 'Last price'), numField('currentStop', 'Current stop'),

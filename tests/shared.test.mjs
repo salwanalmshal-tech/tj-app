@@ -74,3 +74,16 @@ test('deleted trade: gone everywhere at once, in the Trash 15 days, then gone fo
   assert.equal(st.changeLog.some((e) => e.tradeId === a.id), false); assert.equal(st.stopHistory.some((e) => e.tradeId === a.id), false);
   assert.equal(st.changeLog.some((e) => e.tradeId === b.id), true); // other trades keep their log
 });
+
+test('every mark says what is wrong with its number', async () => {
+  const M = await import('../js/marks.js'); const C = await import('../js/calc.js');
+  const { st, c } = setup(); // WMT 4 @120,42, stop 116
+  A.editDaily(st, c.id, 'last', '118'); A.editDaily(st, c.id, 'ema10', '120');
+  const says = M.lineMarks(st, c, '2026-11-06', C.estimatedAccount(st)).map((m) => m.say);
+  assert.ok(says.includes('Below EMA10 by 1,7 %'), says.join(' | '));
+  assert.ok(says.includes('Risk 0,29 % of capital (limit 0,2 %)'), says.join(' | '));
+  A.editDaily(st, c.id, 'last', '130'); A.editDaily(st, c.id, 'ema10', '129');
+  const s2 = M.lineMarks(st, c, '2026-11-06', C.estimatedAccount(st)).map((m) => m.say);
+  assert.ok(s2.some((x) => x.startsWith('Price 10,8 % above the stop')), s2.join(' | '));
+  assert.ok(s2.includes('Price only 0,8 % above EMA10'), s2.join(' | '));
+});

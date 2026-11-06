@@ -42,7 +42,7 @@ export function toast(text, actionLabel, onAction, ms = 5000) {
 }
 
 // ---- dialog: always Cancel and OK (the only exception is a one-button information box) ----
-export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = false, info = false, onOk, wide = false, confirmWord = null }) {
+export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = false, info = false, onOk, wide = false, confirmWord = null, cls = '' }) {
   return new Promise((resolve) => {
     const prevFocus = document.activeElement;
     let okBtn;
@@ -58,7 +58,7 @@ export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = fal
     if (confirmWord) word = h('input', { 'aria-label': 'Type ' + confirmWord, style: { width: '140px' }, onInput: check, autocomplete: 'off' });
     okBtn = h('button', { class: 'btn ' + (danger && !info ? 'dng' : 'pri'), onClick: doOk, disabled: !!confirmWord }, ok);
     const cancelBtn = info ? null : h('button', { class: 'btn', onClick: () => close(false) }, cancel);
-    const box = h('div', { class: 'dlg' + (wide ? ' wide' : ''), role: danger ? 'alertdialog' : 'dialog', 'aria-modal': 'true', 'aria-label': title, style: danger ? { border: '2px solid var(--neg)' } : null },
+    const box = h('div', { class: 'dlg' + (wide ? ' wide' : '') + (cls ? ' ' + cls : ''), role: danger ? 'alertdialog' : 'dialog', 'aria-modal': 'true', 'aria-label': title, style: danger ? { border: '2px solid var(--neg)' } : null },
       h('h2', { style: danger ? { color: 'var(--neg)' } : null }, title), body,
       confirmWord ? h('label', { class: 'fld', style: { marginTop: '10px' } }, 'Type ' + confirmWord + ' to confirm', word) : null,
       msg,
@@ -86,7 +86,7 @@ export function field(label, input, note) { return h('label', { class: 'fld' }, 
 export function infoBtn(title, text) {
   return h('button', { class: 'i', 'aria-label': 'Explain ' + title, title: text, onClick: (e) => { e.stopPropagation(); dialog({ title, body: para(text, ''), info: true }); } }, 'i');
 }
-export function pill(m) { return h('span', { class: 'pill ' + (m.level === 'plain' ? '' : m.level), title: m.why }, m.icon ? m.icon + ' ' : '', m.text); }
+export function pill(m) { return h('span', { class: 'pill ' + (m.level === 'plain' ? '' : m.level), title: m.say && m.say !== m.text ? m.say : m.why }, m.icon ? m.icon + ' ' : '', m.text); }
 export function download(name, blob) {
   const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);

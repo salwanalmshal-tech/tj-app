@@ -398,3 +398,26 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 .shared-o{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;cursor:pointer}
 .shared-o:has(input:checked){border-color:var(--accent);background:var(--infobg)}
 .shared-o input{accent-color:var(--accent);margin:0}
+/* "+ New…" row under a Setup / Mistake drop-down (2026-11-06) */
+.addnew{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}
+.addnew[hidden]{display:none}
+.addnew input{flex:1 1 140px;min-width:0;height:32px;border:1px solid var(--field);border-radius:8px;padding:0 10px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink)}
+.addnew input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+/* result pop-up when closing a trade (2026-11-06): calm, clear, colour follows the result */
+.dlg.resdlg{width:440px;padding:26px 26px 22px}
+.dlg.resdlg h2{font-size:15px;font-weight:650;letter-spacing:.01em;color:var(--muted);margin-bottom:4px}
+.res{--tone:var(--muted);--tonebg:var(--raised);--toneline:var(--line)}
+.res.gain{--tone:var(--pos);--tonebg:var(--posbg);--toneline:var(--posline)}
+.res.loss{--tone:var(--neg);--tonebg:var(--negbg);--toneline:var(--negline)}
+.res-step{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.res-sub{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.res-hero{margin:16px 0 14px;padding:22px 18px;border-radius:14px;background:var(--tonebg);border:1px solid var(--toneline);display:flex;flex-direction:column;align-items:center;gap:4px}
+.res-word{font-size:11.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tone)}
+.res-money{font-size:38px;font-weight:700;letter-spacing:-.02em;color:var(--tone);font-variant-numeric:tabular-nums;line-height:1.1}
+.res-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.res-tiles>div{border:1px solid var(--line);border-radius:12px;padding:12px 10px;text-align:center;display:flex;flex-direction:column;gap:4px}
+.res-tiles span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.res-tiles b{font-size:19px;font-weight:650;color:var(--tone);font-variant-numeric:tabular-nums}
+.res-tiles b.n{color:var(--ink)}
+.res-left{margin-top:12px;font-size:12.5px;color:var(--warn);background:var(--warnbg);border:1px solid var(--warnline);border-radius:10px;padding:8px 12px;text-align:center}
+@media (max-width:480px){.res-money{font-size:30px}.res-tiles b{font-size:16px}}
