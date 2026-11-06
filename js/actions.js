@@ -286,7 +286,18 @@ export function restoreFromTrash(st, index) {
   if (back[e.kind]() === false) return err('The trade of these sales no longer exists.');
   st.trash.splice(index, 1); return ok();
 }
-export function purgeTrash(st, now = Date.now(), days = 15) { st.trash = st.trash.filter((e) => now - Date.parse(e.deletedAt) < days * 86400000); return ok(); }
+// After 15 days the Trash is emptied for good. A deleted trade is then gone everywhere (2026-11-06): its lines in the
+// change log and stop history are removed too. Returns an error when there is nothing to empty (so nothing is saved).
+export function purgeTrash(st, now = Date.now(), days = 15) {
+  const old = st.trash.filter((e) => now - Date.parse(e.deletedAt) >= days * 86400000); if (!old.length) return err('Nothing to empty.');
+  const gone = new Set(old.filter((e) => e.kind === 'trade').map((e) => e.item.id));
+  st.trash = st.trash.filter((e) => !old.includes(e));
+  if (gone.size) {
+    st.changeLog = st.changeLog.filter((e) => !gone.has(e.tradeId) && !(e.trades || []).some((id) => gone.has(id)));
+    st.stopHistory = st.stopHistory.filter((e) => !gone.has(e.tradeId));
+  }
+  return ok({ removed: old.length });
+}
 
 // ---------- capital at open: preview and recalculation (D2) ----------
 export function capitalDiffs(st) {

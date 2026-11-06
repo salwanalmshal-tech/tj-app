@@ -62,3 +62,15 @@ test('existing lines that differ: found per stock, higher highest used, his choi
   assert.ok(A.alignShared(st).ok); assert.equal(b.highest, '31'); assert.equal(a.last, '1');
   assert.equal(A.sharedDiffs(st)[0].fields[0].field, 'last');
 });
+
+test('deleted trade: gone everywhere at once, in the Trash 15 days, then gone for good incl. its log lines', () => {
+  const { st, a, b } = setup();
+  A.editDaily(st, a.id, 'currentStop', '26,5');
+  assert.ok(A.deleteTrade(st, a.id).ok);
+  assert.equal(st.trades.some((t) => t.id === a.id), false); assert.equal(st.trash.length, 1);
+  const day = 86400000, at = Date.parse(st.trash[0].deletedAt);
+  assert.equal(A.purgeTrash(st, at + 14 * day).ok, false); assert.equal(st.trash.length, 1);
+  assert.ok(A.purgeTrash(st, at + 15 * day).ok); assert.equal(st.trash.length, 0);
+  assert.equal(st.changeLog.some((e) => e.tradeId === a.id), false); assert.equal(st.stopHistory.some((e) => e.tradeId === a.id), false);
+  assert.equal(st.changeLog.some((e) => e.tradeId === b.id), true); // other trades keep their log
+});

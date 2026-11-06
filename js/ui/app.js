@@ -118,6 +118,7 @@ function start(state, isNew) {
   window.addEventListener('hashchange', () => { const r = location.hash.replace('#/', ''); if (ROUTES[r] && r !== ctx.route) { ctx.route = r; draw(); } });
   const r0 = location.hash.replace('#/', ''); ctx.route = ROUTES[r0] ? r0 : 'open';
   if (isNew || !state.capital.start) ctx.route = 'capital', ctx.params = { first: true };
+  if (!ctx.readOnly) ctx.store.run((d) => A.purgeTrash(d), { label: 'Trash emptied', noUndo: true }); // items older than 15 days
   draw();
 }
 

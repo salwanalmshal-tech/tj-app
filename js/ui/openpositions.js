@@ -327,7 +327,15 @@ function detail(ctx, id) {
       m.realized !== null ? lv('Still at risk', susd(m.lossIfStop), 'Remaining shares at the Current stop.', numClass(m.lossIfStop)) : null))),
     h('div', { class: 'row' },
       h('button', { class: 'btn risk big', disabled: ctx.readOnly, onClick: () => { close(); ctx.go('close-trade', { tradeId: t.id }); } }, 'Close trade…'),
-      h('button', { class: 'btn big', disabled: ctx.readOnly, onClick: () => { close(); editTrade(ctx, t.id); } }, 'Edit trade')));
+      h('button', { class: 'btn big', disabled: ctx.readOnly, onClick: () => { close(); editTrade(ctx, t.id); } }, 'Edit trade'),
+      h('button', { class: 'btn big quiet-dng', style: { marginLeft: 'auto' }, disabled: ctx.readOnly, onClick: async () => {
+        const ok = await dialog({ title: `Delete trade ${t.id} (${sym})?`, danger: true, ok: 'Delete trade',
+          body: h('div', null, para(`Use this for a trade made by mistake or just to try something. It disappears at once from Open positions, History, capital and statistics${t.sales.length ? ', together with its ' + t.sales.length + ' sale' + (t.sales.length > 1 ? 's' : '') : ''}.`, ''),
+            para('It stays in the Trash for 15 days in case you deleted the wrong trade (Import / Export → Trash). After that it is gone for good.', '')) });
+        if (!ok) return;
+        const r = ctx.act((d) => A.deleteTrade(d, t.id), { label: 'delete trade', now: true });
+        if (r.ok) { close(); toast(`${sym} ${t.id} deleted.`, 'Undo', () => ctx.store.undo()); } else toast(r.error);
+      } }, 'Delete trade…')));
   const scrim = h('div', { class: 'sheet-scrim', onClick: (e) => { if (e.target === scrim) close(); } }, sheet);
   document.addEventListener('keydown', onKey, true);
   document.body.append(scrim);
