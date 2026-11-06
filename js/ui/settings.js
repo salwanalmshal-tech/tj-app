@@ -9,6 +9,7 @@ const getP = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
 const setP = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
 const show = (v) => String(v).replace('.', ',');
 let lastSection = 'rules';
+export const goSection = (k) => { lastSection = k; };
 
 const SECTIONS = [
   ['Trading', [['rules', 'Trading rules', 'Stops, EMA10 and reports'], ['risk', 'Risk and position size', 'Capital at risk and allocation']]],

@@ -7,6 +7,7 @@ import { buildFromSheets, toSheets, mergeImport } from '../importer.js';
 import { askRecalc } from './capital.js';
 import { safetyBackup } from './app.js';
 import { excelCopiesToDelete } from '../storage.js';
+import { goSection as goSettingsSection } from './settings.js';
 
 let XLSXp;
 function loadXLSX() {
@@ -15,19 +16,61 @@ function loadXLSX() {
 }
 const stampName = () => new Date().toISOString().slice(0, 10);
 
+// Layout 2026-11-06 (after his "Safety Centre" example): a left menu with five sections; every action and rule stays as agreed
+// (import kinds, checks, backups first, typed DELETE, Trash 15 days, change log never erased).
+let lastSection = 'overview';
+const SECTIONS = [['overview', 'Overview', 'Main actions'], ['backups', 'Backups', 'Recovery points'], ['excel', 'Excel copies', 'Readable copies'], ['trash', 'Trash and activity', 'Deleted items and log']];
+const card = (title, tag, ...kids) => h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, title), tag ? h('span', { class: 'stag' }, tag) : null), h('div', { class: 'scb' }, kids));
+const task = (eyebrow, title, text, tone, ...buttons) => h('section', { class: 'task ' + (tone || '') }, h('div', { class: 'te' }, eyebrow), h('h3', null, title), h('p', null, text), h('div', { class: 'row' }, buttons));
+const when = (iso) => dmy(iso.slice(0, 10)) + ' · ' + new Date(iso).toTimeString().slice(0, 5);
 export function render(ctx) {
-  const st = ctx.store.state;
-  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '980px' } },
-    exportPanel(ctx), importPanel(ctx), backupPanel(ctx), excelPanel(ctx), trashPanel(ctx), logPanel(ctx), clearPanel(ctx));
+  const panes = {}; const navBtns = {}; const head = h('div', { class: 'spane-h' });
+  const titles = { overview: ['What do you want to do?', 'Choose one task. Technical details stay out of the way until you need them.'], backups: ['Recovery backups', 'Complete JSON copies kept in the “Backups” folder next to your data file.'], excel: ['Excel copies', 'Readable files for analysis and review in Excel or Google Sheets.'], trash: ['Trash and activity', 'Deleted items stay 15 days. The change log is never erased.'], clear: ['Clear all data', 'Start with an empty journal, only after reviewing what happens.'] };
+  const build = { overview: () => overviewPane(ctx, pick), backups: () => backupPane(ctx), excel: () => excelPane(ctx), trash: () => trashPane(ctx), clear: () => clearPane(ctx) };
+  function pick(key) {
+    lastSection = key;
+    if (!panes[key]) { panes[key] = h('div', { class: 'spane-b' }, build[key]()); body.append(panes[key]); }
+    for (const [k, p] of Object.entries(panes)) p.hidden = k !== key;
+    for (const [k, b] of Object.entries(navBtns)) b.classList.toggle('on', k === key);
+    head.replaceChildren(h('div', { class: 'crumb' }, 'Import / Export / ' + (SECTIONS.find((x) => x[0] === key)?.[1] ?? 'Clear all data')), h('h2', null, titles[key][0]), h('p', null, titles[key][1]));
+  }
+  const body = h('div', { style: { display: 'contents' } });
+  const nav = h('nav', { class: 'snav', 'aria-label': 'Import and export sections' },
+    ...SECTIONS.map(([k, t, sub]) => (navBtns[k] = h('button', { type: 'button', onClick: () => pick(k) }, h('b', null, t), h('span', null, sub)))),
+    h('div', { class: 'snav-sep' }),
+    (navBtns.clear = h('button', { type: 'button', class: 'danger', onClick: () => pick('clear') }, h('b', null, 'Clear all data'), h('span', null, 'Danger zone'))));
+  const status = h('span', { class: 'set-status' }, 'Checking backups…');
+  ctx.storage.listBackups().then((l) => { status.className = 'set-status ' + (l.length ? 'ok' : 'warn'); status.textContent = l.length ? 'Protected · latest backup ' + when(l[0].time) : 'No backup yet'; }).catch(() => { status.className = 'set-status warn'; status.textContent = 'Backups could not be checked'; });
+  const root = h('div', { class: 'sset' }, h('div', { class: 'sset-top' }, status), h('div', { class: 'sset-grid' }, nav, h('div', { class: 'spane' }, head, body,
+    h('p', { class: 'note', style: { textAlign: 'center', margin: '4px 0 0' } }, 'Every import is checked first. If an error is found, nothing changes.'))));
+  pick(build[lastSection] ? lastSection : 'overview');
+  return root;
 }
 
-// ------------------------------------------------------------- export
-function exportPanel(ctx) {
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Export', h('span', { class: 'sub' }, 'your data is yours: take it any time')),
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, para('The Excel file uses the same sheets and columns as the import template, so you can import it again later. The data file (.json) is a complete copy of everything, including settings, stop history and the change log.', ''),
-      h('div', { class: 'row' }, h('button', { class: 'btn pri', onClick: async () => { try { const X = await loadXLSX(); download(`TradeJournal-${stampName()}.xlsx`, toXlsx(X, toSheets(ctx.store.state))); } catch (e) { toast(e.message); } } }, 'Download Excel (.xlsx)'),
-        h('button', { class: 'btn', onClick: () => download(`TradeJournal-${stampName()}.json`, new Blob([JSON.stringify(ctx.store.state, null, 1)], { type: 'application/json' })) }, 'Download data file (.json)'))));
+// ------------------------------------------------------------- overview: the main tasks
+function overviewPane(ctx, pick) {
+  const latest = h('div', { class: 'latest' }, h('div', null, h('b', null, 'Latest recovery point'), h('span', null, 'Loading…')));
+  ctx.storage.listBackups().then((l) => {
+    if (!l.length) return latest.replaceChildren(h('div', null, h('b', null, 'Latest recovery point'), h('span', null, 'No backup yet. The first one is made when you open the program with changed data, or with “Back up now”.')), h('div', { class: 'row' }, h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => pick('backups') }, 'Go to backups')));
+    const b = l[0];
+    latest.replaceChildren(h('div', null, h('b', null, 'Latest recovery point'), h('span', null, when(b.time) + ' · ' + (KIND[b.kind] || b.kind))),
+      h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => downloadBackup(ctx, b) }, 'Download'), h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => restoreBackup(ctx, b) }, 'Restore…')));
+  }).catch((e) => latest.replaceChildren(h('div', null, h('b', null, 'Latest recovery point'), h('span', { class: 'err' }, 'Could not load the backups: ' + e.message))));
+  const imp = importControls(ctx);
+  return [
+    task('Most common', 'Take a copy of my journal', 'An Excel file for reading and analysis (same sheets as the import template, so it can be imported again), or a complete data file (.json) with everything, including settings, stop history and the change log.', 'acc',
+      h('button', { class: 'btn pri', onClick: () => downloadExcel(ctx) }, 'Download Excel'), h('button', { class: 'btn', onClick: () => downloadJson(ctx) }, 'Download complete backup (.json)')),
+    h('div', { class: 'task-grid' },
+      task('Bring data in', 'Import from Excel', 'Update keeps your data and adds what is new. New start replaces everything. You choose first; a backup is always made before anything changes.', '',
+        h('button', { class: 'btn', disabled: ctx.readOnly, onClick: imp.choose }, 'Import Excel…'), imp.xin),
+      task('Recover journal', 'Restore from a data file', 'Replace all data with a complete data file (.json) you saved before. A backup of the current data is made first, and you confirm by typing DELETE.', '',
+        h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => imp.jin.click() }, 'Choose data file…'), imp.jin)),
+    latest,
+  ];
 }
+// ------------------------------------------------------------- export
+async function downloadExcel(ctx) { try { const X = await loadXLSX(); download(`TradeJournal-${stampName()}.xlsx`, toXlsx(X, toSheets(ctx.store.state))); } catch (e) { toast(e.message); } }
+function downloadJson(ctx) { download(`TradeJournal-${stampName()}.json`, new Blob([JSON.stringify(ctx.store.state, null, 1)], { type: 'application/json' })); }
 function toXlsx(X, sheets) {
   const wb = X.utils.book_new();
   for (const [name, rows] of Object.entries(sheets)) {
@@ -48,7 +91,7 @@ function toXlsx(X, sheets) {
 }
 
 // ------------------------------------------------------------- import / restore
-function importPanel(ctx) {
+function importControls(ctx) {
   let mode = 'update';
   const xin = h('input', { type: 'file', accept: '.xlsx,.xls', style: { display: 'none' }, onChange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importExcel(ctx, f, mode); } });
   const jin = h('input', { type: 'file', accept: '.json,application/json', style: { display: 'none' }, onChange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importJson(ctx, f); } });
@@ -61,9 +104,7 @@ function importPanel(ctx) {
       opt('new', 'New start: replace all data', 'Everything in the program is replaced by the file. A backup is made first, and you confirm by typing DELETE.', false)),
       onOk: () => { xin.click(); return true; } });
   };
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Import', h('span', { class: 'sub' }, 'update your data, or start new')),
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, para('First you choose the kind of import: Update keeps your data and adds what is new; New start replaces everything. Any error stops the import and nothing changes.', ''),
-      h('div', { class: 'row' }, h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: choose }, 'Import from Excel…'), h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => jin.click() }, 'Restore from a data file (.json)…'), xin, jin)));
+  return { choose, xin, jin };
 }
 async function importExcel(ctx, file, mode = 'new') {
   let result;
@@ -124,28 +165,39 @@ export async function makeExcelCopy(ctx) {
   await ctx.storage.writeExcelCopy(blob);
   for (const id of excelCopiesToDelete(await ctx.storage.listExcelCopies(), ctx.store.state.settings.excelCopyKeep)) await ctx.storage.deleteExcelCopy(id);
 }
-function excelPanel(ctx) {
-  const S = ctx.store.state.settings; const box = h('div', { class: 'pb' }, 'Loading…');
-  ctx.storage.listExcelCopies().then((list) => box.replaceChildren(list.length ? h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['When', 'File', ''].map((x) => h('th', null, x)))),
-    h('tbody', null, list.map((b) => h('tr', null, h('td', null, dmy(b.time.slice(0, 10)) + ' · ' + new Date(b.time).toTimeString().slice(0, 5)), h('td', { class: 'mut' }, b.name),
-      h('td', { class: 'r' }, h('button', { class: 'btn sm', onClick: async () => { try { const blob = await ctx.storage.readExcelCopy(b.id); if (blob) download(b.name, blob); } catch (e) { toast(e.message); } } }, 'Download')))))))
-    : h('p', { class: 'note' }, 'No Excel copy yet. The first one is made the next time the program makes a backup, or with the button below.'))).catch((e) => box.replaceChildren(h('p', { class: 'err' }, 'Could not load the Excel copies: ' + e.message)));
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Excel copies', h('span', { class: 'sub' }, `every ${S.excelCopyDays} day${S.excelCopyDays === 1 ? '' : 's'}, newest ${S.excelCopyKeep} kept · change in Settings`)),
-    h('div', { class: 'pb', style: { paddingBottom: 0 } }, para('A readable Excel file of your journal, in the Backups folder next to your data file. Open it in Excel or Google Sheets. To restore, use the JSON backups above.', '')), box,
-    h('div', { class: 'pb' }, h('button', { class: 'btn', disabled: ctx.readOnly, onClick: async () => { try { await makeExcelCopy(ctx); toast('Excel copy made.'); ctx.redraw(); } catch (e) { toast('The Excel copy could not be made: ' + e.message); } } }, 'Make an Excel copy now')));
+function excelPane(ctx) {
+  const S = ctx.store.state.settings; const box = h('div', null, h('p', { class: 'note' }, 'Loading…'));
+  ctx.storage.listExcelCopies().then((list) => box.replaceChildren(list.length ? h('div', { class: 'blist' }, list.map((b) => h('div', { class: 'brow' }, h('b', null, when(b.time)), h('span', { class: 'mut' }, b.name), h('span'),
+      h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: async () => { try { const blob = await ctx.storage.readExcelCopy(b.id); if (blob) download(b.name, blob); } catch (e) { toast(e.message); } } }, 'Download')))))
+    : h('p', { class: 'note' }, 'No Excel copy yet. The first one is made at the next backup, or with “Make an Excel copy now”.'))).catch((e) => box.replaceChildren(h('p', { class: 'err' }, 'Could not load the Excel copies: ' + e.message)));
+  return [
+    task('Schedule', 'Readable Excel copies', `An Excel copy is made every ${S.excelCopyDays} day${S.excelCopyDays === 1 ? '' : 's'} and the newest ${S.excelCopyKeep} are kept, in the Backups folder next to your data file.`, 'acc',
+      h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: async () => { try { await makeExcelCopy(ctx); toast('Excel copy made.'); ctx.redraw(); } catch (e) { toast('The Excel copy could not be made: ' + e.message); } } }, 'Make an Excel copy now'),
+      h('button', { class: 'btn', onClick: () => { goSettingsSection('saving'); ctx.go('settings'); } }, 'Change schedule in Settings')),
+    card('Newest copies', 'Excel or Google Sheets', box),
+    task('Important difference', 'Excel is for reading; the data file is for recovery', 'Use Excel for analysis and review. To get the journal back with settings, stop history and the change log, use a JSON backup.', 'amber'),
+  ];
 }
 
 // ------------------------------------------------------------- backups
 const KIND = { auto: 'Automatic', manual: 'Made by you', 'before-update': 'Before an update', 'before-restore': 'Before a restore', 'before-replace': 'Before an import', 'before-clear': 'Before clearing all data' };
-function backupPanel(ctx) {
-  const box = h('div', { class: 'pb' }, 'Loading…');
+const KIND_TONE = { auto: 'pos', manual: 'info', 'before-update': 'warn', 'before-restore': 'warn', 'before-replace': 'neg', 'before-clear': 'neg' };
+async function downloadBackup(ctx, b) { try { download(b.name || 'backup.json', new Blob([JSON.stringify(await ctx.storage.readBackup(b.id), null, 1)], { type: 'application/json' })); } catch (e) { toast(e.message); } }
+async function restoreBackup(ctx, b) { try { const raw = await ctx.storage.readBackup(b.id); const c = checkFile(raw); if (!c.ok) return toast(c.reason); await replaceWith(ctx, migrate(raw), 'the backup of ' + when(b.time)); } catch (e) { toast(e.message); } }
+function backupPane(ctx) {
+  const kpis = h('div', { class: 'kpis' }, ...['Available', 'Latest', 'Automatic'].map((k) => h('div', { class: 'kpi' }, h('span', null, k), h('b', null, '…'))));
+  const box = h('div', null, h('p', { class: 'note' }, 'Loading…'));
   ctx.storage.listBackups().then((list) => {
-    box.replaceChildren(list.length ? h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['When', 'Kind', ''].map((x) => h('th', null, x)))), h('tbody', null, list.map((b) => h('tr', null, h('td', null, dmy(b.time.slice(0, 10)) + ' ' + b.time.slice(11, 16)), h('td', null, KIND[b.kind] || b.kind),
-      h('td', { class: 'r' }, h('div', { class: 'row', style: { justifyContent: 'flex-end' } }, h('button', { class: 'btn sm', onClick: async () => { try { download(b.name || 'backup.json', new Blob([JSON.stringify(await ctx.storage.readBackup(b.id), null, 1)], { type: 'application/json' })); } catch (e) { toast(e.message); } } }, 'Download'),
-        h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: async () => { try { const raw = await ctx.storage.readBackup(b.id); const c = checkFile(raw); if (!c.ok) return toast(c.reason); await replaceWith(ctx, migrate(raw), 'the backup of ' + dmy(b.time.slice(0, 10))); } catch (e) { toast(e.message); } } }, 'Restore…')))))))) : h('p', { class: 'note' }, 'No backups yet. The first one is made when you open the program with changed data.'));
+    const v = [String(list.length), list.length ? when(list[0].time) : '–', String(list.filter((b) => b.kind === 'auto').length)];
+    kpis.querySelectorAll('.kpi b').forEach((b, i) => { b.textContent = v[i]; });
+    box.replaceChildren(list.length ? h('div', { class: 'blist' }, list.map((b) => h('div', { class: 'brow' }, h('b', null, when(b.time)), h('span', { class: 'kpill ' + (KIND_TONE[b.kind] || '') }, KIND[b.kind] || b.kind), h('span'),
+      h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => downloadBackup(ctx, b) }, 'Download'), h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => restoreBackup(ctx, b) }, 'Restore…')))))
+      : h('p', { class: 'note' }, 'No backups yet. The first one is made when you open the program with changed data.'));
   }).catch((e) => box.replaceChildren(h('p', { class: 'err' }, 'Could not load the backups: ' + e.message)));
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Backups', h('span', { class: 'sub' }, 'kept in the “Backups” folder next to your data file')), box,
-    h('div', { class: 'pb' }, h('button', { class: 'btn', disabled: ctx.readOnly, onClick: async () => { const ok = await safetyBackup('manual'); toast(ok ? 'Backup made.' : 'The backup could not be made.'); ctx.redraw(); } }, 'Back up now')));
+  const backNow = h('button', { class: 'btn pri sm', disabled: ctx.readOnly, onClick: async () => { const ok = await safetyBackup('manual'); toast(ok ? 'Backup made.' : 'The backup could not be made.'); ctx.redraw(); } }, 'Back up now');
+  return [kpis,
+    h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, 'Recovery points'), backNow), h('div', { class: 'scb' }, box)),
+    task('Recovery rule', 'A backup is complete', 'Each JSON backup holds all journal data, settings, stop history and the change log. Kept: the last 10, one per day for 30 days and one per month for a year. Restoring always makes a safety copy of the current data first.', 'green')];
 }
 
 // ------------------------------------------------------------- trash
@@ -158,20 +210,21 @@ function trashLabel(st, e) {
   if (e.kind === 'sales') return `${i.sales.length} sale(s) of ${i.tradeId}`;
   return i.symbol || i.name || '';
 }
-function trashPanel(ctx) {
+function trashPane(ctx) {
   const st = ctx.store.state; const items = st.trash.map((e, idx) => ({ e, idx })).reverse();
-  return h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Trash', h('span', { class: 'sub' }, 'deleted items stay 15 days')),
-    items.length ? h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Deleted', 'Kind', 'Item', ''].map((x) => h('th', null, x)))), h('tbody', null, items.map(({ e, idx }) => h('tr', null, h('td', null, dmy(e.deletedAt.slice(0, 10))), h('td', null, TRASH_KIND[e.kind] || e.kind), h('td', null, trashLabel(st, e)),
-      h('td', { class: 'r' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => { const r = ctx.act((d) => { const x = A.restoreFromTrash(d, idx); if (x.ok) A.recalcCapital(d); return x; }, { label: 'restore', now: true }); toast(r.ok ? 'Restored.' : r.error); } }, 'Restore'))))))) : h('div', { class: 'pb note' }, 'The Trash is empty.'));
-}
-function logPanel(ctx) {
-  const st = ctx.store.state; const log = st.changeLog.slice(-100).reverse();
-  return h('details', { class: 'panel' }, h('summary', { class: 'ph', style: { cursor: 'pointer' } }, `Change log (${st.changeLog.length} entries, never erased)`),
+  const left = (e) => { const d = 15 - Math.floor((Date.now() - Date.parse(e.deletedAt)) / 86400000); return d <= 0 ? 'last day' : d + ' day' + (d === 1 ? '' : 's') + ' left'; };
+  const trash = items.length ? h('div', { class: 'blist' }, items.map(({ e, idx }) => h('div', { class: 'brow' }, h('b', null, TRASH_KIND[e.kind] || e.kind), h('span', null, trashLabel(st, e)), h('span', { class: 'mut' }, left(e)),
+      h('div', { class: 'row' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => { const r = ctx.act((d) => { const x = A.restoreFromTrash(d, idx); if (x.ok) A.recalcCapital(d); return x; }, { label: 'restore', now: true }); toast(r.ok ? 'Restored.' : r.error); } }, 'Restore')))))
+    : h('div', { class: 'empty' }, h('b', null, 'The Trash is empty'), h('span', null, 'Deleted items appear here with the days left to restore them.'));
+  const log = st.changeLog.slice(-100).reverse();
+  const logEl = h('details', { class: 'logbox' }, h('summary', null, h('b', null, `${st.changeLog.length} entr${st.changeLog.length === 1 ? 'y' : 'ies'}`), h('span', null, ' · show the latest 100')),
     h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['When', 'What', 'Details'].map((x) => h('th', null, x)))), h('tbody', null, log.map((l) => h('tr', null, h('td', null, dmy(l.ts.slice(0, 10)) + ' ' + l.ts.slice(11, 16)), h('td', null, l.type), h('td', { class: 'mut' }, Object.entries(l).filter(([k]) => !['ts', 'type'].includes(k)).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · '))))))));
+  return [card('Trash', '15 days', trash), card('Change log', 'Never erased', h('p', { class: 'snote' }, 'A record of journal changes: trades, stops, capital and settings.'), logEl),
+    task('Why this matters', 'Recover mistakes and understand changes', 'The Trash protects recently deleted items. The change log shows when and how journal data changed.', 'green')];
 }
 
 // ------------------------------------------------------------- clear all data (Q9)
-function clearPanel(ctx) {
+function clearPane(ctx) {
   const run = async () => {
     const st = ctx.store.state;
     const first = await dialog({ title: 'Do you really want to delete all data?', danger: true, ok: 'Yes, delete all data', body: h('div', null,
@@ -184,7 +237,9 @@ function clearPanel(ctx) {
         ctx.store.replace(emptyState(), 'clear all data'); toast('All data deleted. A backup was made first.'); setTimeout(() => ctx.go('capital', { first: true }), 0); return true;
       } });
   };
-  return h('section', { class: 'panel', style: { borderColor: 'var(--negline)' } }, h('div', { class: 'ph' }, 'Clear all data', h('span', { class: 'sub' }, 'start again from the beginning')),
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, para('Deletes every trade, the capital, all lists and the logs, so the program is empty. A full backup is made first. Backups and Excel copies in Google Drive stay.', ''),
-      h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', disabled: ctx.readOnly, onClick: run }, 'Clear all data…'))));
+  return [h('section', { class: 'scard dz' }, h('div', { class: 'sch' }, h('h3', null, 'Clear all journal data')), h('div', { class: 'scb' },
+      h('p', { class: 'snote' }, 'Deletes every trade, the capital, all lists, the trash and the logs, so the program is empty and starts from the beginning. A full backup is made first and cannot be skipped. Your backups and Excel copies in Google Drive stay.'),
+      h('div', { class: 'row', style: { paddingBottom: '6px' } }, h('button', { class: 'btn quiet-dng', disabled: ctx.readOnly, onClick: run }, 'Clear all data…')),
+      h('p', { class: 'note', style: { margin: '6px 0 4px' } }, 'Two steps: first a review of what will be deleted, then you type DELETE.'))),
+    task('Safety design', 'Destructive actions stay separate', 'Clear all data never sits next to export, backup or restore. It always needs a review step and a typed confirmation.', 'amber')];
 }
