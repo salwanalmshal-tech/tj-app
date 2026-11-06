@@ -224,7 +224,7 @@ function posCard(ctx, l, today) {
   const sizeCls = hl.size ? hl.size.c : 'g';
   const open = () => detail(ctx, t.id);
   return h('article', { class: 'pcard ' + cs, 'data-id': t.id, tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${CS_WORD[cs]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
-    h('div', { class: 'pc-top' }, h('span', { class: 'pc-sym', title: t.id + (t.sales.length ? ' · partly sold' : '') }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null), h('span', { class: 'pc-st ' + cs }, CS_WORD[cs])),
+    h('div', { class: 'pc-top' }, h('span', { class: 'pc-sym', title: t.id + (t.sales.length ? ' · partly sold' : '') }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null)), // status label removed 2026-11-06 (Auto order and the filters still use the status)
     h('div', { class: 'pc-main' },
       h('div', { class: 'pc-left' },
         h('div', { class: 'pc-stop' }, lab('Stop loss'), val('stop', stop === null ? 'None' : priceTxt(stop), 'big')),
