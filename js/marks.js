@@ -17,18 +17,23 @@ export function lineMarks(state, t, today, account) {
     else if (m.toStopPct !== null) {
       const lim = stopAbove ? S.stopAboveBuy : S.stopBelowBuy;
       if (m.toStopPct <= D.d(lim.closeWithin)) add('warn', '●', 'Close to stop', `Price is within ${lim.closeWithin.replace('.', ',')} % of the stop.`);
-      else if (m.toStopPct > D.d(lim.raiseAbove)) add('info', '↑', 'Raise stop', `Price is more than ${lim.raiseAbove.replace('.', ',')} % above the stop.`);
+      else if (m.toStopPct > D.d(lim.raiseAbove)) add('warn', '↑', 'Raise stop', `Price is more than ${lim.raiseAbove.replace('.', ',')} % above the stop.`);
     }
   } else if (stop === null) add('crit', '■', 'Missing: stop', 'No Current stop entered. Check that the position has a stop in your broker: without it the loss is not limited.');
   // Q11: no Initial stop -> R and risk cannot be calculated; always shown in "Needs your attention"
   if (C.N(t.initialStop) === null) add('warn', '◆', 'Missing: Initial stop', 'R cannot be calculated. Add it with Edit trade → Initial stop.');
   if (last === null) add('warn', '◆', 'Missing: last price', 'No last price entered.');
+  if (hi === null) add('warn', '◆', 'Missing: highest price', 'No highest price entered.');
+  if (ema === null) add('warn', '◆', 'Missing: EMA10', 'No EMA10 entered.');
+  // profit locked = stop more than profitLocked % above the buy price (2026-11-06: also decides red/orange for a near report)
+  const buyToStop = stop !== null && buy > 0n ? D.pct(D.sub(stop, buy), buy) : null;
+  const profitLocked = buyToStop !== null && buyToStop > D.d(S.profitLocked);
 
   // G2 next report
   if (t.nextReport) {
     const days = diffDays(today, t.nextReport);
-    const noProfit = !(stop !== null && stop > buy);
-    const tail = noProfit ? (stop === null ? ': no stop, no profit locked' : ': stop not above buy price, no profit locked') : '';
+    const noProfit = !profitLocked;
+    const tail = noProfit ? (stop === null ? ': no stop, no profit locked' : `: stop not more than ${S.profitLocked.replace('.', ',')} % above buy price, no profit locked`) : '';
     if (days >= 0) {
       const wk = weekStart(today), nextWk = addDays(wk, 7);
       const rw = weekStart(t.nextReport);
@@ -38,12 +43,13 @@ export function lineMarks(state, t, today, account) {
       else if (rw === wk) text = 'Report this week';
       else if (rw === nextWk) text = 'Report next week';
       if (text) add(strong && noProfit ? 'neg' : 'warn', strong && noProfit ? '■' : '●', text + tail, `Report on ${t.nextReport.split('-').reverse().join('-')}.`);
-    } else if (-days <= S.reportedAgoDays) add('plain', '', `Reported ${-days} day${-days === 1 ? '' : 's'} ago`, 'Quiet reminder.');
+    } else if (-days >= S.reportStaleDays) add('warn', '◆', `Reported ${-days} days ago`, `The report date is ${S.reportStaleDays} days or more in the past. Enter the next report date.`);
+    else if (-days <= S.reportedAgoDays) add('plain', '', `Reported ${-days} day${-days === 1 ? '' : 's'} ago`, 'Quiet reminder.');
   }
   // G3 highest to stop
   if (hi !== null && stop !== null && stop > 0n) {
     const p = D.pct(D.sub(hi, stop), hi);
-    if (p !== null && p > D.d(S.highestToStop)) add('info', '◆', 'Stop far below highest price', `Highest price is more than ${S.highestToStop.replace('.', ',')} % above the stop.`);
+    if (p !== null && p > D.d(S.highestToStop)) add('warn', '◆', 'Stop far below highest price', `Highest price is more than ${S.highestToStop.replace('.', ',')} % above the stop.`);
   }
   // G4 EMA10
   if (last !== null && ema !== null && ema > 0n) {
@@ -53,7 +59,8 @@ export function lineMarks(state, t, today, account) {
   // G5 stop vs buy price
   if (stop !== null && buy > 0n) {
     const p = D.pct(D.sub(stop, buy), buy);
-    if (p < -D.d(S.stopFarBelowBuy)) add('warn', '◆', 'Stop far below buy price', `Stop is more than ${S.stopFarBelowBuy.replace('.', ',')} % below the buy price.`);
+    // one rule, two settings (2026-11-06): the stop is far below the buy price AND the risk at the stop is above the limit
+    if (p < -D.d(S.stopFarBelowBuy)) { if (m.riskAtStopPct !== null && m.riskAtStopPct > D.d(S.stopFarBelowBuyRisk)) add('warn', '◆', 'Stop far below buy price', `Stop is more than ${S.stopFarBelowBuy.replace('.', ',')} % below the buy price and the risk is above ${S.stopFarBelowBuyRisk.replace('.', ',')} % of capital.`); }
     else if (p > D.d(S.profitLocked)) add('pos', '✓', 'Profit locked in', `Stop is more than ${S.profitLocked.replace('.', ',')} % above the buy price.`);
   }
   // G6 risk at stop
@@ -101,13 +108,14 @@ export function stockPctMark(pct, S) {
 }
 
 // Exceptions on Open positions ("Needs your attention", the status column and the menu count all use this one rule).
-// A mark is an exception when it may need a decision: at or below the stop, a strong (red) mark, or an attention
-// category. A report mark is an exception only while no profit is locked (G2: with the stop above the buy price it stays calm).
+// 2026-11-06: every red and every orange mark needs attention (blue info, green and grey marks do not).
 export function isException(m) {
-  if (m.level === 'crit' || m.level === 'neg') return true;
-  const cats = attention([m]);
-  if (cats.has('report')) return m.text.includes('no profit locked');
-  return cats.size > 0;
+  return m.level === 'crit' || m.level === 'neg' || m.level === 'warn';
+}
+// Card colour of a line: 'red' (Warning), 'orange' (Attention) or 'green' (Healthy)
+export function cardStatus(marks) {
+  if (marks.some((m) => m.level === 'crit' || m.level === 'neg')) return 'red';
+  return marks.some((m) => m.level === 'warn') ? 'orange' : 'green';
 }
 // 'act' = act now (at or below the stop), 'rev' = review, 'ok' = on plan
 export function lineStatus(marks) {

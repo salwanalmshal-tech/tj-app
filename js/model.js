@@ -1,7 +1,7 @@
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.1.1';
+export const APP_VERSION = '1.2.0';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -10,9 +10,9 @@ export function defaultSettings() {
     stopBelowBuy: { raiseAbove: '6', closeWithin: '1' },
     stopAboveBuy: { raiseAbove: '9', closeWithin: '2' },
     // Next report (G2)
-    reportedAgoDays: 6,
+    reportedAgoDays: 6, reportStaleDays: 30,
     // G3..G8
-    highestToStop: '10', emaNear: '1.5', stopFarBelowBuy: '5.5', profitLocked: '15',
+    highestToStop: '10', emaNear: '1.5', stopFarBelowBuy: '5.5', stopFarBelowBuyRisk: '0.2', profitLocked: '15',
     riskWarn: '0.2', riskRed: '0.56',
     posTooBig: '12.01', posNear: '11', posSmallFrom: '1', posSmallTo: '5',
     histLoss: '0.5', histGain: '1',

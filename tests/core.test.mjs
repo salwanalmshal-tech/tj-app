@@ -87,7 +87,7 @@ test('marks: at or below stop; report tomorrow without profit locked', () => {
   A.editDaily(st, t.id, 'last', '46,50');
   const m = lineMarks(st, t, '2026-11-02', C.estimatedAccount(st));
   assert.ok(m.some((x) => x.text === 'At or below stop' && x.level === 'crit'));
-  assert.ok(m.some((x) => x.text.startsWith('Report tomorrow: stop not above buy price')));
+  assert.ok(m.some((x) => x.text.startsWith('Report tomorrow: stop not more than 15 % above buy price') && x.level === 'neg'));
 });
 test('reopen puts shares back; undo-safe trash', () => {
   const st = fresh(); const t = open(st).data;
@@ -102,16 +102,40 @@ test('stop history logs every Current stop change, also emptying it (C7)', () =>
   assert.deepEqual(st.stopHistory.map((x) => [x.old, x.new]), [['47', '48'], ['48', '']]);
   assert.ok(A.editDaily(st, t.id, 'currentStop', '').ok); assert.equal(st.stopHistory.length, 2); // no change, no line
 });
-test('exceptions: report with profit locked stays calm (G2), without profit it needs review', async () => {
-  const { lineStatus } = await import('../js/marks.js');
+test('report near (2026-11-06): red only without profit locked (stop more than 15 % above buy); every orange mark needs attention', async () => {
+  const { lineStatus, isException, cardStatus } = await import('../js/marks.js');
   const st = fresh(); const t = open(st, { buyDate: '2026-11-02', qty: '20' }).data;
-  A.editDaily(st, t.id, 'last', '51'); A.editDaily(st, t.id, 'nextReport', '2026-11-05'); // this week, stop 47 below buy 50
-  assert.equal(lineStatus(lineMarks(st, t, '2026-11-03', C.estimatedAccount(st))), 'rev');
-  A.editDaily(st, t.id, 'currentStop', '50.5'); // profit locked, price 51 is within 2 % of the stop -> close to stop
-  A.editDaily(st, t.id, 'last', '54');
-  assert.equal(lineStatus(lineMarks(st, t, '2026-11-03', C.estimatedAccount(st))), 'ok');
-  A.editDaily(st, t.id, 'last', '50'); // at or below the stop
-  assert.equal(lineStatus(lineMarks(st, t, '2026-11-03', C.estimatedAccount(st))), 'act');
+  for (const [f, v] of [['last', '60'], ['highest', '60'], ['ema10', '55'], ['currentStop', '56']]) A.editDaily(st, t.id, f, v);
+  A.editDaily(st, t.id, 'nextReport', '2026-11-04'); // tomorrow; stop 56 is 12 % above buy 50 -> not locked -> red
+  let mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
+  assert.ok(mk.some((m) => m.text.startsWith('Report tomorrow') && m.level === 'neg')); assert.equal(cardStatus(mk), 'red');
+  A.editDaily(st, t.id, 'currentStop', '60'); A.editDaily(st, t.id, 'last', '65'); A.editDaily(st, t.id, 'highest', '65'); // 20 % above buy -> locked -> orange
+  mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
+  assert.ok(mk.some((m) => m.text === 'Report tomorrow' && m.level === 'warn')); assert.ok(mk.some((m) => m.text === 'Profit locked in'));
+  assert.equal(cardStatus(mk), 'orange'); assert.equal(lineStatus(mk), 'rev');
+  A.editDaily(st, t.id, 'nextReport', '2026-11-12'); // next week -> orange, also with profit locked
+  mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
+  assert.ok(mk.some((m) => m.text === 'Report next week' && isException(m)));
+  A.editDaily(st, t.id, 'nextReport', ''); mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
+  assert.equal(cardStatus(mk), 'green'); assert.equal(lineStatus(mk), 'ok');
+});
+test('2026-11-06 rule changes: raise stop / far below highest / near EMA10 are orange; stop far below buy needs both settings; old report date', async () => {
+  const { isException } = await import('../js/marks.js');
+  const st = fresh(); const t = open(st, { qty: '10' }).data; // 10 x 50, stop 47 (6 % below buy): risk 30 / 24 000 = 0,125 % -> below 0,2 %
+  for (const [f, v] of [['last', '56'], ['highest', '58'], ['ema10', '55.5']]) A.editDaily(st, t.id, f, v);
+  let mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
+  const lv = (text) => mk.find((m) => m.text === text)?.level;
+  assert.equal(lv('Raise stop'), 'warn'); assert.equal(lv('Stop far below highest price'), 'warn'); assert.equal(lv('Near EMA10'), 'warn');
+  assert.equal(lv('Stop far below buy price'), undefined); // risk too small
+  assert.ok(mk.filter((m) => ['Raise stop', 'Stop far below highest price', 'Near EMA10'].includes(m.text)).every(isException));
+  const t2 = open(st, { qty: '100' }).data; // 100 x 50, stop 47: risk 300 / 24 000 = 1,25 % -> both true
+  for (const [f, v] of [['last', '50'], ['highest', '50'], ['ema10', '49']]) A.editDaily(st, t2.id, f, v);
+  mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st)); assert.equal(lv('Stop far below buy price'), 'warn');
+  A.editDaily(st, t2.id, 'nextReport', '2026-10-20'); mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st));
+  assert.ok(!mk.some((m) => m.text.startsWith('Reported'))); // 14 days ago: no mark (the card still counts the days)
+  A.editDaily(st, t2.id, 'nextReport', '2026-10-04'); mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st));
+  assert.equal(lv('Reported 30 days ago'), 'warn');
+  A.editDaily(st, t2.id, 'ema10', ''); mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st)); assert.equal(lv('Missing: EMA10'), 'warn');
 });
 test('Q11 missing stops: no Current stop = Act now (red); no Initial stop = Review; both always in Needs your attention', async () => {
   const { lineStatus, isException } = await import('../js/marks.js');
@@ -121,5 +145,5 @@ test('Q11 missing stops: no Current stop = Act now (red); no Initial stop = Revi
   A.editDaily(st, t.id, 'currentStop', '48'); mk = lineMarks(st, t, '2026-11-04', C.estimatedAccount(st));
   assert.equal(lineStatus(mk), 'rev'); assert.ok(mk.filter(isException).some((m) => m.text === 'Missing: Initial stop'));
   A.correctInitialStop(st, t.id, '47'); mk = lineMarks(st, t, '2026-11-04', C.estimatedAccount(st));
-  assert.ok(!mk.some((m) => m.text.startsWith('Missing')));
+  assert.ok(!mk.some((m) => m.text === 'Missing: stop' || m.text === 'Missing: Initial stop'));
 });

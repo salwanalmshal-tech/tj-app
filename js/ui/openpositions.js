@@ -1,19 +1,18 @@
 // Open positions: the daily workspace. Look from the UX/UI specification; content, names and rules from the agreed decisions.
-// Hierarchy: page header + four account numbers, "Needs your attention" (exceptions, 3-4 cards with a slider), all open lines
-// (his Excel columns, E2) with filters. A row opens the daily detail panel. All numbers come from calc.js / marks.js.
+// Hierarchy: page header + four account numbers, "Needs your attention" (exceptions, 3-4 cards with a slider), and
+// "All open positions" as cards (2026-11-06) with filters. A card opens the daily detail panel. All numbers come from calc.js / marks.js.
 import { h, dialog, para, toast, money, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, changeTable, infoBtn, pill, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as M from '../marks.js';
 import * as A from '../actions.js';
+import { diffDays } from '../dates.js';
 import { editTrade } from './tradeforms.js';
 
 export const usd = (a) => (a === null || a === undefined ? '–' : (a < 0n ? '−$' : '$') + money(D.abs(a)));
 export const susd = (a) => (a === null || a === undefined ? '–' : (a > 0n ? '+$' : a < 0n ? '−$' : '$') + money(D.abs(a)));
 const spct = (a, dp = 1) => (a === null || a === undefined ? '–' : (a > 0n ? '+' : '') + pctTxt(a, dp));
 const rTxt = (r) => (r === null || r === undefined ? '–' : (r > 0n ? '+' : '') + D.fmt(r, 2) + ' R');
-// short texts for the table (the full text is shown on hover and in the line panel)
-const SHORT = { 'Missing: stop': 'No stop', 'Missing: Initial stop': 'No Initial stop', 'Missing: last price': 'No last price' };
 const STATUS_TEXT = { act: 'Act now', rev: 'Review', ok: 'On plan' };
 const ORDER = { act: 0, rev: 1, ok: 2 };
 const isMissing = (marks) => marks.some((m) => m.text.startsWith('Missing'));
@@ -26,18 +25,6 @@ export function lines(st, today) {
     return { t, sym: A.symbolOf(st, t), m: C.lineMetrics(st, t, account), marks, status: M.lineStatus(marks), exc: marks.filter(M.isException) };
   }).sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.sym.localeCompare(b.sym) || (a.t.seq ?? 0) - (b.t.seq ?? 0));
 }
-// percent helpers for the Excel columns
-const pctOf = (a, b) => (a === null || b === null || b === 0n ? null : D.pct(a, b));
-function cols(t, m) {
-  const last = num(t.last), stop = num(t.currentStop), hi = num(t.highest), ema = num(t.ema10), buy = D.d(t.buyPrice);
-  return {
-    hiToStop: hi === null || stop === null ? null : pctOf(D.sub(hi, stop), hi),
-    toStop: m.toStopPct,
-    lastToEma: last === null || ema === null ? null : pctOf(D.sub(last, ema), ema),
-    buyToStop: stop === null ? null : pctOf(D.sub(stop, buy), buy),
-  };
-}
-
 // In market / Cash as one bar (Q4): blue = in market, light grey = cash; the bigger value gets the bigger part.
 function marketCard(inMarket, value, account) {
   const why = `In market = value of all open lines at the last price (${usd(value)}) as % of the estimated account (${usd(account)} = Capital (closed trades) + open result). Cash = the rest.`;
@@ -114,56 +101,78 @@ export function render(ctx) {
       exc.length ? h('div', { class: 'row' }, counter, prev, next) : null),
     h('div', { class: 'card-b' }, exc.length ? track : h('div', { class: 'calm' }, '✓ Nothing needs a decision today. All lines are on plan.'))));
 
-  // ---- All open lines (E2: his Excel columns in his order, plus Marks and Position size)
+  // ---- All open positions as cards (2026-11-06): one card per buy line, most urgent first; the related value is highlighted
   const nAtt = exc.length, nMiss = all.filter((l) => isMissing(l.marks)).length;
   if (filter === 'attention' && !nAtt || filter === 'missing' && !nMiss) filter = 'all';
   const shown = filter === 'attention' ? exc : filter === 'missing' ? all.filter((l) => isMissing(l.marks)) : all;
   const chip = (key, label, n) => h('button', { class: 'chip', 'aria-pressed': String(filter === key), onClick: () => { filter = key; ctx.redraw(); } }, `${label} · ${n}`);
-  const COLS = [
-    ['Symbol', '', 'The stock. Each buy line is its own row (one trade per buy line). Hover the symbol to see the Trade ID; ½ = partly sold.'],
-    ['Marks', '', 'Quiet hints about this line. They never change anything and never block you. The line panel shows all of them.'],
-    ['Qty', 'r', 'Open shares of this line (bought − already sold).'],
-    ['Buy price', 'r', 'Price paid per share for this line.'],
-    ['Last price', 'r', 'The last price you typed. The program never fetches prices.'],
-    ['Highest', 'r', 'Highest price since buying, typed by you. It is not raised automatically.'],
-    ['Current stop', 'r', 'Your stop today. Every change is written to the stop history.'],
-    ['EMA10', 'r', 'The 10-day exponential average, typed by you.'],
-    ['Next report', '', 'Date of the next earnings report.'],
-    ['Highest to stop %', 'r', '(Highest − Current stop) ÷ Highest. Used for the mark “Stop far below highest price”.'],
-    ['To stop %', 'r', '(Last price − Current stop) ÷ Last price. Used for “Raise stop” and “Close to stop”.'],
-    ['Last to EMA10 %', 'r', '(Last price − EMA10) ÷ EMA10. Negative = below EMA10.'],
-    ['Buy to stop %', 'r', '(Current stop − buy price) ÷ buy price. Negative = the stop is still below the buy price, positive = profit locked.'],
-    ['Open P&L', 'r', '(Last price − buy price) × open shares. Commissions count when you sell.'],
-    ['Risk at stop %', 'r', 'Loss at the Current stop as % of the capital this trade was opened with. Empty when the stop is at or above the buy price.'],
-    ['Position size %', 'r', 'Last price × open shares as % of the estimated account (capital + open result).'],
-    ['Status', '', 'Act now = at or below the stop. Review = a mark that may need a decision. On plan = nothing to decide.'],
-  ];
-  const rows = shown.map((l) => {
-    const { t, m, marks } = l; const c = cols(t, m);
-    const vis = marks.slice(0, 2), hid = marks.slice(2);
-    const open = () => detail(ctx, t.id);
-    const td = (v, cls = 'r') => h('td', { class: cls }, v);
-    return h('tr', { tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${STATUS_TEXT[l.status]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
-      h('td', { class: 'stick', title: t.id + (t.sales.length ? ' · partly sold' : '') }, h('div', { class: 'sym' }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null)),
-      h('td', { class: 'marks' }, h('div', { class: 'mk' }, vis.map((x) => pill({ ...x, text: SHORT[x.text] ?? x.text.split(':')[0], why: x.text + (x.why ? ' · ' + x.why : '') })), hid.length ? h('span', { class: 'pill more', title: hid.map((x) => x.text).join('; ') }, '+' + hid.length) : null)),
-      td(qtyTxt(C.openQty(t))), td(priceTxt(D.d(t.buyPrice))), td(priceTxt(num(t.last))), td(priceTxt(num(t.highest))), td(priceTxt(num(t.currentStop))), td(priceTxt(num(t.ema10))),
-      td(dmy(t.nextReport), ''),
-      td(pctTxt(c.hiToStop, 1)), h('td', { class: 'r ' + (c.toStop !== null && c.toStop <= 0n ? 'neg' : '') }, pctTxt(c.toStop, 1)), h('td', { class: 'r ' + (c.lastToEma !== null && c.lastToEma < 0n ? 'neg' : '') }, spct(c.lastToEma)),
-      h('td', { class: 'r ' + numClass(c.buyToStop) }, spct(c.buyToStop)),
-      h('td', { class: 'r b ' + numClass(m.openPL) }, susd(m.openPL)), td(pctTxt(m.riskAtStopPct)), td(pctTxt(m.positionPct, 1)),
-      h('td', null, h('span', { class: 'st ' + l.status }, STATUS_TEXT[l.status])));
-  });
+  const cardsSorted = [...shown].sort((a, b) => CS_ORDER[M.cardStatus(a.marks)] - CS_ORDER[M.cardStatus(b.marks)] || a.sym.localeCompare(b.sym) || (a.t.seq ?? 0) - (b.t.seq ?? 0));
   const totPL = shown.reduce((a, l) => a + (l.m.openPL ?? 0n), 0n);
-  wrap.append(h('section', { class: 'card', 'aria-label': 'Open positions table' },
-    h('div', { class: 'card-h', style: { paddingBottom: '14px' } }, h('div', null, h('h2', null, 'All open positions'), h('p', { class: 'lead' }, 'Most urgent first. Click a line to update it, close it or edit it.')),
+  wrap.append(h('section', { class: 'card', 'aria-label': 'All open positions' },
+    h('div', { class: 'card-h', style: { paddingBottom: '6px' } }, h('div', null, h('h2', null, 'All open positions'), h('p', { class: 'lead' }, 'Most urgent first. The value that needs a look is highlighted. Click a card to update, close or edit the line.')),
       h('div', { class: 'row' }, chip('all', 'All', all.length), nAtt ? chip('attention', 'Needs attention', nAtt) : null, nMiss ? chip('missing', 'Missing data', nMiss) : null,
         h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => updatePrices(ctx, all.map((l) => l.t)) }, 'Update prices'))),
-    h('div', { class: 'tw' }, h('table', { class: 'ptable wide' },
-      h('thead', null, h('tr', null, COLS.map(([label, cls, why], i) => h('th', { class: (cls ? cls + ' ' : '') + (i === 0 ? 'stick' : '') }, label, infoBtn(label, why))))),
-      h('tbody', null, rows))),
+    h('div', { class: 'pcards' }, cardsSorted.map((l) => posCard(ctx, l, today))),
     h('div', { class: 'pfoot' }, h('span', null, `${shown.length} line${shown.length === 1 ? '' : 's'}${filter === 'all' ? '' : ' (filtered)'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} without stop not included` : ''),
       h('span', null, `In market ${pctTxt(inMarket, 1)}`))));
   return wrap;
+}
+
+// ---- Position card (agreed 2026-11-05/06) ----
+const CS_ORDER = { red: 0, orange: 1, green: 2 };
+const CS_WORD = { red: 'Warning', orange: 'Attention', green: 'Healthy' };
+const SIZE_FULL = 15; // the size line is full at 15 % of the account
+// which value on the card a mark highlights
+const HL = { 'Missing: stop': 'stop', 'Raise stop': 'stop', 'Stop far below highest price': 'stop', 'Stop far below buy price': 'stop',
+  'At or below stop': 'last', 'Close to stop': 'last', 'Missing: last price': 'last', 'Missing: highest price': 'hi',
+  'Below EMA10': 'ema', 'Near EMA10': 'ema', 'Missing: EMA10': 'ema', 'Missing: Initial stop': 'init', 'Position too big': 'size', 'Near size limit': 'size' };
+const hlKey = (text) => HL[text] ?? (text.startsWith('Report') ? 'rep' : text.startsWith('Risk above') ? 'risk' : null);
+function highlights(marks) {
+  const out = {};
+  for (const m of marks) {
+    const k = hlKey(m.text); const c = m.level === 'crit' || m.level === 'neg' ? 'r' : m.level === 'warn' ? 'o' : null;
+    if (!k || !c) continue;
+    out[k] ??= { c, why: [] }; if (c === 'r') out[k].c = 'r'; out[k].why.push(m.text);
+  }
+  return out;
+}
+function reportText(iso, today) {
+  if (!iso) return '–';
+  const d = diffDays(today, iso);
+  if (d === 0) return 'today'; if (d === 1) return '1 day'; if (d > 1) return d + ' days';
+  return -d === 1 ? '1 day ago' : -d + ' days ago';
+}
+function posCard(ctx, l, today) {
+  const S = ctx.store.state.settings; const { t, m, marks } = l;
+  const hl = highlights(marks); const cs = M.cardStatus(marks);
+  const buy = D.d(t.buyPrice), last = num(t.last), stop = num(t.currentStop), init = num(t.initialStop);
+  const val = (k, text, cls = '') => h('b', { class: `cv ${cls}${hl[k] ? ' hl-' + hl[k].c : ''}${text === '–' ? ' none' : ''}`, title: hl[k] ? hl[k].why.join(' · ') : null }, text);
+  const lab = (text) => h('span', { class: 'cl' }, text);
+  const risk = stop === null ? '–' : stop >= buy ? 'None' : pctTxt(m.riskAtStopPct, 2);
+  const result = last === null || buy === 0n ? null : D.pct(D.sub(last, buy), buy);
+  const buyToStop = stop === null || buy === 0n ? null : D.pct(D.sub(stop, buy), buy);
+  const locked = buyToStop !== null && buyToStop > D.d(S.profitLocked);
+  const size = m.positionPct; const sizeN = size === null ? 0 : Math.max(0, Number(size) / Number(D.SCALE));
+  const tick = Math.min(100, Number(D.d(S.posSmallTo)) / Number(D.SCALE) / SIZE_FULL * 100);
+  const sizeCls = hl.size ? hl.size.c : 'g';
+  const open = () => detail(ctx, t.id);
+  return h('article', { class: 'pcard ' + cs, tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${CS_WORD[cs]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
+    h('div', { class: 'pc-top' }, h('span', { class: 'pc-sym', title: t.id + (t.sales.length ? ' · partly sold' : '') }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null), h('span', { class: 'pc-st ' + cs }, CS_WORD[cs])),
+    h('div', { class: 'pc-main' },
+      h('div', { class: 'pc-left' },
+        h('div', { class: 'pc-stop' }, lab('Stop loss'), val('stop', stop === null ? 'None' : priceTxt(stop), 'big')),
+        h('div', { class: 'pc-vals' },
+          h('div', null, lab('Buy price'), val('buy', priceTxt(buy))),
+          h('div', null, lab('Last price'), val('last', priceTxt(last))),
+          h('div', null, lab('Highest price'), val('hi', priceTxt(num(t.highest)))),
+          h('div', null, lab('EMA10'), val('ema', priceTxt(num(t.ema10))))),
+        h('div', { class: 'pc-small' }, h('span', null, 'Report: ', val('rep', reportText(t.nextReport, today))), h('span', null, 'Initial stop: ', val('init', init === null ? 'None' : priceTxt(init))))),
+      h('div', { class: 'pc-right' },
+        h('div', null, lab('Risk'), val('risk', risk, 'mid')),
+        h('div', null, lab('Result'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'From buy price to last price' }, result === null ? '–' : spct(result, 2))))),
+    h('div', { class: 'pc-size', title: 'Position size: last price × open shares as % of the estimated account' },
+      h('div', { class: 'sbar' }, h('i', { class: 'fill ' + sizeCls, style: { width: Math.min(100, sizeN / SIZE_FULL * 100) + '%' } }), h('i', { class: 'tick', style: { left: tick + '%' } })),
+      h('span', { class: 'sz' + (hl.size ? ' t-' + hl.size.c : ''), title: hl.size ? hl.size.why.join(' · ') : null }, 'Size ' + pctTxt(size, 1))));
 }
 
 // ---- Line panel: all marks, the daily values (B2: saved at once, Undo for the last change), the facts, and the actions ----
