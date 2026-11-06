@@ -107,27 +107,77 @@ function ownOrder(list, order) {
     return pa - pb;
   });
 }
-// Mouse drag and drop of the cards; a short click still opens the line (the browser sends no click after a drag).
+// Smooth mouse drag and drop of the cards (agreed 2026-11-06): the dragged card follows the mouse fully visible,
+// slightly lifted with a soft shadow; the other cards slide gently aside to show where it will land.
+// A short click (no movement) still opens the line; a click right after a drag is ignored.
+const DRAG_START_PX = 6, SLIDE_MS = 200, DROP_MS = 180;
+// the click that follows a drag must not open a line (one listener for the whole page)
+let blockNextClick = false;
+window.addEventListener('click', (e) => { if (blockNextClick) { e.stopPropagation(); e.preventDefault(); blockNextClick = false; } }, true);
 function dragCards(grid, onDone) {
-  let dragEl = null;
-  for (const c of grid.children) {
-    c.draggable = true;
-    c.addEventListener('dragstart', (e) => { dragEl = c; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.id); });
-    c.addEventListener('dragend', () => {
-      c.classList.remove('dragging'); dragEl = null;
-      const ids = [...grid.children].map((x) => x.dataset.id);
-      if (ids.join() !== grid.dataset.start) onDone(ids);
-    });
-  }
-  grid.dataset.start = [...grid.children].map((x) => x.dataset.id).join();
-  grid.addEventListener('dragover', (e) => {
-    if (!dragEl) return; e.preventDefault();
-    const over = e.target.closest('.pcard'); if (!over || over === dragEl) return;
+  const idsNow = () => [...grid.children].map((x) => x.dataset.id ?? x.dataset.ph);
+  const start = idsNow().join();
+  let d = null;
+  // slide the other cards from their old place to the new one (FLIP)
+  const slide = (change) => {
+    const cards = [...grid.querySelectorAll(':scope > .pcard')];
+    const before = new Map(cards.map((c) => [c, c.getBoundingClientRect()]));
+    change();
+    for (const c of cards) {
+      const a = before.get(c), b = c.getBoundingClientRect(); const dx = a.left - b.left, dy = a.top - b.top;
+      if (!dx && !dy) continue;
+      c.style.transition = 'none'; c.style.transform = `translate(${dx}px,${dy}px)`;
+      requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = `transform ${SLIDE_MS}ms cubic-bezier(.2,.7,.3,1)`; c.style.transform = ''; }));
+    }
+  };
+  const begin = (e) => {
+    const c = d.card, r = c.getBoundingClientRect();
+    d.ph = h('div', { class: 'pcard-ph' }); d.ph.dataset.ph = c.dataset.id; d.ph.style.height = r.height + 'px';
+    grid.insertBefore(d.ph, c);
+    d.dx = e.clientX - r.left; d.dy = e.clientY - r.top;
+    Object.assign(c.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', margin: '0', zIndex: '1000', pointerEvents: 'none', transition: 'box-shadow .15s, transform .15s' });
+    c.classList.add('lifted'); document.body.append(c); document.body.classList.add('grabbing');
+    d.active = true;
+  };
+  const move = (e) => {
+    if (!d || e.pointerId !== d.pid) return;
+    if (!d.active) { if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < DRAG_START_PX) return; begin(e); }
+    e.preventDefault();
+    d.card.style.left = e.clientX - d.dx + 'px'; d.card.style.top = e.clientY - d.dy + 'px';
+    // scroll the page when the card is near the top or bottom edge
+    if (e.clientY < 70) window.scrollBy(0, -14); else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.pcard');
+    if (!over || over.parentNode !== grid) return;
     const r = over.getBoundingClientRect();
-    const after = r.width > r.height * 1.6 && Math.abs(e.clientY - (r.top + r.height / 2)) < r.height / 2 ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2;
-    over.parentNode.insertBefore(dragEl, after ? over.nextSibling : over);
+    const sameRow = Math.abs(e.clientY - (r.top + r.height / 2)) < r.height / 2;
+    const multiCol = grid.children.length > 1 && getComputedStyle(grid).gridTemplateColumns.split(' ').length > 1;
+    const after = multiCol && sameRow ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2;
+    const ref = after ? over.nextSibling : over;
+    if (ref === d.ph || ref === d.ph.nextSibling) return; // already there
+    slide(() => grid.insertBefore(d.ph, ref));
+  };
+  const end = (e) => {
+    if (!d || e.pointerId !== d.pid) return;
+    const cur = d; d = null;
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end);
+    if (!cur.active) return; // a plain click: the card opens as usual
+    blockNextClick = true; setTimeout(() => { blockNextClick = false; }, 0);
+    const c = cur.card, r = cur.ph.getBoundingClientRect();
+    c.style.transition = `left ${DROP_MS}ms ease, top ${DROP_MS}ms ease, box-shadow ${DROP_MS}ms ease, transform ${DROP_MS}ms ease`;
+    c.classList.remove('lifted'); c.style.left = r.left + 'px'; c.style.top = r.top + 'px';
+    setTimeout(() => {
+      grid.replaceChild(c, cur.ph); document.body.classList.remove('grabbing');
+      for (const k of ['position', 'left', 'top', 'width', 'height', 'margin', 'zIndex', 'pointerEvents', 'transition', 'transform']) c.style[k] = '';
+      const ids = idsNow(); if (ids.join() !== start) onDone(ids);
+    }, DROP_MS);
+  };
+  grid.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || d) return;
+    const c = e.target.closest('.pcard'); if (!c || c.parentNode !== grid || e.target.closest('button,a,input,select,textarea')) return;
+    d = { card: c, pid: e.pointerId, x0: e.clientX, y0: e.clientY, active: false };
+    window.addEventListener('pointermove', move, { passive: false }); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
   });
-  grid.addEventListener('drop', (e) => e.preventDefault());
+  grid.addEventListener('dragstart', (e) => e.preventDefault()); // no browser "ghost" image
 }
 
 // ---- Position card (agreed 2026-11-05/06) ----
@@ -237,6 +287,21 @@ function detail(ctx, id) {
   const setup = st.setups.find((x) => x.id === t.setupId)?.name;
   const locked = m.lockedAtStop !== null && m.lockedAtStop > 0n;
   const R = (() => { const rps = C.riskPerShare(t), last = num(t.last); return rps === null || rps <= 0n || last === null ? null : D.div(D.sub(last, D.d(t.buyPrice)), rps); })();
+  const others = A.sameStockOpen(st, t).filter((x) => x.id !== t.id).map((x) => x.id);
+  const sharedNote = others.length ? h('div', { class: 'note' }, `Last price, highest price, EMA10 and next report are shared with your other ${sym} line${others.length > 1 ? 's' : ''} (${others.join(', ')}). The highest price can only go up.`) : null;
+  const correctHi = () => {
+    const cur = t.highest ?? '';
+    const inp = h('input', { inputmode: 'decimal', 'aria-label': 'New highest price', autocomplete: 'off', value: cur === '' ? '' : D.edit(D.d(cur)) });
+    const rowsFor = (v) => [Object.assign(['Highest price' + (others.length ? ` (${[t.id, ...others].join(', ')})` : ''), cur === '' ? '–' : priceTxt(D.d(cur)), v === null ? '–' : priceTxt(v)], { changed: true })];
+    const tbl = h('div', null, changeTable(rowsFor(null)));
+    inp.addEventListener('input', () => { const v = D.parse(inp.value.trim()); tbl.replaceChildren(changeTable(rowsFor(v !== null && v > 0n ? v : null))); });
+    dialog({ title: `Correct highest price of ${sym}`, body: h('div', null, para('Normally the highest price can only go up. Use this only to fix a wrong value. The change is logged' + (others.length ? ' and applies to all your open ' + sym + ' lines.' : '.'), ''), h('label', { class: 'fld' }, 'New highest price', inp), tbl),
+      ok: 'Correct', onOk: () => {
+        const v = inp.value.trim(); const p = D.parse(v); if (p === null || p <= 0n) return 'Enter a number above 0.';
+        const r = ctx.act((d) => A.correctHighest(d, t.id, v), { label: `${sym} highest corrected`, now: true });
+        if (!r.ok) return r.error; close(); toast(`${sym} highest price corrected.`, 'Undo', () => ctx.store.undo()); return true;
+      } });
+  };
   const sheet = h('aside', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': sym + ' line' },
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' } },
       h('div', null, h('div', { class: 'eyebrow' }, `${t.id}${setup ? ' · ' + setup : ''}`), h('h2', { class: 'sh-title' }, sym), h('span', { class: 'st ' + status }, STATUS_TEXT[status])),
@@ -246,8 +311,9 @@ function detail(ctx, id) {
       h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
         h('div', { class: 'fgrid' }, numField('last', 'Last price'), numField('currentStop', 'Current stop'),
           numField('ema10', 'EMA10'), numField('highest', 'Highest price'), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Next report'), h('div', { class: 'box' }, rep))),
-        h('label', { class: 'of' }, h('span', { class: 'l' }, 'Comment'), com), msg,
-        h('div', { class: 'row' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly, onClick: save }, 'Save'), h('button', { class: 'btn big', onClick: close }, 'Cancel')))),
+        h('label', { class: 'of' }, h('span', { class: 'l' }, 'Comment'), com), sharedNote, msg,
+        h('div', { class: 'row' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly, onClick: save }, 'Save'), h('button', { class: 'btn big', onClick: close }, 'Cancel'),
+          h('button', { class: 'btn sm', style: { marginLeft: 'auto' }, disabled: ctx.readOnly, onClick: correctHi }, 'Correct highest price…')))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', null, 'Line')), h('div', { class: 'card-b' }, h('dl', { class: 'facts', style: { margin: 0 } },
       lv('Qty open', qtyTxt(C.openQty(t)) + (t.sales.length ? ` of ${qtyTxt(D.d(t.qty))} bought` : '')), lv('Buy date', dmy(t.buyDate)), lv('Buy price', usd(D.d(t.buyPrice))),
       lv('Initial stop', t.initialStop ? usd(D.d(t.initialStop)) : 'No SL', 'The stop you had when you bought. R and risk use it. It changes only with “Correct initial stop” in Edit trade.'),
@@ -273,18 +339,23 @@ function detail(ctx, id) {
 function updatePrices(ctx, trades) {
   const st = ctx.store.state; const inputs = [];
   const rows = trades.map((t) => {
-    const mk = (f, w = 80) => { const i = h('input', { class: 'cell', 'aria-label': `${A.symbolOf(st, t)} ${f}`, value: t[f] === '' ? '' : D.edit(D.d(t[f])), style: { width: w + 'px' } }); inputs.push({ t, f, get: () => i.value.trim(), before: i.value.trim() }); return i; };
+    const mk = (f, w = 80) => {
+      const i = h('input', { class: 'cell', 'aria-label': `${A.symbolOf(st, t)} ${f}`, value: t[f] === '' ? '' : D.edit(D.d(t[f])), style: { width: w + 'px' } });
+      const x = { t, f, el: i, get: () => i.value.trim(), before: i.value.trim() }; inputs.push(x);
+      if (A.SHARED.includes(f)) i.addEventListener('input', () => { for (const y of inputs) if (y !== x && y.f === f && y.el && y.t.stockId === t.stockId) { y.el.value = i.value; y.mirror = true; } x.mirror = false; });
+      return i;
+    };
     const rep = datePicker({ iso: t.nextReport || '', label: A.symbolOf(st, t) + ' next report' });
     inputs.push({ t, f: 'nextReport', get: () => rep.getISO(), before: t.nextReport || '' });
     return h('tr', null, h('td', null, h('b', null, A.symbolOf(st, t)), h('div', { class: 'note' }, t.id)), h('td', { class: 'r' }, qtyTxt(C.openQty(t))), h('td', { class: 'r' }, priceTxt(D.d(t.buyPrice))), h('td', null, mk('last')), h('td', null, mk('currentStop')), h('td', null, mk('highest')), h('td', null, mk('ema10')), h('td', null, h('div', { class: 'cellbox' }, rep)));
   });
-  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Empty or unchanged price fields stay as they are. All changes are saved together and can be undone with one click.'),
+  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Empty or unchanged price fields stay as they are. Lines of the same stock share last price, highest, EMA10 and next report. All changes are saved together and can be undone with one click.'),
     h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Symbol', 'Qty', 'Buy price', 'Last price', 'Current stop', 'Highest', 'EMA10', 'Next report'].map((x, i) => h('th', { class: i > 0 && i < 7 ? 'r' : '' }, x)))), h('tbody', null, rows)))),
     onOk: async () => {
       const changes = []; const jumps = [];
       for (const x of inputs) {
         const { t, f } = x; const v = x.get();
-        if (v === x.before) continue;
+        if (v === x.before || x.mirror) continue; // a mirrored value is saved once, through the line it was typed on
         if (f === 'nextReport') { if (v === null) return `${A.symbolOf(st, t)}: next report is not a valid date (dd-mm-yyyy).`; }
         else { if (v === '') continue; if (D.parse(v) === null || D.parse(v) <= 0n) return `${A.symbolOf(st, t)}: enter ${f === 'last' ? 'the last price' : f} as a number above 0.`; }
         changes.push({ t, f, v });

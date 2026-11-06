@@ -120,7 +120,18 @@ export function openTrade(st, f) {
     direction: 'Long', capitalAtOpen: '', sales: [],
   };
   t.capitalAtOpen = S(C.capitalBefore(st, t.buyDate, seq));
-  st.trades.push(t); log(st, { type: 'open', tradeId: t.id }); return ok(t);
+  const held = sameStockOpen(st, t);
+  st.trades.push(t); log(st, { type: 'open', tradeId: t.id });
+  // the buy itself is the newest price: the new line's last price (its buy price, or a typed one) goes to all lines
+  if (held.length) joinShared(t, held, { last: true, ema10: need(f.ema10), nextReport: !!f.nextReport });
+  return ok(t);
+}
+// A trade that (re)joins a stock already held: it takes the shared last price, EMA10 and next report
+// (a value typed in that same step wins and goes to all), and the higher highest price is used for all.
+function joinShared(t, held, typed = {}) {
+  const all = [...held, t];
+  for (const f of ['last', 'ema10', 'nextReport']) { const v = typed[f] ? t[f] : held[0][f]; for (const x of all) x[f] = v; }
+  const hi = maxHighest(all); if (hi !== null) for (const x of all) x.highest = S(hi);
 }
 
 // ---------- daily edits (saved at once, Undo for the last one) ----------
@@ -138,7 +149,64 @@ export function editDaily(st, id, field, raw) {
     // every change goes to the stop history, also emptying the stop (C7)
     st.stopHistory.push({ ts: new Date().toISOString(), tradeId: t.id, old: t.currentStop, new: val });
   }
+  if (SHARED.includes(field) && C.openQty(t) > 0n) {
+    const group = sameStockOpen(st, t);
+    if (field === 'highest') {
+      // strictly highest wins (2026-11-06): a lower value only through "Correct highest price"
+      const cur = maxHighest(group);
+      const p = D.parse(val);
+      if (cur !== null && (p === null || p < cur)) return err(`The highest price can only go up (now ${D.fmt(cur, 2)}). Use “Correct highest price” to set a lower value.`, { lower: true });
+    }
+    for (const x of group) x[field] = val;
+    return ok(t);
+  }
   t[field] = val; return ok(t);
+}
+
+// ---------- same stock, several open trades: shared daily values (2026-11-06) ----------
+// Last price, highest price, EMA10 and next report belong to the stock: every open trade of that stock shows the same.
+// Closed trades are not part of it. Highest price: strictly the highest wins.
+export const SHARED = ['last', 'highest', 'ema10', 'nextReport'];
+export const sameStockOpen = (st, t) => st.trades.filter((x) => x.stockId === t.stockId && C.openQty(x) > 0n);
+function maxHighest(trades) { let m = null; for (const x of trades) { const p = D.parse(x.highest); if (p !== null && (m === null || p > m)) m = p; } return m; }
+// Lower the highest price on purpose (only way to go down); applies to every open trade of the stock and is logged.
+export function correctHighest(st, id, raw) {
+  const t = tradeById(st, id); if (!t) return err('Not found.');
+  const p = D.parse(raw); if (p === null || p <= 0n) return err('Enter a number above 0.');
+  for (const x of C.openQty(t) > 0n ? sameStockOpen(st, t) : [t]) {
+    if (x.highest !== S(p)) log(st, { type: 'highest', tradeId: x.id, old: x.highest, new: S(p) });
+    x.highest = S(p);
+  }
+  return ok(t);
+}
+// Where open trades of the same stock differ. Highest is never a question (the higher value is used);
+// last price, EMA10 and next report: the program cannot know which is newer, so it asks him.
+export function sharedDiffs(st) {
+  const out = []; const seen = new Set();
+  for (const t of st.trades) {
+    if (seen.has(t.stockId) || C.openQty(t) <= 0n) continue; seen.add(t.stockId);
+    const group = sameStockOpen(st, t); if (group.length < 2) continue;
+    const fields = [];
+    for (const f of ['last', 'ema10', 'nextReport']) {
+      const vals = [...new Set(group.map((x) => x[f] ?? ''))];
+      if (vals.length > 1) fields.push({ field: f, options: vals.map((v) => ({ value: v, trades: group.filter((x) => (x[f] ?? '') === v).map((x) => x.id) })) });
+    }
+    const hiVals = new Set(group.map((x) => x.highest ?? ''));
+    const hi = hiVals.size > 1 ? maxHighest(group) : null;
+    if (fields.length || hi !== null) out.push({ stockId: t.stockId, symbol: symbolOf(st, t), trades: group.map((x) => x.id), fields, highest: hi === null ? null : S(hi) });
+  }
+  return out;
+}
+// Apply: the higher highest price everywhere, and his choices ({ [stockId]: { last: v, ema10: v, nextReport: v } }).
+// Fields without a choice stay as they are (asked again next time).
+export function alignShared(st, choices = {}) {
+  for (const g of sharedDiffs(st)) {
+    const group = g.trades.map((id) => tradeById(st, id));
+    if (g.highest !== null) for (const x of group) x.highest = g.highest;
+    const ch = choices[g.stockId] || {};
+    for (const f of ['last', 'ema10', 'nextReport']) if (ch[f] !== undefined) for (const x of group) x[f] = ch[f];
+  }
+  return ok();
 }
 export function jumpPct(oldV, newV) { const o = D.parse(oldV), n2 = D.parse(newV); if (o === null || n2 === null || o === 0n) return null; return D.abs(D.pct(D.sub(n2, o), o)); }
 
@@ -202,7 +270,10 @@ export function reopenSales(st, tradeId, saleIds) {
   const t = tradeById(st, tradeId); if (!t) return err('Not found.'); if (!saleIds.length) return err('Tick at least one sale.');
   const rm = t.sales.filter((s) => saleIds.includes(s.id));
   st.trash.push({ kind: 'sales', deletedAt: new Date().toISOString(), item: { tradeId, sales: rm } });
-  t.sales = t.sales.filter((s) => !saleIds.includes(s.id)); log(st, { type: 'reopen', tradeId, sales: saleIds }); return ok(t);
+  const wasOpen = C.openQty(t) > 0n;
+  t.sales = t.sales.filter((s) => !saleIds.includes(s.id)); log(st, { type: 'reopen', tradeId, sales: saleIds });
+  if (!wasOpen) { const held = sameStockOpen(st, t).filter((x) => x !== t); if (held.length) joinShared(t, held); }
+  return ok(t);
 }
 export function deleteTrade(st, id) {
   const i = st.trades.findIndex((t) => t.id === id); if (i < 0) return err('Not found.');

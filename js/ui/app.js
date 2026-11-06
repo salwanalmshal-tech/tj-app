@@ -1,5 +1,5 @@
 // Program shell: start-up (sign in / demo), menu, status pill, banners, routing.
-import { h, clear, dialog, para, toast, dmy, download } from './dom.js';
+import { h, clear, dialog, para, toast, dmy, download, priceTxt } from './dom.js';
 import { emptyState, checkFile, migrate, needsUpdateBackup, APP_VERSION } from '../model.js';
 import { Store } from '../store.js';
 import { Saver } from '../saver.js';
@@ -233,9 +233,54 @@ function draw() {
   paintStatus(); drawBanner();
   if (scroll) { const tw = document.querySelector('.tw.fx'); if (tw) tw.scrollTop = scroll; }
   if (keep) document.querySelector(`[data-keep="${keep}"]`)?.focus();
+  checkShared();
+}
+
+// ------------------------------------------------------------- same stock, several open lines (2026-11-06)
+// When open lines of the same stock show different shared values (first open of this version, import, restore):
+// the higher highest price is used, and for last price, EMA10 and next report he chooses once in one pop-up.
+// Checked again only when the set of open lines changes, so Undo or "Later" does not bring the pop-up straight back.
+let sharedKey = null, sharedBusy = false;
+function checkShared() {
+  if (ctx.readOnly || sharedBusy || !ctx.store) return;
+  const st = ctx.store.state;
+  const key = st.trades.filter((t) => C.openQty(t) > 0n).map((t) => t.id + ':' + t.stockId).sort().join();
+  if (key === sharedKey) return; sharedKey = key;
+  const diffs = A.sharedDiffs(st); if (!diffs.length) return;
+  sharedBusy = true; setTimeout(() => askShared(diffs).finally(() => { sharedBusy = false; }), 0);
+}
+async function askShared(diffs) {
+  const asks = diffs.filter((g) => g.fields.length);
+  const hiText = (g) => `${g.symbol}: highest price ${priceTxt(D.d(g.highest))} used on all ${g.trades.length} lines (the higher value).`;
+  if (!asks.length) {
+    const r = ctx.act((d) => A.alignShared(d), { label: 'highest price aligned', now: true });
+    if (r.ok) toast(diffs.map(hiText).join(' '));
+    return;
+  }
+  const NAMES = { last: 'Last price', ema10: 'EMA10', nextReport: 'Next report' };
+  const show = (f, v) => v === '' ? 'Empty' : f === 'nextReport' ? dmy(v) : priceTxt(D.d(v));
+  const picks = {};
+  const body = h('div', null,
+    para('Your open lines of the same stock now share last price, highest price, EMA10 and next report. Some values differ and the program cannot know which one is newer. Choose the right value once; after that they stay the same.', ''),
+    ...diffs.map((g) => h('section', { class: 'shared-sec' },
+      h('h3', null, g.symbol, h('span', { class: 'note' }, ' · ' + g.trades.join(', '))),
+      g.highest !== null ? h('div', { class: 'note' }, `Highest price: ${show('highest', g.highest)} (the higher value is used, no choice needed).`) : null,
+      ...g.fields.map((fd) => h('fieldset', { class: 'shared-f' }, h('legend', null, NAMES[fd.field]),
+        ...fd.options.map((o) => h('label', { class: 'shared-o' },
+          h('input', { type: 'radio', name: g.stockId + '-' + fd.field, onChange: () => { (picks[g.stockId] ??= {})[fd.field] = o.value; } }),
+          h('b', null, show(fd.field, o.value)), h('span', { class: 'note' }, ' on ' + o.trades.join(', ')))))))));
+  const done = await dialog({ title: 'Same stock, different values', wide: true, body, ok: 'Use these values', cancel: 'Later',
+    onOk: () => {
+      for (const g of asks) for (const fd of g.fields) if (picks[g.stockId]?.[fd.field] === undefined) return `Choose a value for ${g.symbol} ${NAMES[fd.field].toLowerCase()}.`;
+      const r = ctx.act((d) => A.alignShared(d, picks), { label: 'shared values aligned', now: true });
+      return r.ok ? true : r.error;
+    } });
+  if (done) toast('Values aligned.', 'Undo', () => ctx.store.undo());
+  else toast('Not changed. You will be asked again next time the program opens.');
 }
 import * as C from '../calc.js';
 import * as M from '../marks.js';
+import * as D from '../decimal.js';
 // same rule as "Needs your attention" on Open positions, so both numbers always match
 function attentionCount() { return openPos.lines(ctx.store.state, todayISO()).filter((l) => l.status !== 'ok').length; }
 

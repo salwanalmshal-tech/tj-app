@@ -352,7 +352,10 @@ input.cell:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(
 .seg-b:disabled{cursor:not-allowed;opacity:.6}
 .pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,460px),1fr));gap:16px}
 .pcards.dragmode .pcard{cursor:grab}
-.pcard.dragging{opacity:.45;cursor:grabbing}
+.pcards.dragmode{user-select:none}
+.pcard.lifted{cursor:grabbing;transform:scale(1.015);box-shadow:0 6px 12px rgba(21,35,59,.08),0 22px 48px rgba(21,35,59,.16)}
+.pcard-ph{border:1.5px dashed var(--field);border-radius:16px;background:rgba(50,107,158,.035)}
+body.grabbing,body.grabbing *{cursor:grabbing!important}
 .pcard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 20px 14px;cursor:pointer;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(21,35,59,.04),0 8px 22px rgba(21,35,59,.05);transition:box-shadow .15s,transform .15s}
 .pcard:hover{box-shadow:0 2px 4px rgba(21,35,59,.06),0 12px 28px rgba(21,35,59,.09);transform:translateY(-1px)}
 .pc-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
@@ -387,3 +390,11 @@ input.cell:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(
 .pc-size .sz{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .pc-size .sz.t-o{color:var(--warn);font-weight:600}.pc-size .sz.t-r{color:var(--neg);font-weight:600}
 @media (max-width:520px){.pcard{padding:14px 14px 12px}.pc-vals,.pc-small{gap:16px}.cv.big{font-size:22px}}
+/* same stock, different values pop-up (2026-11-06) */
+.shared-sec{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.shared-sec h3{margin:0 0 6px;font-size:14px;font-weight:650}
+.shared-f{border:0;padding:0;margin:8px 0 0;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.shared-f legend{font-size:11.5px;color:var(--muted);padding:0;margin-bottom:4px;width:100%}
+.shared-o{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;cursor:pointer}
+.shared-o:has(input:checked){border-color:var(--accent);background:var(--infobg)}
+.shared-o input{accent-color:var(--accent);margin:0}
