@@ -424,3 +424,4 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 .pc-size{justify-content:flex-end}
 .pc-size .sz{font-size:12px;font-weight:600}
 .pc-size .sz.c-g{color:var(--pos)}.pc-size .sz.c-o{color:var(--warn)}.pc-size .sz.c-r{color:var(--neg)}
+.selnew{display:grid}.selnew>select{width:100%}

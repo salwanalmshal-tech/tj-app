@@ -272,7 +272,7 @@ export function renderClose(ctx) {
   return h('div', { class: 'cols' }, h('section', { class: 'panel', style: { flex: '1 1 100%' } },
     h('div', { class: 'ph' }, '1. The sale', h('span', { class: 'sub' }, 'one sale, one price')),
     h('div', { class: 'pb' }, h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', alignItems: 'start' } }, field('Symbol', symSel), field('Total shares sold', total), field('Sell date', date, dnote), field('Sell price (USD)', price), field('Sell commission (USD)', comm)),
-      h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', alignItems: 'start', marginTop: '14px', maxWidth: '640px' } }, field('Setup', h('div', null, setupSel, setupNew)), field('Mistake (if any)', h('div', null, mistake, mistakeNew)))),
+      h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', alignItems: 'start', marginTop: '14px', maxWidth: '640px' } }, field('Setup', h('div', { class: 'selnew' }, setupSel, setupNew)), field('Mistake (if any)', h('div', { class: 'selnew' }, mistake, mistakeNew)))),
     h('div', { class: 'ph', style: { borderTop: '1px solid var(--line)' } }, '2. Choose the lines', status), linesBox,
     h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, h('div', { class: 'row' }, btn, h('button', { class: 'btn', onClick: () => back(ctx) }, 'Cancel')), h('span', { class: 'note' }, 'The button stays off until every share is assigned and the price is filled in. It opens a confirmation first.'))),
     h('aside', { class: 'panel', style: { flex: '1 1 100%' }, 'aria-label': 'Preview' }, h('div', { class: 'ph' }, 'Preview before saving'), h('div', { class: 'pb' }, prevBox)));
@@ -300,13 +300,15 @@ export function editTrade(ctx, id) {
   const st = ctx.store.state; const t = A.tradeById(st, id); if (!t) return; const sym = A.symbolOf(st, t);
   const q = numInput(D.edit(D.d(t.qty)), 'Quantity'), bp = numInput(D.edit(D.d(t.buyPrice)), 'Buy price'), bc = numInput(t.buyCommission === '' ? '' : D.edit(D.d(t.buyCommission)), 'Buy commission'), bd = dateInput(t.buyDate, 'Buy date');
   const is = numInput(t.initialStop === '' ? '' : D.edit(D.d(t.initialStop)), 'Initial stop');
-  const setup = sel(st.setups.filter((x) => !x.archived || x.id === t.setupId), t.setupId), err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId), com = h('textarea', { rows: 2, 'aria-label': 'Comment' }); com.value = t.comment || '';
+  const setup = sel(st.setups.filter((x) => !x.archived || x.id === t.setupId), t.setupId); const setupNew = withNew(setup, 'Setup');
+  const err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId); const errNew = withNew(err, 'Error');
+  const com = h('textarea', { rows: 2, 'aria-label': 'Comment' }); com.value = t.comment || '';
   const msg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
   const sold = C.soldQty(t);
   dialog({ title: `Edit ${sym} · ${t.id}`, wide: true, ok: 'Save', body: h('div', { style: { display: 'grid', gap: '12px' } },
     sold > 0n ? h('div', { class: 'msg info' }, `● ${qtyTxt(sold)} shares were already sold. Quantity cannot go below that.`) : null,
     h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Buy date', bd), field('Quantity', q), field('Buy price', bp), field('Buy commission', bc), field('Initial stop', is, 'Used for R. Changing it is logged.')),
-    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } }, field('Setup', setup), field('Error', err)), field('Comment', com), msg,
+    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } }, field('Setup', h('div', { class: 'selnew' }, setup, setupNew)), field('Error', h('div', { class: 'selnew' }, err, errNew))), field('Comment', com), msg,
     h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', onClick: async () => { const ok = await dialog({ title: `Delete trade ${t.id} (${sym})?`, danger: true, ok: 'Delete trade', body: para(`This moves the trade${t.sales.length ? ' and its ' + t.sales.length + ' sale(s)' : ''} to the Trash for 15 days. Capital and statistics change. You can restore it from the Trash (Import / Export).`, '') }); if (!ok) return; const r = ctx.act((d) => A.deleteTrade(d, t.id), { label: 'delete trade', now: true }); if (r.ok) { document.querySelector('.scrim')?.remove(); toast(`${t.id} moved to the Trash.`, 'Restore', () => ctx.store.undo()); } else toast(r.error); } }, 'Delete…'))),
     onOk: async () => {
       const bdi = parseDMY(bd.value); if (!bdi) return 'Enter a valid buy date (dd-mm-yyyy).';
@@ -336,7 +338,7 @@ export function editTrade(ctx, id) {
       const res = ctx.act((d) => {
         if (rows.length) { const r = A.editBuyData(d, t.id, patch); if (!r.ok) return r; }
         if (isChange) { const r = A.correctInitialStop(d, t.id, isNew); if (!r.ok) return r; }
-        const x = A.tradeById(d, t.id); x.setupId = setup.value || null; x.errorId = err.value || null; x.comment = com.value; return { ok: true };
+        const x = A.tradeById(d, t.id); x.setupId = resolveNew(d, 'setups', setup.value); x.errorId = resolveNew(d, 'errors', err.value); x.comment = com.value; return { ok: true };
       }, { label: 'edit ' + sym, now: true });
       if (!res.ok) return res.error;
       if (rows.length || ctx.params) { /* capital at open of other trades may now differ */ const diffs = A.capitalDiffs(ctx.store.state); if (diffs.length) { ctx.act((d) => A.recalcCapital(d), { label: 'capital at open', noUndo: true, now: true }); } }

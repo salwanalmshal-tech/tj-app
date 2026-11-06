@@ -66,9 +66,10 @@ export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = fal
     const scrim = h('div', { class: 'scrim fixed' }, box);
     const onKey = (e) => {
       if (document.querySelector('.dp-pop')) return; // a calendar is open on top: it handles its own keys
+      if (e.key === 'Escape' && e.target.closest?.('.addnew')) return; // the "+ New…" field closes itself
       if (e.key === 'Escape') { e.stopPropagation(); close(info ? true : false); }
       else if (e.key === 'Tab') { const f = [...box.querySelectorAll('button:not(:disabled),input,select,textarea,[tabindex]')].filter((x) => x.offsetParent !== null); if (!f.length) return; const i = f.indexOf(document.activeElement); if (e.shiftKey && i <= 0) { e.preventDefault(); f.at(-1).focus(); } else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); } }
-      else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && !confirmWord) { e.preventDefault(); if (!okBtn.disabled) doOk(); }
+      else if (e.key === 'Enter' && !e.target.closest?.('.addnew') && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && !confirmWord) { e.preventDefault(); if (!okBtn.disabled) doOk(); }
     };
     document.addEventListener('keydown', onKey, true);
     document.body.append(scrim);
