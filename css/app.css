@@ -720,3 +720,9 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 #tview .tw.fx::-webkit-scrollbar-thumb{background:#9AA6B4;border-radius:8px;border:3px solid var(--raised)}
 #tview .tw.fx::-webkit-scrollbar-thumb:hover{background:#7C8899}
 #tview .tw.fx::-webkit-scrollbar-corner{background:var(--raised)}
+#tview .tw.fx{max-height:calc(100vh - 170px)}
+#tview .hfloat{position:sticky;bottom:0;z-index:6;overflow-x:scroll;overflow-y:hidden;height:16px;background:var(--raised);border-top:1px solid var(--line)}
+#tview .hfloat[hidden]{display:none}
+#tview .hfloat > div{height:1px}
+#tview .hfloat::-webkit-scrollbar{height:12px}#tview .hfloat::-webkit-scrollbar-track{background:var(--raised)}
+#tview .hfloat::-webkit-scrollbar-thumb{background:#9AA6B4;border-radius:8px;border:3px solid var(--raised)}#tview .hfloat::-webkit-scrollbar-thumb:hover{background:#7C8899}

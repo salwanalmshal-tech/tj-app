@@ -421,6 +421,14 @@ function renderTable(ts){
      <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.label)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?esc(setupName(t)):'<span class="lmiss">Missing</span>'}</td><td>${mistakeName(t)?esc(mistakeName(t)):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
     <div class="lfoot"><span class="note">Showing ${shown.length} of ${rows.length} trades · click a row for details</span><span style="display:flex;gap:8px;align-items:center">${pages>1?`<span class="lpager">${Array.from({length:pages},(_,i)=>`<button class="btn sm${i===page?' on':''}" data-p="${i}">${i+1}</button>`).join('')}</span>`:''}<button class="btn sm" id="hx-export">Export to Excel</button></span></div>`;
   $('hx-export').onclick=()=>exportExcel(rows);
+  // 2026-11-09: a second sideways scroll bar that stays at the bottom of the window while the table's own bar is out of sight
+  // (e.g. with two windows side by side). Both bars move together; the floating one hides when the table's own bar is visible.
+  {const tw=v.querySelector('.tw'),fl=document.createElement('div'),inner=document.createElement('div');fl.className='hfloat';fl.setAttribute('aria-hidden','true');fl.append(inner);tw.after(fl);
+   let own=false,lock=false;const sync=()=>{inner.style.width=tw.scrollWidth+'px';fl.hidden=own||tw.scrollWidth<=tw.clientWidth+1;fl.scrollLeft=tw.scrollLeft;};
+   fl.addEventListener('scroll',()=>{if(lock)return;lock=true;tw.scrollLeft=fl.scrollLeft;lock=false;});
+   tw.addEventListener('scroll',()=>{if(lock)return;lock=true;fl.scrollLeft=tw.scrollLeft;lock=false;});
+   const foot=v.querySelector('.lfoot');if(foot&&'IntersectionObserver' in window)new IntersectionObserver((e)=>{own=e[0].isIntersecting;sync();}).observe(foot);
+   if('ResizeObserver' in window)new ResizeObserver(sync).observe(tw);requestAnimationFrame(sync);}
   v.querySelectorAll('th button').forEach(b=>b.onclick=()=>{const k=b.dataset.k;sort={k,d:sort.k===k?-sort.d:(['net','R','capPct','days','sellDate'].includes(k)?-1:1)};renderTable(ts);});
   v.querySelectorAll('tr.hrow').forEach(r=>{const go=()=>{openRow=openRow===r.dataset.id?null:r.dataset.id;renderTable(ts);};r.onclick=go;r.onkeydown=(e)=>{if(e.key==='Enter'){e.preventDefault();go();}};});
   v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{page=+b.dataset.p;renderTable(ts);});
