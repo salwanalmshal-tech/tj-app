@@ -598,3 +598,107 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 .quote blockquote{margin:0;font-size:19px}
 .quote figcaption{font-size:15px;color:#7A8EAD;margin-top:1px}
 @media (max-width:900px){.top .qspace .quote{display:none}}
+/* ================= History (2026-11-09): Report | Trades | Compare ================= */
+.hlists{display:flex;flex-direction:column;gap:14px}
+.ltabs .n{margin-left:6px;font-size:11px;font-weight:650;color:var(--faint)}
+.hview{display:none}.hview.on{display:flex;flex-direction:column;gap:14px}
+/* report */
+.hrep{display:grid;grid-template-columns:minmax(250px,320px) minmax(0,1fr);gap:16px;align-items:start}
+.hrl{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid var(--raised);font-size:13.5px}
+.hrl:last-child{border-bottom:0}
+.hrl:hover{background:var(--raised)}
+.hrl:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.hrl.on{background:var(--infobg);color:var(--accent);font-weight:650}
+.hrl .w{font-size:12px;color:var(--faint);font-weight:500;white-space:nowrap}
+.hrl.on .w{color:var(--accent)}
+.hdet h2{font-size:19px;font-weight:750;letter-spacing:-.01em;margin:6px 0 0;color:var(--ink);text-wrap:balance}
+.hfacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:16px}
+.hfacts .metric,.metrics.six .metric{padding:11px 14px;gap:2px;border-radius:12px;cursor:help}
+.hfacts .metric .v,.metrics.six .metric .v{font-size:18px}
+.hfacts .metric .lab,.metrics.six .metric .lab{font-size:10px}
+.metrics.six{grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.hline{display:flex;gap:12px;align-items:baseline;padding:12px 0;border-bottom:1px solid var(--raised);font-size:13.5px}
+.hline:last-of-type{border-bottom:0}
+.hline .k{flex:0 0 132px;padding-top:2px;font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.hmore{margin-top:4px;font-size:13px;color:var(--muted);line-height:1.6;max-width:74ch}
+.hmore summary{cursor:pointer;color:var(--accent);font-weight:600;list-style:none}
+.hmore summary::-webkit-details-marker{display:none}
+.hmore p{margin:10px 0 0}
+.hbars{display:flex;gap:6px;align-items:flex-end;height:46px;margin-top:6px}
+.hbars i{display:block;width:44px;border-radius:3px}
+/* trades */
+.metrics.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+.hf{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.hf select,.hf input,.ms > button{height:38px;border:1px solid var(--field);border-radius:10px;padding:0 10px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink)}
+.hf input[type=search]{flex:1 1 220px;max-width:320px;padding:0 12px}
+.ms{position:relative}
+.ms > button{padding:0 30px 0 12px;cursor:pointer;position:relative;white-space:nowrap}
+.ms > button::after{content:"▾";position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:11px}
+.ms > button.act{border-color:var(--accent);color:var(--accent);background:var(--infobg)}
+.ms .pop{position:absolute;z-index:40;top:calc(100% + 6px);left:0;min-width:220px;max-height:300px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 28px rgba(21,35,59,.14);padding:6px;display:grid}
+.ms .pop label{display:flex;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--ink)}
+.ms .pop label:hover{background:var(--raised)}
+.ms .pop input{accent-color:var(--accent);margin:0}
+.hchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.hchip{display:inline-flex;align-items:center;gap:6px;background:var(--infobg);color:var(--accent);border-radius:999px;padding:3px 6px 3px 11px;font-size:12px;font-weight:600}
+.hchip button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:13px}
+.ltable td{white-space:nowrap}
+.ltable td.r,.ltable th.r{text-align:right}
+.ltable tr.hrow{cursor:pointer}.ltable tr.hrow:hover td{background:var(--raised)}.ltable tr.hrow.open td{background:var(--infobg)}
+.htid{display:block;font-size:11px;color:var(--faint);font-weight:500}
+.hlab{font-size:11px;font-weight:600;border-radius:6px;padding:2px 8px;white-space:nowrap;background:var(--raised);color:var(--muted)}
+.hlab.g{background:var(--posbg);color:var(--pos)}.hlab.r{background:var(--negbg);color:var(--neg)}.hlab.o{background:var(--warnbg);color:var(--warn)}
+.ltable tr.dt td{background:var(--raised);white-space:normal;padding:16px 18px}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 20px}
+.dgrid span{display:block;font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.dgrid b{font-weight:600}
+.dsales{margin-top:12px;border-collapse:collapse;width:auto}
+.dsales td,.dsales th{padding:6px 14px 6px 0!important;background:transparent!important;border:0!important}
+.dtag{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-top:12px}
+.dtag .fld select{height:32px;background:var(--panel)}
+.hempty{padding:34px 18px;text-align:center;color:var(--muted)}
+.lpager{display:flex;gap:4px}
+/* compare */
+.hc-top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.hc-top .fld select{height:38px;border-radius:10px;min-width:280px;font-size:13.5px;background:var(--panel)}
+.hc-say{padding:14px 18px;font-size:14px;line-height:1.55;border-bottom:1px solid var(--line)}
+.hc-g{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.hc-g .card-b{display:grid;gap:10px}
+.hc-g .ttl{display:flex;align-items:center;gap:8px}
+.hc-g .ttl input{font:inherit;font-weight:700;font-size:14px;border:1px solid transparent;border-radius:8px;padding:4px 6px;min-width:0;flex:1;color:var(--ink);background:transparent}
+.hc-g .ttl input:hover,.hc-g .ttl input:focus{border-color:var(--field)}
+.gl{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:8px;font-size:12px;font-weight:800;background:var(--infobg);color:var(--accent);flex:none}
+.ltable th small{display:block;font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted);margin-top:2px}
+.ltable td.best{font-weight:700}
+.ltable td.best::after{content:" ●";color:var(--accent);font-size:9px;vertical-align:middle}
+@media (max-width:900px){.hrep,.hc-g{grid-template-columns:1fr}.hfacts{grid-template-columns:1fr}.metrics.five{grid-template-columns:1fr 1fr}.hline{flex-direction:column;gap:2px}.hline .k{flex:none}}
+.hdates{display:inline-flex;align-items:center;gap:6px;color:var(--faint)}
+.hf input.hdate{width:118px;flex:none;padding:0 10px}
+.hc-q{display:grid;gap:8px}
+.hc-chips{display:flex;flex-wrap:wrap;gap:8px}
+.hcq{all:unset;cursor:pointer;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:13px;color:var(--ink);display:inline-flex;align-items:center}
+.hcq:hover{border-color:var(--field)}
+.hcq.on{background:var(--infobg);border-color:var(--accent);color:var(--accent);font-weight:650}
+.hcq:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hc-diff ul{margin:8px 0 0;padding-left:18px;display:grid;gap:6px;font-size:14px;line-height:1.5}
+.hc-cards{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center}
+.hc-vs{font-size:12px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
+.hcg .card-b{display:grid;gap:14px;padding-top:20px}
+.hcg-h{display:flex;gap:10px;align-items:center}.hcg-h b{display:block;font-size:15px}.hcg-h .note{display:block}
+.hcg-big{font-size:30px;font-weight:800;letter-spacing:-.02em;cursor:help}
+.hcg-rows{display:grid}
+.hcg-rows > div{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--raised);font-size:13.5px;cursor:help}
+.hcg-rows span{color:var(--muted)}.hcg-rows b{font-weight:700;text-align:right}.hcg-rows i{font-style:normal;color:var(--faint);font-size:12px;min-width:64px;text-align:right}
+.hcg .btn{justify-self:start}
+@media (max-width:900px){.hc-cards{grid-template-columns:1fr}.hc-vs{text-align:center}.metrics.six{grid-template-columns:1fr 1fr}}
+
+/* what changed since you last looked */
+.chgdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#D9A441;vertical-align:middle;margin-left:4px}
+.chgtag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.03em;color:var(--warn);background:var(--warnbg);border:1px solid var(--warnline);border-radius:6px;padding:1px 6px;vertical-align:middle;font-style:normal}
+.metric.chg,.hline.chg,.hcg-rows > div.chg{background:var(--warnbg);box-shadow:inset 0 0 0 1px var(--warnline)}
+.hline.chg{padding-left:10px;padding-right:10px;border-radius:10px}
+.hcg-rows > div.chg{border-radius:8px;padding-left:8px;padding-right:8px}
+.hcg-rows > div.chg::after,.hcg-big.chg::after{content:attr(data-was);grid-column:1/-1;font-size:11.5px;font-weight:600;color:var(--warn);font-family:Inter,sans-serif;letter-spacing:0}
+.hcg-big.chg::after{display:block;font-size:12px}
+.metric .was{color:var(--warn);font-weight:600}
+.ltable tr.newrow td{background:var(--warnbg)}#tview .tw{overflow-x:auto}.hlists .lhead .hf input[type=search]{min-width:0}

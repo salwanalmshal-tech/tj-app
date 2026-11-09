@@ -1,7 +1,7 @@
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.3.3';
+export const APP_VERSION = '1.4.0';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -40,6 +40,7 @@ export function emptyState(now = new Date().toISOString()) {
     trades: [], dividends: [],
     trash: [], changeLog: [], stopHistory: [], splits: [],
     reports: [], layouts: {}, columnTemplates: {},
+    historySeen: null, reminders: {},
   };
 }
 

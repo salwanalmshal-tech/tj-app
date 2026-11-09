@@ -4,6 +4,7 @@ import * as C from '../calc.js';
 import * as A from '../actions.js';
 import { parseDMY, weekdayName, isWeekend } from '../dates.js';
 import { askRecalc } from './capital.js';
+import { checkReminders } from './reminders.js';
 
 const sel = (items, value, { blank = '–' } = {}) => h('select', null, h('option', { value: '' }, blank), items.map((x) => h('option', { value: x.id, selected: x.id === value }, x.name ?? x.symbol)));
 const dateInput = (iso, label) => datePicker({ iso: iso || '', label });
@@ -269,7 +270,8 @@ export function renderClose(ctx) {
       }
     }
     back(ctx);
-    if (saved && A.capitalDiffs(ctx.store.state).some((x) => !diffsBefore.has(diffKey(x)))) setTimeout(() => askRecalc(ctx), 0);
+    const needRecalc = saved && A.capitalDiffs(ctx.store.state).some((x) => !diffsBefore.has(diffKey(x)));
+    if (saved) setTimeout(async () => { if (needRecalc) await askRecalc(ctx); await checkReminders(ctx); }, 0);
   }
   symSel.addEventListener('change', () => { touchedLines = false; total.value = ''; buildLines(false); });
   total.addEventListener('input', () => { touchedLines = false; buildLines(true); });

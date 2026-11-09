@@ -10,7 +10,7 @@ import { excelCopiesToDelete } from '../storage.js';
 import { goSection as goSettingsSection } from './settings.js';
 
 let XLSXp;
-function loadXLSX() {
+export function loadXLSX() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   return XLSXp ??= new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'vendor/xlsx.full.min.js'; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error('The Excel component could not be loaded.')); document.head.append(s); });
 }

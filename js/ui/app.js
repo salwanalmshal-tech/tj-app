@@ -1,5 +1,6 @@
 // Program shell: start-up (sign in / demo), menu, status pill, banners, routing.
 import { quoteFor } from './quotes.js';
+import { checkReminders } from './reminders.js';
 import { h, clear, dialog, para, toast, dmy, download, priceTxt } from './dom.js';
 import { emptyState, checkFile, migrate, needsUpdateBackup, APP_VERSION } from '../model.js';
 import { Store } from '../store.js';
@@ -22,7 +23,7 @@ const ROUTES = {
   open: { title: 'Open positions', mod: openPos, own: true },
   'open-trade': { title: 'Open trade', mod: tradeForms, fn: 'renderOpen', parent: 'open', own: true },
   'close-trade': { title: 'Close trade', eyebrow: 'Exit', lead: 'Sell shares and see the result before anything is saved.', mod: tradeForms, fn: 'renderClose', parent: 'open' },
-  history: { title: 'History', eyebrow: 'Learn', lead: 'Every sale with its result. A trade is counted when its last share is sold.', mod: history },
+  history: { title: 'History', eyebrow: 'Learn', lead: 'What your closed trades say about how you trade, and where to look next.', mod: history },
   capital: { title: 'Capital', eyebrow: 'Money', lead: 'What changed your capital and why.', mod: capital },
   lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and errors used by your trades.', mod: lists },
   data: { title: 'Import / Export', eyebrow: 'Safety centre', lead: 'Export, backups, restore and import of your journal.', mod: data },
@@ -114,6 +115,7 @@ function start(state, isNew) {
   ctx.store = new Store(state, { onSave: (o) => { if (!ctx.demo || true) saver.markDirty(o); }, onChange: () => draw() });
   if (ctx.readOnly) { saver.readOnly = true; setBanner('ro', 'Read-only: this window is open in another place.', 'Take over…', takeOver); }
   if (!ctx.readOnly && !ctx.demo) { backupIfDue('auto'); startTimers(); }
+  if (!ctx.readOnly) setTimeout(() => checkReminders(ctx), 1500);
   window.addEventListener('pagehide', () => { if (!ctx.readOnly && !ctx.demo) ctx.storage.releaseLockOnExit?.(); });
   window.addEventListener('beforeunload', (e) => { if (saver.hasUnsaved() && !ctx.demo) { e.preventDefault(); e.returnValue = ''; } });
   window.addEventListener('hashchange', () => { const r = location.hash.replace('#/', ''); if (ROUTES[r] && r !== ctx.route) { ctx.route = r; draw(); } });
