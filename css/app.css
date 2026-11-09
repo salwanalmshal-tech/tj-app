@@ -121,6 +121,7 @@ input.cell{width:84px;height:24px;text-align:right;border:1px solid var(--accent
 .kv dt{color:var(--muted)}.kv dd{margin:0}
 .tile-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 @font-face{font-family:'Inter';src:url(../vendor/fonts/inter-latin-wght-normal.woff2) format('woff2');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Caveat';src:url(../vendor/fonts/caveat-latin-500-normal.woff2) format('woff2');font-weight:500;font-display:swap}
 @font-face{font-family:'JetBrains Mono';src:url(../vendor/fonts/jetbrains-mono-latin-wght-normal.woff2) format('woff2');font-weight:100 800;font-display:swap}
 
 /* ================= Redesign 2026-11-03: shared components ================= */
@@ -590,3 +591,10 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 .brk-row.total span{color:var(--ink);font-weight:700;font-size:15px}.brk-row.total b{font-size:17px}
 @media (max-width:900px){.cap-grid{grid-template-columns:1fr}.cap-big{font-size:40px}.cap-sum .op{display:none}}
 .cap-table td:last-child,.cap-table th:last-child{width:1%;white-space:nowrap;padding-left:6px}.cap-table td:nth-child(3){color:var(--muted)}
+
+/* Quotes in the top bar (2026-11-09): handwritten, small, slightly tilted; hidden on narrow screens */
+.top .qspace{display:flex;justify-content:flex-end;min-width:0;padding-right:18px}
+.quote{margin:0;max-width:440px;font-family:'Caveat',cursive;font-weight:500;color:#3C5E8C;transform:rotate(-3deg);transform-origin:right center;line-height:1.05;text-align:right;user-select:none}
+.quote blockquote{margin:0;font-size:19px}
+.quote figcaption{font-size:15px;color:#7A8EAD;margin-top:1px}
+@media (max-width:900px){.top .qspace .quote{display:none}}

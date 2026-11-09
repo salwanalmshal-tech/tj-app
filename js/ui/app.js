@@ -1,4 +1,5 @@
 // Program shell: start-up (sign in / demo), menu, status pill, banners, routing.
+import { quoteFor } from './quotes.js';
 import { h, clear, dialog, para, toast, dmy, download, priceTxt } from './dom.js';
 import { emptyState, checkFile, migrate, needsUpdateBackup, APP_VERSION } from '../model.js';
 import { Store } from '../store.js';
@@ -207,6 +208,10 @@ function statusDetails() {
       h('button', { class: 'btn sm', onClick: () => ctx.saver?.flush() }, 'Save now'))) });
 }
 
+function quoteEl() {
+  const [text, who] = quoteFor(ctx.route);
+  return h('figure', { class: 'quote', title: who ? text + ' — ' + who : text }, h('blockquote', null, '“' + text + '”'), who ? h('figcaption', null, '— ' + who) : null);
+}
 function draw() {
   if (!ctx.store) return;
   const active = document.activeElement; const keep = active?.dataset?.keep;
@@ -228,7 +233,7 @@ function draw() {
   const t = todayISO();
   const top = h('header', { class: 'top', 'aria-label': 'Status' },
     ctx.store.canUndo() && !ctx.readOnly ? h('button', { class: 'btn sm', onClick: () => { const l = ctx.store.undoLabel(); ctx.store.undo(); toast('Undone: ' + (l || 'last change')); } }, '↶ Undo ' + ctx.store.undoLabel()) : null,
-    h('span', { class: 'spacer' }), statusEl, h('span', { class: 'note', style: { whiteSpace: 'nowrap' } }, `Today · ${weekdayName(t).slice(0, 3)} ${dmy(t)}`),
+    h('span', { class: 'spacer qspace' }, quoteEl()), statusEl, h('span', { class: 'note', style: { whiteSpace: 'nowrap' } }, `Today · ${weekdayName(t).slice(0, 3)} ${dmy(t)}`),
     route.own ? null : h('button', { class: 'btn sm', onClick: () => ctx.go('open-trade'), disabled: ctx.readOnly }, '+ Open trade'));
   root.append(h('div', { class: 'app' }, side, h('div', { class: 'main' }, top, bannerEl, body)));
   paintStatus(); drawBanner();

@@ -99,3 +99,11 @@ test('a sale with an earlier date: trades opened after it are found for recalcul
   assert.ok(A.recalcCapital(st).ok); assert.equal(A.capitalDiffs(st).length, 0);
   assert.equal(a.capitalAtOpen, '6099'); assert.equal(c.capitalAtOpen, '6000');
 });
+
+test('top-bar quotes: same quote while on a page, another one on a new page; all short and attributed', async () => {
+  const Q = await import('../js/ui/quotes.js');
+  const a = Q.quoteFor('open'), a2 = Q.quoteFor('open'); assert.equal(a, a2);
+  let seq = [0.01, 0.01, 0.5]; const b = Q.quoteFor('capital', () => seq.shift() ?? 0.9); assert.notEqual(b, a);
+  for (const [t] of Q.QUOTES) assert.ok(t.length <= 110, t);
+  assert.ok(Q.QUOTES.length >= 30);
+});
