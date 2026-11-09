@@ -1,4 +1,4 @@
-import { h, suggest, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn, datePicker } from './dom.js';
+import { h, closeTopDialog, suggest, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
@@ -53,7 +53,6 @@ export function renderOpen(ctx) {
   const pick = (items, label, blank) => h('select', { 'aria-label': label }, h('option', { value: '' }, blank), items.map((x) => h('option', { value: x.id }, x.name)));
 
   const sym = inp('Symbol', { placeholder: 'PLTR', style: { textTransform: 'uppercase' } });
-  const dl = null;
   // suggestions from the 2nd letter (2026-11-09): your stocks, and the sectors, industries and exchanges you already use
   const uniqOf = (k) => [...new Set(st.stocks.map((s) => (s[k] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   suggest(sym, () => st.stocks.filter((s) => !s.archived).map((s) => ({ value: s.symbol, sub: [s.sector, s.exchange].filter(Boolean).join(' · ') })));
@@ -119,7 +118,7 @@ export function renderOpen(ctx) {
     cLine.textContent = okQP ? `${qtyTxt(q)} shares at $${priceTxt(p)}` : 'Fill in the trade to see the check.';
     const risk = okQP && stop !== null && !badStop ? D.mul(D.sub(p, stop), q) : null;
     const riskPct = risk !== null && cap && cap > 0n ? D.pct(risk, cap) : null;
-    const size = okQP && cap && cap > 0n ? D.pct(D.mul(q, p), cap) : null;
+    const size = okQP && account > 0n ? D.pct(D.mul(q, p), account) : null; // same base as the cards: the estimated account today (his choice A, 2026-11-09)
     const dist = p !== null && p > 0n && stop !== null && !badStop ? D.pct(D.sub(p, stop), p) : null;
     const distLabel = dist === null ? '' : C.stopDistanceLabel(dist, S);
     const after = risk !== null && account > 0n ? D.pct(D.abs(loss.loss) + risk, account) : null;
@@ -141,7 +140,7 @@ export function renderOpen(ctx) {
     rbox.replaceChildren(h('span', { class: 'k' }, 'Risk at Initial stop', infoBtn('Risk at Initial stop', '(Buy price − Initial stop) × shares. As % of the capital on the buy date. Within plan up to ' + S.riskWarn.replace('.', ',') + ' %, review up to ' + S.riskRed.replace('.', ',') + ' %, above that it is above plan.')), h('span', { class: 'v' }, risk === null ? '—' : usd(risk)),
       h('span', { class: 'k' }, risk === null ? (badStop ? 'Stop must be below the buy price' : 'Add shares, buy price and initial stop') : `${pctTxt(riskPct)} · ${rbox.classList.contains('ok') ? 'within plan' : rbox.classList.contains('rev') ? 'review' : 'above plan'}`));
     const row = (k, val, why) => h('div', null, h('dt', null, k, infoBtn(k, why)), h('dd', null, val));
-    ck.replaceChildren(row('Position size', pctTxt(size), 'Shares × buy price as % of the capital on the buy date.'), row('Stop distance', dist === null ? '–' : `${pctTxt(dist)} · ${distLabel}`, '(Buy price − Initial stop) ÷ buy price. Labels: Tight, Good, Wide, High Risk (limits in Settings).'),
+    ck.replaceChildren(row('Position size', pctTxt(size), 'Shares × buy price as % of your estimated account today (the same as on the cards).'), row('Stop distance', dist === null ? '–' : `${pctTxt(dist)} · ${distLabel}`, '(Buy price − Initial stop) ÷ buy price. Labels: Tight, Good, Wide, High Risk (limits in Settings).'),
       row('Loss if all stops hit, now', pctTxt(nowRisk), 'Loss if all stops hit from now, as % of the estimated account, before this trade.'), row('Loss if all stops hit, after', pctTxt(after), 'The same, after adding the risk of this trade at its Initial stop.'));
     conds.replaceChildren(...(list.length ? list : [['ok', '✓ No condition needs attention']]).map(([l, t]) => h('div', { class: 'cond ' + l }, t)));
     accept.textContent = risk !== null ? `By opening, you accept a planned loss of ${usd(risk)} if ${f.symbol ? f.symbol.toUpperCase() : 'the stock'} reaches ${priceTxt(stop)}.` : '';
@@ -168,7 +167,7 @@ export function renderOpen(ctx) {
       h('div', { class: 'acts' }, h('span', { class: 'hpill' }, 'Capital (closed trades)', h('b', null, usd(C.capitalNow(st)))), h('span', { class: 'hpill' }, 'Loss if all stops hit', h('b', null, pctTxt(nowRisk))), h('button', { class: 'btn ghost', onClick: () => back(ctx) }, 'Cancel'))),
     st.capital.start ? null : h('div', { class: 'msg warn' }, '◆ Capital is not set yet. Set the start capital on the Capital screen first.'),
     h('div', { class: 'op-grid' },
-      h('div', { class: 'op-left' }, dl,
+      h('div', { class: 'op-left' },
         card('Opportunity', 'Capture the trade.',
           h('div', { class: 'fgrid' }, of('Symbol', symBox), of('Buy price', bpBox), of('Shares', qtyBox),
             of('Buy date', h('div', { class: 'datebox' }, bdBox, h('button', { class: 'btn today', type: 'button', onClick: () => { bd.setISO(today); } }, 'Today')), dnote),
@@ -203,7 +202,7 @@ export function renderClose(ctx) {
   let setupTouched = false; setupSel.addEventListener('change', () => { setupTouched = true; });
   const setupNew = withNew(setupSel, 'Setup');
 
-  function lines() { return (bySym.get(symSel.value) || []).slice().sort((a, b) => (a.buyDate < b.buyDate ? -1 : a.seq - b.seq)); }
+  function lines() { return (bySym.get(symSel.value) || []).slice().sort((a, b) => (a.buyDate < b.buyDate ? -1 : a.buyDate > b.buyDate ? 1 : a.seq - b.seq)); }
   function buildLines(auto) {
     inputs.clear(); const ls = lines(); const tot = D.parse(total.value);
     const matches = tot === null ? [] : ls.filter((t) => C.openQty(t) === tot);
@@ -244,7 +243,6 @@ export function renderClose(ctx) {
     }
     btn.disabled = ctx.readOnly || !valid; btn.title = valid ? '' : reason;
     prevBox.dataset.reason = reason;
-    if (!valid && reason && ok === false && assigned > 0n) { /* keep quiet until complete */ }
     ctx._closeAlloc = allocations;
     if (!mistakeTouched) { const ids = [...new Set(allocations.map((a) => A.tradeById(st, a.tradeId)?.errorId).filter(Boolean))]; mistake.value = ids.length === 1 ? ids[0] : ''; }
     if (!setupTouched) { const ids = [...new Set(allocations.map((a) => A.tradeById(st, a.tradeId)?.setupId ?? ''))]; setupSel.value = ids.length === 1 && ids[0] && [...setupSel.options].some((o) => o.value === ids[0]) ? ids[0] : ''; }
@@ -340,7 +338,7 @@ export function editTrade(ctx, id) {
     sold > 0n ? h('div', { class: 'msg info' }, `● ${qtyTxt(sold)} shares were already sold. Quantity cannot go below that.`) : null,
     h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Buy date', bd), field('Quantity', q), field('Buy price', bp), field('Buy commission', bc), field('Initial stop', is, 'Used for R. Changing it is logged.')),
     h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } }, field('Setup', h('div', { class: 'selnew' }, setup, setupNew)), field('Error', h('div', { class: 'selnew' }, err, errNew))), field('Comment', com), msg,
-    h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', onClick: async () => { const ok = await dialog({ title: `Delete trade ${t.id} (${sym})?`, danger: true, ok: 'Delete trade', body: para(`This moves the trade${t.sales.length ? ' and its ' + t.sales.length + ' sale(s)' : ''} to the Trash for 15 days. Capital and statistics change. You can restore it from the Trash (Import / Export).`, '') }); if (!ok) return; const r = ctx.act((d) => A.deleteTrade(d, t.id), { label: 'delete trade', now: true }); if (r.ok) { document.querySelector('.scrim')?.remove(); toast(`${t.id} moved to the Trash.`, 'Restore', () => ctx.store.undo()); } else toast(r.error); } }, 'Delete…'))),
+    h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', onClick: async () => { const ok = await dialog({ title: `Delete trade ${t.id} (${sym})?`, danger: true, ok: 'Delete trade', body: para(`This moves the trade${t.sales.length ? ' and its ' + t.sales.length + ' sale(s)' : ''} to the Trash for 15 days. Capital and statistics change. You can restore it from the Trash (Import / Export).`, '') }); if (!ok) return; const r = ctx.act((d) => A.deleteTrade(d, t.id), { label: 'delete trade', now: true }); if (r.ok) { closeTopDialog(); toast(`${t.id} moved to the Trash.`, 'Restore', () => ctx.store.undo()); } else toast(r.error); } }, 'Delete…'))),
     onOk: async () => {
       const bdi = parseDMY(bd.value); if (!bdi) return 'Enter a valid buy date (dd-mm-yyyy).';
       const patch = {}; const rows = [];
@@ -366,13 +364,15 @@ export function editTrade(ctx, id) {
         const ok = await dialog({ title: `Correct the Initial stop of ${sym} from ${t.initialStop ? priceTxt(D.d(t.initialStop)) : '–'} to ${priceTxt(D.d(isNew))}?`, ok: 'Correct stop', body: h('div', null, para('The Initial stop is used for R and risk, so it normally never changes. This correction is written to the log.'), changeTable([Object.assign(['Initial stop', t.initialStop ? priceTxt(D.d(t.initialStop)) : '–', priceTxt(D.d(isNew))], { changed: true }), Object.assign(['Risk at Initial stop', before === null ? '–' : '−' + money(before), '−' + money(C.riskOfQty(t2, D.d(t2.qty)))], { changed: true })])) });
         if (!ok) return false;
       }
+      const diffsBefore = new Set(A.capitalDiffs(ctx.store.state).map((x) => x.id + ':' + x.after));
       const res = ctx.act((d) => {
         if (rows.length) { const r = A.editBuyData(d, t.id, patch); if (!r.ok) return r; }
         if (isChange) { const r = A.correctInitialStop(d, t.id, isNew); if (!r.ok) return r; }
         const x = A.tradeById(d, t.id); x.setupId = resolveNew(d, 'setups', setup.value); x.errorId = resolveNew(d, 'errors', err.value); x.comment = com.value; return { ok: true };
       }, { label: 'edit ' + sym, now: true });
       if (!res.ok) return res.error;
-      if (rows.length || ctx.params) { /* capital at open of other trades may now differ */ const diffs = A.capitalDiffs(ctx.store.state); if (diffs.length) { ctx.act((d) => A.recalcCapital(d), { label: 'capital at open', noUndo: true, now: true }); } }
+      // review fix 2026-11-09: never recalculate other trades silently — ask (D2), and only when this edit created new differences
+      if (rows.length && A.capitalDiffs(ctx.store.state).some((x) => !diffsBefore.has(x.id + ':' + x.after))) setTimeout(() => askRecalc(ctx), 0);
       return true;
     } });
 }

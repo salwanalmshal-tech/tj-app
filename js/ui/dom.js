@@ -42,11 +42,15 @@ export function toast(text, actionLabel, onAction, ms = 5000) {
 }
 
 // ---- dialog: always Cancel and OK (the only exception is a one-button information box) ----
+// Open dialogs, newest last. closeTopDialog() closes the newest one properly (its keys stop listening), instead of removing it from the page.
+const OPEN_DIALOGS = [];
+export function closeTopDialog(v = false) { OPEN_DIALOGS.at(-1)?.(v); }
 export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = false, info = false, onOk, wide = false, confirmWord = null, cls = '' }) {
   return new Promise((resolve) => {
     const prevFocus = document.activeElement;
     let okBtn;
-    const close = (v) => { scrim.remove(); document.removeEventListener('keydown', onKey, true); prevFocus?.focus?.(); resolve(v); };
+    const close = (v) => { const i = OPEN_DIALOGS.indexOf(close); if (i >= 0) OPEN_DIALOGS.splice(i, 1); scrim.remove(); document.removeEventListener('keydown', onKey, true); prevFocus?.focus?.(); resolve(v); };
+    OPEN_DIALOGS.push(close);
     const msg = h('div', { class: 'msg bad', style: { display: 'none', marginTop: '10px' }, role: 'alert' });
     const doOk = async () => {
       okBtn.disabled = true;

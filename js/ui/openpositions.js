@@ -366,7 +366,7 @@ function updatePrices(ctx, trades) {
     inputs.push({ t, f: 'nextReport', get: () => rep.getISO(), before: t.nextReport || '' });
     return h('tr', null, h('td', null, h('b', null, A.symbolOf(st, t)), h('div', { class: 'note' }, t.id)), h('td', { class: 'r' }, qtyTxt(C.openQty(t))), h('td', { class: 'r' }, priceTxt(D.d(t.buyPrice))), h('td', null, mk('last')), h('td', null, mk('currentStop')), h('td', null, mk('highest')), h('td', null, mk('ema10')), h('td', null, h('div', { class: 'cellbox' }, rep)));
   });
-  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Empty or unchanged price fields stay as they are. Lines of the same stock share last price, highest, EMA10 and next report. All changes are saved together and can be undone with one click.'),
+  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Unchanged fields stay as they are; emptying a box clears that value (Highest can only be changed). Lines of the same stock share last price, highest, EMA10 and next report. All changes are saved together and can be undone with one click.'),
     h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Symbol', 'Qty', 'Buy price', 'Last price', 'Current stop', 'Highest', 'EMA10', 'Next report'].map((x, i) => h('th', { class: i > 0 && i < 7 ? 'r' : '' }, x)))), h('tbody', null, rows)))),
     onOk: async () => {
       const changes = []; const jumps = [];
@@ -374,9 +374,10 @@ function updatePrices(ctx, trades) {
         const { t, f } = x; const v = x.get();
         if (v === x.before || x.mirror) continue; // a mirrored value is saved once, through the line it was typed on
         if (f === 'nextReport') { if (v === null) return `${A.symbolOf(st, t)}: next report is not a valid date (dd-mm-yyyy).`; }
-        else { if (v === '') continue; if (D.parse(v) === null || D.parse(v) <= 0n) return `${A.symbolOf(st, t)}: enter ${f === 'last' ? 'the last price' : f} as a number above 0.`; }
+        // his choice A (2026-11-09): emptying a box clears that value, like in the line panel (not Highest: it can only be corrected)
+        else if (v !== '' || f === 'highest') { if (v === '') continue; if (D.parse(v) === null || D.parse(v) <= 0n) return `${A.symbolOf(st, t)}: enter ${f === 'last' ? 'the last price' : f} as a number above 0.`; }
         changes.push({ t, f, v });
-        if (f === 'last') { const j = A.jumpPct(t.last, v); if (j !== null && j > D.d(st.settings.bigJumpPct)) jumps.push({ t, v, j }); }
+        if (f === 'last' && v !== '') { const j = A.jumpPct(t.last, v); if (j !== null && j > D.d(st.settings.bigJumpPct)) jumps.push({ t, v, j }); }
       }
       if (!changes.length) return 'Nothing was changed.';
       if (jumps.length) {

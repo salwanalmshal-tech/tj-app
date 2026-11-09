@@ -133,7 +133,9 @@ export class DriveStorage {
   async writeExcelCopy(blob) {
     const { backups } = await this._folders();
     const meta = await this._json('https://www.googleapis.com/drive/v3/files?fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: excelName(), parents: [backups], mimeType: XLSX_MIME, appProperties: { tjKind: 'excel' } }) });
-    await this._req(`https://www.googleapis.com/upload/drive/v3/files/${meta.id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': XLSX_MIME }, body: blob });
+    // review fix 2026-11-09: if the content upload fails, the empty file is removed again (it would block the next weekly copies)
+    try { await this._req(`https://www.googleapis.com/upload/drive/v3/files/${meta.id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': XLSX_MIME }, body: blob }); }
+    catch (e) { try { await this._req(`https://www.googleapis.com/drive/v3/files/${meta.id}`, { method: 'DELETE' }); } catch { /* best effort */ } throw e; }
     return meta.id;
   }
   async listExcelCopies() {

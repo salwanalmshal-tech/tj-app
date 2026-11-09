@@ -21,6 +21,9 @@ export function setStartCapital(st, { amount, date }) {
   if (!date) return err('Enter the start capital date.');
   const earlier = st.trades.find((t) => t.buyDate < date);
   if (earlier) return err(`A trade (${symbolOf(st, earlier)} bought ${earlier.buyDate}) is older than this date. Move the start date back.`);
+  // review fix 2026-11-09: deposits, withdrawals and dividends count from the start date too
+  const fl = st.capital.flows.find((f) => f.date < date); if (fl) return err(`A ${fl.type} (${fl.date.split('-').reverse().join('-')}) is older than this date. Move the start date back.`);
+  const dv = st.dividends.find((x) => x.payDate < date); if (dv) return err(`A dividend (${dv.payDate.split('-').reverse().join('-')}) is older than this date. Move the start date back.`);
   st.capital.start = { amount: S(a), date, seq: st.capital.start?.seq ?? nextSeq(st) };
   return ok();
 }
@@ -38,6 +41,7 @@ export function deleteFlow(st, id) {
 export function addDividend(st, { stockId, payDate, amount }) {
   const a = D.parse(amount); if (a === null || a <= 0n) return err('Enter the net amount as a positive number.');
   if (!stockById(st, stockId)) return err('Choose a stock.'); if (!payDate) return err('Enter the pay date.');
+  if (st.capital.start && payDate < st.capital.start.date) return err('The date is before the start capital date.'); // same rule as deposits (review fix)
   const dv = { id: nextId(st, 'd'), stockId, payDate, amount: S(a), seq: nextSeq(st) }; st.dividends.push(dv); return ok(dv);
 }
 export function deleteDividend(st, id) {
@@ -99,6 +103,8 @@ export function validateOpen(st, f) {
   if (need(f.initialStop) && is === null) errors.push('Initial stop must be a number.');
   if (is !== null && bp !== null && is >= bp) errors.push('Initial stop must be below the buy price.');
   if (need(f.buyCommission) && bc === null) errors.push('Buy commission must be a number.');
+  // review fix 2026-11-09: the same rule as when you edit them later — a number above 0, or empty
+  for (const [k, name] of [['currentStop', 'Current stop'], ['last', 'Last price'], ['highest', 'Highest price'], ['ema10', 'EMA10']]) if (need(f[k])) { const p = D.parse(f[k]); if (p === null) errors.push(`${name} must be a number.`); else if (p <= 0n) errors.push(`${name} must be above 0.`); }
   if (!st.capital.start) errors.push('Capital is not set. Set the start capital first.');
   else if (f.buyDate && f.buyDate < st.capital.start.date) errors.push(`Your start capital date is ${st.capital.start.date.split('-').reverse().join('-')}, but the buy date is earlier. Change the buy date or the start date.`);
   if (!need(f.initialStop)) warnings.push('No Initial stop: the line is “No SL” and stays out of R statistics.');
@@ -223,6 +229,7 @@ export function editBuyData(st, id, patch) {
   if (is !== null && is >= D.d(nt.buyPrice)) return err('Initial stop must be below the buy price. Correct the Initial stop first.');
   if (st.capital.start && nt.buyDate < st.capital.start.date) return err('The buy date is before the start capital date.');
   for (const k of ['qty', 'buyPrice', 'buyCommission', 'buyDate']) if (t[k] !== nt[k]) { log(st, { type: 'edit', tradeId: t.id, field: k, old: t[k], new: nt[k] }); t[k] = nt[k]; }
+  t.capitalAtOpen = S(C.capitalBefore(st, t.buyDate, t.seq)); // this trade only (the dialog shows it); other trades are asked about (D2)
   return ok(t);
 }
 export function correctInitialStop(st, id, raw) {
@@ -284,6 +291,13 @@ export function restoreFromTrash(st, index) {
   const e = st.trash[index]; if (!e) return err('Not found.');
   const back = { trade: () => st.trades.push(e.item), dividend: () => st.dividends.push(e.item), flow: () => st.capital.flows.push(e.item), stocks: () => st.stocks.push(e.item), setups: () => st.setups.push(e.item), errors: () => st.errors.push(e.item), sales: () => { const t = tradeById(st, e.item.tradeId); if (!t) return false; t.sales.push(...e.item.sales); } };
   if (!back[e.kind]) return err('This item cannot be restored.');
+  // review fix 2026-11-09: the same checks as everywhere else, before anything comes back
+  const nameKey = { stocks: 'symbol', setups: 'name', errors: 'name' }[e.kind];
+  if (nameKey && st[e.kind].some((x) => String(x[nameKey]).toUpperCase() === String(e.item[nameKey]).toUpperCase())) return err(`“${e.item[nameKey]}” is already in the list again, so the deleted one cannot come back.`);
+  if ((e.kind === 'trade' || e.kind === 'dividend') && !st.stocks.some((x) => x.id === e.item.stockId)) return err('Its stock was deleted from the list. Restore the stock first.');
+  if (e.kind === 'trade' && st.trades.some((x) => x.id === e.item.id)) return err('A trade with the same ID exists.');
+  if (e.kind === 'sales') { const t = tradeById(st, e.item.tradeId); if (t && C.quantityProblems({ ...t, sales: [...t.sales, ...e.item.sales] }).length) return err(`${symbolOf(st, t)} ${t.id}: the restored sales would sell more shares than were bought. Nothing was restored.`); }
+  if (e.kind === 'trade' && C.quantityProblems(e.item).length) return err('This trade sells more shares than it bought. Nothing was restored.');
   if (back[e.kind]() === false) return err('The trade of these sales no longer exists.');
   st.trash.splice(index, 1); return ok();
 }
@@ -311,20 +325,21 @@ export function recalcCapital(st) { const at = C.capitalLookup(st); for (const t
 // ---------- split (D5) ----------
 export function splitPreview(st, stockId, ratioNew, ratioOld, date) {
   const rn = D.parse(ratioNew), ro = D.parse(ratioOld); if (rn === null || ro === null || rn <= 0n || ro <= 0n) return err('Enter the ratio as two numbers above 0.');
-  const f = D.div(rn, ro); const rows = [];
+  // review fix 2026-11-09: shares × new ÷ old and price × old ÷ new, each rounded once (a 1:3 reverse split of 300 gives exactly 100)
+  const f = D.div(rn, ro); const rows = []; const sq = (q) => D.div(D.mul(q, rn), ro), sp = (p) => D.div(D.mul(p, ro), rn);
   for (const t of st.trades.filter((x) => x.stockId === stockId)) {
     const open = C.openQty(t) > 0n; if (!open) continue; // trades fully closed before the split stay untouched
-    rows.push({ trade: t, qtyBefore: D.d(t.qty), qtyAfter: D.mul(D.d(t.qty), f), priceBefore: D.d(t.buyPrice), priceAfter: D.div(D.d(t.buyPrice), f) });
+    rows.push({ trade: t, qtyBefore: D.d(t.qty), qtyAfter: sq(D.d(t.qty)), priceBefore: D.d(t.buyPrice), priceAfter: sp(D.d(t.buyPrice)) });
   }
-  return ok({ factor: f, rows });
+  return ok({ factor: f, rows, sq, sp });
 }
 export function applySplit(st, stockId, ratioNew, ratioOld, date) {
   const p = splitPreview(st, stockId, ratioNew, ratioOld, date); if (!p.ok) return p;
-  const f = p.data.factor; const conv = (v) => (v === '' ? '' : S(D.div(D.d(v), f)));
+  const { sq, sp } = p.data; const conv = (v) => (v === '' || v === null || v === undefined ? v : S(sp(D.d(v))));
   for (const { trade: t } of p.data.rows) {
-    t.qty = S(D.mul(D.d(t.qty), f)); t.buyPrice = conv(t.buyPrice); t.initialStop = conv(t.initialStop); t.currentStop = conv(t.currentStop);
+    t.qty = S(sq(D.d(t.qty))); t.buyPrice = conv(t.buyPrice); t.initialStop = conv(t.initialStop); t.currentStop = conv(t.currentStop);
     t.last = conv(t.last); t.highest = conv(t.highest); t.ema10 = conv(t.ema10);
-    for (const s of t.sales) { s.qty = S(D.mul(D.d(s.qty), f)); s.price = conv(s.price); } // sold parts of the same trade convert too, so totals add up
+    for (const s of t.sales) { s.qty = S(sq(D.d(s.qty))); s.price = conv(s.price); } // sold parts of the same trade convert too, so totals add up
   }
   st.splits.push({ id: nextId(st, 'p'), stockId, date, ratio: `${S(D.d(ratioNew))}:${S(D.d(ratioOld))}`, trades: p.data.rows.map((r) => r.trade.id) }); log(st, { type: 'split', stockId });
   return ok(p.data);

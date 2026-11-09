@@ -2,7 +2,7 @@ import { h, dialog, para, toast, download, dmy, field, changeTable } from './dom
 import * as D from '../decimal.js';
 import * as A from '../actions.js';
 import * as C from '../calc.js';
-import { checkFile, migrate, emptyState } from '../model.js';
+import { checkFile, migrate, emptyState, dataProblems } from '../model.js';
 import { buildFromSheets, toSheets, mergeImport } from '../importer.js';
 import { askRecalc } from './capital.js';
 import { safetyBackup } from './app.js';
@@ -154,6 +154,8 @@ async function importJson(ctx, file) {
 }
 async function replaceWith(ctx, next, what) {
   const st = ctx.store.state;
+  const probs = dataProblems(next); // review fix 2026-11-09: a file with a wrong value is never put in place
+  if (probs.length) return dialog({ title: 'Cannot use this file', info: true, body: h('pre', { class: 'note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, 'Some values are not valid, so nothing was replaced:\n• ' + probs.slice(0, 8).join('\n• ') + (probs.length > 8 ? `\n… and ${probs.length - 8} more` : '')) });
   return dialog({ title: `Replace all data with ${what}?`, wide: true, danger: true, ok: 'Replace all data', confirmWord: 'DELETE', body: h('div', null,
     h('p', { style: { margin: '0 0 8px' } }, `The copy contains ${next.trades.length} trades, ${next.dividends.length} dividends and ${next.capital.flows.length} capital lines. The program holds ${st.trades.length} trades, ${st.dividends.length} dividends and ${st.capital.flows.length} capital lines now.`), para('A full backup of the current data is made first.', '')),
     onOk: async () => { if (!(await safetyBackup('before-restore'))) return 'The backup could not be made, so nothing was replaced.'; ctx.store.replace(next, 'restore'); toast('Data replaced. A backup of the previous data was made first.'); return true; } });
@@ -214,7 +216,7 @@ function trashPane(ctx) {
   const st = ctx.store.state; const items = st.trash.map((e, idx) => ({ e, idx })).reverse();
   const left = (e) => { const d = 15 - Math.floor((Date.now() - Date.parse(e.deletedAt)) / 86400000); return d <= 0 ? 'last day' : d + ' day' + (d === 1 ? '' : 's') + ' left'; };
   const trash = items.length ? h('div', { class: 'blist' }, items.map(({ e, idx }) => h('div', { class: 'brow' }, h('b', null, TRASH_KIND[e.kind] || e.kind), h('span', null, trashLabel(st, e)), h('span', { class: 'mut' }, left(e)),
-      h('div', { class: 'row' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => { const r = ctx.act((d) => { const x = A.restoreFromTrash(d, idx); if (x.ok) A.recalcCapital(d); return x; }, { label: 'restore', now: true }); toast(r.ok ? 'Restored.' : r.error); } }, 'Restore')))))
+      h('div', { class: 'row' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => { const before = new Set(A.capitalDiffs(ctx.store.state).map((x) => x.id + ':' + x.after)); const r = ctx.act((d) => A.restoreFromTrash(d, idx), { label: 'restore', now: true }); toast(r.ok ? 'Restored.' : r.error); if (r.ok && A.capitalDiffs(ctx.store.state).some((x) => !before.has(x.id + ':' + x.after))) setTimeout(() => askRecalc(ctx), 0); } }, 'Restore')))))
     : h('div', { class: 'empty' }, h('b', null, 'The Trash is empty'), h('span', null, 'Deleted items appear here with the days left to restore them.'));
   const log = st.changeLog.slice(-100).reverse();
   const logEl = h('details', { class: 'logbox' }, h('summary', null, h('b', null, `${st.changeLog.length} entr${st.changeLog.length === 1 ? 'y' : 'ies'}`), h('span', null, ' · show the latest 100')),

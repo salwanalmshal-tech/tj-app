@@ -17,6 +17,9 @@ export class Store {
     const res = action(draft);
     if (!res || !res.ok) return res || { ok: false, error: 'Nothing happened.' };
     if (!noUndo) { this.prev = this.state; this.prevLabel = label; }
+    // review fix 2026-11-09: a change saved without Undo (reminder answer, History "seen", Trash emptying) is also applied to the
+    // Undo copy, so a later Undo of an earlier change never throws it away
+    else if (this.prev) { try { const p2 = structuredClone(this.prev); const r2 = action(p2); if (r2 && r2.ok) this.prev = p2; } catch { /* keep the Undo copy as it was */ } }
     this.state = draft; this.state.meta.changedAt = new Date().toISOString();
     this.onSave?.({ now });
     this._emit('change', label);

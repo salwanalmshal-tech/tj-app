@@ -1,78 +1,125 @@
-// 10-scenario test plan (M3), part 2: import, upgrade, restore, trade maths, rounding, big file
+// The 10-scenario test (2026-11-09): realistic cases from start to finish, every number checked against a hand calculation.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as D from '../js/decimal.js';
 import * as A from '../js/actions.js';
 import * as C from '../js/calc.js';
-import { emptyState, checkFile, migrate, needsUpdateBackup, APP_VERSION, SCHEMA } from '../js/model.js';
-import { buildFromSheets, toSheets, plainSheets } from '../js/importer.js';
-import { lineMarks } from '../js/marks.js';
-import { backupsToDelete } from '../js/storage.js';
+import * as D from '../js/decimal.js';
+import { emptyState, checkFile, migrate } from '../js/model.js';
+import { toSheets, buildFromSheets } from '../js/importer.js';
+import { analyse } from '../js/ui/history.js';
 
-const fresh = (amount = '6000', date = '2025-06-02') => { const st = emptyState(); assert.ok(A.setStartCapital(st, { amount, date }).ok); return st; };
+const $ = (b) => D.toStr(b); // exact text of a value
+const capNow = (st) => $(C.capitalBefore(st, '9999-12-31'));
+function start() { const st = emptyState(); assert.ok(A.setStartCapital(st, { amount: '10000', date: '2026-01-01' }).ok); return st; }
+const open = (st, f) => { const r = A.openTrade(st, f); assert.ok(r.ok, r.error); return r.data; };
+const sell = (st, f) => { const r = A.closeSale(st, f); assert.ok(r.ok, r.error); return r.data; };
 
-test('S5 large import with errors: every bad row is named with sheet and row, nothing is imported, and it is quick', () => {
-  const open = []; for (let i = 0; i < 2000; i++) open.push({ Symbol: 'S' + i, 'Buy date': '02-06-2025', Quantity: 10, 'Buy price': 50, 'Initial stop': i % 500 === 7 ? 60 : 45, 'Buy commission': 1 });
-  open[100]['Buy date'] = '31-02-2025'; open[200].Quantity = ''; open[300].Symbol = '';
-  const t0 = Date.now(); const r = buildFromSheets({ 'Capital start': [{ 'Start capital (USD)': 6000, 'Start date': '01-06-2025' }], 'Open positions': open, History: [] });
-  assert.equal(r.ok, false); assert.ok(Date.now() - t0 < 5000, 'under 5 seconds');
-  for (const row of [102, 202, 302, 9]) assert.ok(r.errors.some((e) => e.sheet === 'Open positions' && e.row === row), 'row ' + row);
-  assert.ok(r.errors.length >= 7);
+test('1. open and close in one sale: result, R, label, days, capital', () => {
+  const st = start();
+  const t = open(st, { symbol: 'AAA', buyDate: '2026-01-05', qty: '100', buyPrice: '10', initialStop: '9.5', buyCommission: '1' });
+  assert.equal(t.capitalAtOpen, '10000');
+  sell(st, { date: '2026-01-10', price: '11', commission: '1', allocations: [{ tradeId: t.id, qty: '100' }] });
+  // 100 × (11 − 10) − 1 − 1 = 98; R = 98 ÷ (0,5 × 100) = 1,96 → GOOD WINNER; 5 days; capital 10 098
+  assert.equal($(C.realized(t)), '98'); assert.equal($(C.rMultiple(t)), '1.96');
+  assert.equal(C.rCategory(C.rMultiple(t), st.settings), 'GOOD WINNER'); assert.equal(C.holdingDays(t), 5); assert.equal(capNow(st), '10098');
+  const h = analyse(st).trades[0]; assert.equal(h.net, 98); assert.equal(h.capPct, 0.98);
 });
-test('S6 upgrade: an older file triggers the before-update backup, upgrades on a copy, and a newer file is refused', () => {
-  const old = emptyState(); old.meta.version = '1.0.0'; delete old.splits; delete old.settings.excelCopyDays;
-  assert.equal(needsUpdateBackup(old), true); assert.equal(needsUpdateBackup(migrate(old)), false);
-  const before = JSON.stringify(old); const up = migrate(old);
-  assert.equal(JSON.stringify(old), before, 'the original stays untouched (rollback = keep using it)');
-  assert.deepEqual(up.splits, []); assert.equal(up.settings.excelCopyDays, 7); assert.equal(up.meta.version, APP_VERSION);
-  const newer = emptyState(); newer.meta.schema = SCHEMA + 1; assert.equal(checkFile(newer).ok, false);
+
+test('2. add more shares of a stock you hold, then close both lines in one sale', () => {
+  const st = start();
+  const b1 = open(st, { symbol: 'BBB', buyDate: '2026-02-02', qty: '10', buyPrice: '20', initialStop: '19' });
+  const b2 = open(st, { symbol: 'BBB', buyDate: '2026-02-03', qty: '10', buyPrice: '21', initialStop: '20' });
+  assert.ok(A.editDaily(st, b2.id, 'last', '21,50').ok); assert.equal(b1.last, '21.5'); // shared last price
+  sell(st, { date: '2026-02-10', price: '22', commission: '2', allocations: [{ tradeId: b1.id, qty: '10' }, { tradeId: b2.id, qty: '10' }] });
+  // commission split by shares: 1 + 1; b1 = 10 × 2 − 1 = 19 (R 1,9); b2 = 10 × 1 − 1 = 9 (R 0,9)
+  assert.equal($(C.realized(b1)), '19'); assert.equal($(C.realized(b2)), '9');
+  assert.equal($(C.rMultiple(b1)), '1.9'); assert.equal($(C.rMultiple(b2)), '0.9'); assert.equal(capNow(st), '10028');
+  const hb2 = analyse(st).trades.find((x) => x.id === b2.id); assert.equal(hb2.how, 'Added higher');
 });
-test('S7 restore with a damaged or empty file is refused with a clear reason', () => {
-  for (const bad of [null, {}, { meta: {} }, { meta: { app: 'other' } }, 'text']) { const c = checkFile(bad); assert.equal(c.ok, false); assert.ok(c.reason.length > 10); }
-  assert.equal(checkFile(emptyState()).ok, true);
+
+test('3. sell in two parts: buy commission shared out, R on the total, days to the last sale', () => {
+  const st = start();
+  const t = open(st, { symbol: 'CCC', buyDate: '2026-03-02', qty: '30', buyPrice: '50', initialStop: '48', buyCommission: '3' });
+  sell(st, { date: '2026-03-05', price: '54', commission: '1', allocations: [{ tradeId: t.id, qty: '10' }] });
+  assert.equal(C.status(t) === 'closed', false); assert.equal($(C.openQty(t)), '20');
+  sell(st, { date: '2026-03-20', price: '49', commission: '1', allocations: [{ tradeId: t.id, qty: '20' }] });
+  // part 1: 10 × 4 − 1 (buy comm 3 × 10/30) − 1 = 38; part 2: 20 × (−1) − 2 (rest of buy comm) − 1 = −23; total 15
+  const det = C.salesDetail(t).map((x) => $(x.net)); assert.deepEqual(det, ['38', '-23']);
+  assert.equal($(C.realized(t)), '15'); assert.equal($(C.rMultiple(t)), '0.25'); assert.equal(C.holdingDays(t), 18);
 });
-test('S8 partial sales, split, reopen: quantities tie out and money results stay exact', () => {
-  const st = fresh(); const t = A.openTrade(st, { symbol: 'ABC', buyDate: '2025-06-02', qty: '90', buyPrice: '30', initialStop: '27', buyCommission: '3' }).data;
-  assert.ok(A.closeSale(st, { date: '2025-06-10', price: '33', commission: '1', allocations: [{ tradeId: t.id, qty: '30' }] }).ok);
-  const net1 = C.realized(t);
-  assert.ok(A.applySplit(st, t.stockId, '3', '1', '2025-06-15').ok);
-  assert.equal(D.toStr(C.openQty(t)), '180'); assert.equal(C.realized(t), net1, 'split keeps the money result');
-  assert.ok(A.closeSale(st, { date: '2025-06-20', price: '12', commission: '2', allocations: [{ tradeId: t.id, qty: '180' }] }).ok);
-  assert.equal(C.openQty(t), 0n); assert.equal(C.quantityProblems(t).length, 0);
-  const sumBuyShares = C.salesDetail(t).reduce((a, x) => a + x.buyShare, 0n); assert.equal(sumBuyShares, D.d('3'), 'buy commission split adds up exactly');
-  const last = t.sales.at(-1).id; assert.ok(A.reopenSales(st, t.id, [last]).ok); assert.equal(D.toStr(C.openQty(t)), '180');
-  assert.equal(C.quantityProblems(t).length, 0);
+
+test('4. reopen a sale by mistake, then restore it from the Trash', () => {
+  const st = start();
+  const t = open(st, { symbol: 'DDD', buyDate: '2026-04-01', qty: '5', buyPrice: '100', initialStop: '95' });
+  sell(st, { date: '2026-04-08', price: '110', commission: '1', allocations: [{ tradeId: t.id, qty: '5' }] });
+  assert.equal(capNow(st), '10049'); // 5 × 10 − 1
+  assert.ok(A.reopenSales(st, t.id, [t.sales[0].id]).ok); assert.equal($(C.openQty(t)), '5'); assert.equal(capNow(st), '10000');
+  assert.ok(A.restoreFromTrash(st, st.trash.findIndex((e) => e.kind === 'sales')).ok); assert.equal(capNow(st), '10049'); assert.equal($(C.openQty(t)), '0');
 });
-test('S9 rounding and month/year boundaries: thirds add up exactly; sales count in the month and year of the sale date', () => {
-  const st = fresh('6000', '2025-01-01');
-  const ts = ['A', 'B', 'C'].map((s) => A.openTrade(st, { symbol: s, buyDate: '2025-12-30', qty: '1', buyPrice: '10', initialStop: '9', buyCommission: '' }).data);
-  assert.ok(A.closeSale(st, { date: '2025-12-31', price: '11', commission: '1', allocations: ts.map((t) => ({ tradeId: t.id, qty: '1' })) }).ok);
-  const comms = ts.map((t) => D.d(t.sales[0].commission)); assert.equal(comms.reduce((a, b) => a + b, 0n), D.d('1'));
-  const t2 = A.openTrade(st, { symbol: 'D', buyDate: '2025-12-31', qty: '1', buyPrice: '10', initialStop: '9' }).data;
-  assert.ok(A.closeSale(st, { date: '2026-01-01', price: '12', commission: '', allocations: [{ tradeId: t2.id, qty: '1' }] }).ok);
-  assert.equal(C.monthResult(st, '2025-12'), D.d('2')); assert.equal(C.monthResult(st, '2026-01'), D.d('2'));
-  assert.equal(C.yearResult(st, '2025'), D.d('2')); assert.equal(C.yearResult(st, '2026'), D.d('2'));
-  assert.equal(C.capitalNow(st), D.d('6004'));
+
+test('5. delete a closed trade and restore it: capital back to the same number', () => {
+  const st = start();
+  const t = open(st, { symbol: 'EEE', buyDate: '2026-04-02', qty: '8', buyPrice: '25', initialStop: '24' });
+  sell(st, { date: '2026-04-03', price: '23.5', commission: '1', allocations: [{ tradeId: t.id, qty: '8' }] });
+  assert.equal(capNow(st), '9987'); // 8 × −1,5 − 1 = −13
+  assert.ok(A.deleteTrade(st, t.id).ok); assert.equal(capNow(st), '10000'); assert.equal(st.trades.length, 0);
+  assert.ok(A.restoreFromTrash(st, 0).ok); assert.equal(capNow(st), '9987');
 });
-test('S10 big file: 5 000 trades and a long log stay fast (calculations, marks, export, import, save size)', () => {
-  const open = [], hist = [];
-  for (let i = 0; i < 5000; i++) {
-    const day = `${String(1 + (i % 28)).padStart(2, '0')}-${String(1 + (i % 12)).padStart(2, '0')}-2021`;
-    const row = { Symbol: 'S' + (i % 300), 'Buy date': day, Quantity: 10, 'Buy price': (20 + i / 1000).toFixed(3), 'Initial stop': 19, 'Buy commission': 1 };
-    if (i % 5) hist.push({ ...row, 'Sell date': day, 'Quantity sold': 10, 'Sell price': 19 + (i % 4), 'Sell commission': 1 }); else open.push({ ...row, 'Current stop': 19.5, 'Last price': 21 });
-  }
-  const t0 = Date.now(); const r = buildFromSheets({ 'Capital start': [{ 'Start capital (USD)': 6000, 'Start date': '01-01-2020' }], 'Open positions': open, History: hist });
-  assert.ok(r.ok, JSON.stringify(r.errors?.slice(0, 3))); const st = r.state; assert.equal(st.trades.length, 5000);
-  for (let i = 0; i < 6000; i++) st.changeLog.push({ ts: new Date().toISOString(), type: 'edit', tradeId: 'T-0001', field: 'qty', old: '1', new: '2' });
-  const importMs = Date.now() - t0; const t1 = Date.now();
-  const acc = C.estimatedAccount(st); for (const t of C.openTrades(st)) lineMarks(st, t, '2021-12-31', acc);
-  A.capitalDiffs(st); const draft = structuredClone(st); assert.ok(A.editDaily(draft, C.openTrades(draft)[0].id, 'last', '22').ok);
-  const sheets = toSheets(st); const json = JSON.stringify(st);
-  const work = Date.now() - t1;
-  assert.ok(importMs < 10000, `import took ${importMs} ms`); assert.ok(work < 3000, `screens' work took ${work} ms`); assert.ok(json.length < 8e6, 'data file below 8 MB');
-  assert.equal(sheets['Open positions'].length, 1000); assert.equal(sheets.History.length, 4000);
-  assert.ok(buildFromSheets(plainSheets(sheets)).ok);
-  // backups of two years stay bounded
-  const list = Array.from({ length: 730 }, (_, i) => ({ id: 'b' + i, kind: 'auto', time: new Date(Date.UTC(2026, 10, 4) - i * 86400000).toISOString() }));
-  assert.ok(list.length - backupsToDelete(list, Date.UTC(2026, 10, 4)).length <= 10 + 31 + 13);
+
+test('6. a sale entered late with an earlier date: later trades get a new capital at open after recalculation', () => {
+  const st = start();
+  const late = open(st, { symbol: 'FFF', buyDate: '2026-05-01', qty: '10', buyPrice: '10', initialStop: '9' });
+  const later = open(st, { symbol: 'GGG', buyDate: '2026-05-10', qty: '1', buyPrice: '50', initialStop: '45' });
+  assert.equal(later.capitalAtOpen, '10000');
+  sell(st, { date: '2026-05-05', price: '12', commission: '0', allocations: [{ tradeId: late.id, qty: '10' }] }); // +20 before GGG was bought
+  const d = A.capitalDiffs(st); assert.deepEqual(d.map((x) => [x.id, x.after]), [[later.id, '10020']]);
+  assert.ok(A.recalcCapital(st).ok); assert.equal(later.capitalAtOpen, '10020'); assert.equal(A.capitalDiffs(st).length, 0);
+});
+
+test('7. deposit and withdrawal: capital and capital at open of the next trade', () => {
+  const st = start();
+  assert.ok(A.addFlow(st, { type: 'deposit', date: '2026-06-01', amount: '2500' }).ok);
+  assert.ok(A.addFlow(st, { type: 'withdrawal', date: '2026-06-15', amount: '700' }).ok);
+  assert.equal(A.addFlow(st, { type: 'deposit', date: '2025-12-31', amount: '1' }).ok, false); // before the start date
+  const t = open(st, { symbol: 'HHH', buyDate: '2026-06-20', qty: '1', buyPrice: '10', initialStop: '9' });
+  assert.equal(t.capitalAtOpen, '11800'); assert.equal(capNow(st), '11800');
+});
+
+test('8. dividend: counts in capital from its pay date, never before the start date', () => {
+  const st = start();
+  const t = open(st, { symbol: 'III', buyDate: '2026-07-01', qty: '10', buyPrice: '30', initialStop: '28' });
+  assert.ok(A.addDividend(st, { stockId: t.stockId, payDate: '2026-07-15', amount: '4.20' }).ok);
+  assert.equal(A.addDividend(st, { stockId: t.stockId, payDate: '2025-06-01', amount: '1' }).ok, false);
+  assert.equal(capNow(st), '10004.2'); assert.equal($(C.capitalBefore(st, '2026-07-14')), '10000');
+});
+
+test('9. stock split 2:1 on an open trade that was partly sold', () => {
+  const st = start();
+  const t = open(st, { symbol: 'JJJ', buyDate: '2026-08-03', qty: '20', buyPrice: '40', initialStop: '36', buyCommission: '2' });
+  sell(st, { date: '2026-08-10', price: '44', commission: '1', allocations: [{ tradeId: t.id, qty: '10' }] }); // 10 × 4 − 1 − 1 = 38
+  const before = C.realized(t);
+  assert.ok(A.applySplit(st, t.stockId, '2', '1', '2026-08-15').ok);
+  assert.equal(t.qty, '40'); assert.equal(t.buyPrice, '20'); assert.equal(t.initialStop, '18');
+  assert.equal(t.sales[0].qty, '20'); assert.equal(t.sales[0].price, '22'); assert.equal($(C.openQty(t)), '20');
+  assert.equal($(C.realized(t)), $(before)); // money results do not change with a split
+});
+
+test('10. backup and Excel copy: the data comes back the same', () => {
+  const st = start();
+  const a = open(st, { symbol: 'KKK', buyDate: '2026-09-01', qty: '12', buyPrice: '15.5', initialStop: '14.9', buyCommission: '1' });
+  sell(st, { date: '2026-09-04', price: '16.75', commission: '1', allocations: [{ tradeId: a.id, qty: '12' }] });
+  open(st, { symbol: 'LLL', buyDate: '2026-09-05', qty: '3', buyPrice: '70', initialStop: '66' });
+  assert.ok(A.addFlow(st, { type: 'deposit', date: '2026-09-02', amount: '500' }).ok);
+  // backup (.json): same file back
+  const back = JSON.parse(JSON.stringify(st)); assert.ok(checkFile(back).ok); const m = migrate(back);
+  assert.equal(capNow(m), capNow(st)); assert.deepEqual(m.trades.map((t) => $(C.realized(t))), st.trades.map((t) => $(C.realized(t))));
+  // Excel copy: write and read back with "New start"
+  // the cells as Excel gives them back (numbers; dates as Excel day numbers), like the program's own Excel writer/reader
+  const cell = (v) => (v && typeof v === 'object' ? (v.d ? Math.round((Date.parse(v.d + 'T00:00:00Z') - Date.UTC(1899, 11, 30)) / 86400000) : Number(v.n)) : v);
+  const sheets = Object.fromEntries(Object.entries(toSheets(st)).map(([k, rows]) => [k, rows.map((r) => Object.fromEntries(Object.entries(r).map(([h, v]) => [h, cell(v)])))]));
+  const r = buildFromSheets(sheets);
+  assert.ok(r.ok !== false && r.state, JSON.stringify(r.errors || r).slice(0, 300));
+  assert.equal(capNow(r.state), capNow(st)); // 10 000 + 500 + (12 × 1,25 − 1 − 1 = 13) = 10 513
+  assert.equal(capNow(st), '10513');
+  assert.deepEqual(r.state.trades.map((t) => [A.symbolOf(r.state, t), t.qty, $(C.openQty(t))]).sort(), [['KKK', '12', '0'], ['LLL', '3', '3']]);
 });

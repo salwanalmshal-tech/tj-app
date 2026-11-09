@@ -82,7 +82,9 @@ async function openStorage(storage) {
     let state;
     if (raw) {
       const c = checkFile(raw);
-      if (!c.ok) { await dialog({ title: 'Cannot open the data file', body: para(c.reason, ''), info: true }); return welcome(); }
+      // your own data file opens even with a wrong value (otherwise you could not reach Import / Export to fix it); you are told what is wrong
+      if (!c.ok && !c.problems) { await dialog({ title: 'Cannot open the data file', body: para(c.reason, ''), info: true }); return welcome(); }
+      if (!c.ok) await dialog({ title: 'Some values in your data file are not valid', info: true, body: h('div', null, para('The program opens the file so you can fix them, or restore a backup in Import / Export → Backups.', ''), h('pre', { class: 'note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, c.reason.split('\n').slice(1).join('\n'))) });
       // B5: the first time a new version opens the data, the file as it was is backed up before anything changes
       if (needsUpdateBackup(raw)) {
         let done = false; try { await storage.writeBackup('before-update', raw); done = true; } catch { /* asked below */ }
@@ -100,6 +102,8 @@ async function openStorage(storage) {
     }
     if (!ctx.readOnly) await storage.acquireLock();
     start(state, !raw);
+    // review fix 2026-11-09: save the upgraded file once, so the "before update" backup is not made again at every opening
+    if (raw && needsUpdateBackup(raw) && !ctx.readOnly) ctx.saver.markDirty({ now: true });
   } catch (e) { welcome(e.auth ? e.message : 'Could not open your data: ' + e.message); }
 }
 
@@ -112,7 +116,7 @@ function start(state, isNew) {
     onBackupDue: () => backupIfDue('auto'),
   });
   ctx.saver = saver;
-  ctx.store = new Store(state, { onSave: (o) => { if (!ctx.demo || true) saver.markDirty(o); }, onChange: () => draw() });
+  ctx.store = new Store(state, { onSave: (o) => { saver.markDirty(o); }, onChange: () => draw() });
   if (ctx.readOnly) { saver.readOnly = true; setBanner('ro', 'Read-only: this window is open in another place.', 'Take over…', takeOver); }
   if (!ctx.readOnly && !ctx.demo) { backupIfDue('auto'); startTimers(); }
   if (!ctx.readOnly) setTimeout(() => checkReminders(ctx), 1500);
@@ -132,7 +136,7 @@ function startTimers() {
   timers = [
     setInterval(async () => {
       if (ctx.readOnly) return;
-      try { if (!(await ctx.storage.stillMine())) { ctx.readOnly = true; ctx.saver.readOnly = true; setBanner('ro', 'Read-only: you took over in another place. Unsaved changes here are kept but not saved.', 'Take over…', takeOver); draw(); } else await ctx.storage.renewLock(); } catch { /* network blip: ignore */ }
+      try { if (!(await ctx.storage.stillMine())) { ctx.readOnly = true; ctx.saver.readOnly = true; setBanner('ro', 'Read-only: you took over in another place. Changes made here are not saved.', 'Take over…', takeOver); draw(); } else await ctx.storage.renewLock(); } catch { /* network blip: ignore */ }
     }, 60000),
     setInterval(() => {
       if (ctx.demo) return; const left = ctx.auth.expiresAt() - Date.now();
@@ -145,6 +149,11 @@ async function reconnect() {
   try { await ctx.auth.reconnect(); setBanner(null); ctx.saver.error = null; await ctx.saver.flush(); toast('Reconnected.'); } catch (e) { toast('Could not reconnect: ' + e.message); }
 }
 async function takeOver() {
+  // review fix 2026-11-09: taking over loads the file from Drive; changes made here that were not saved would be lost, so offer a copy first
+  if (ctx.saver?.dirty) {
+    const keep = await dialog({ title: 'This window has changes that are not saved', ok: 'Download a copy first', cancel: 'Continue without a copy', body: para('Taking over loads the newest file from Google Drive, so the unsaved changes in this window are replaced. Download a copy of them first (a .json file you can open later with Import / Export → Restore).', '') });
+    if (keep) download(`TradeJournal-unsaved-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`, new Blob([JSON.stringify(ctx.store.state, null, 1)], { type: 'application/json' }));
+  }
   const ok = await dialog({ title: 'Take over this file?', body: para('This window becomes the editing window. Any other window becomes read-only. If this window has an older copy, reload the page first to see the newest data.', ''), ok: 'Take over' });
   if (!ok) return;
   try {
@@ -287,9 +296,10 @@ async function askShared(diffs) {
   else toast('Not changed. You will be asked again next time the program opens.');
 }
 import * as C from '../calc.js';
-import * as M from '../marks.js';
 import * as D from '../decimal.js';
 // same rule as "Needs your attention" on Open positions, so both numbers always match
-function attentionCount() { return openPos.lines(ctx.store.state, todayISO()).filter((l) => l.status !== 'ok').length; }
+let attnCache = { st: null, day: '', n: 0 };
+// counted once per change of the data (review fix: it was calculated 3 times per redraw), and it never blocks the menu
+function attentionCount() { const st = ctx.store.state, day = todayISO(); if (attnCache.st === st && attnCache.day === day) return attnCache.n; let n = 0; try { n = openPos.lines(st, day).filter((l) => l.status !== 'ok').length; } catch (e) { console.error(e); } attnCache = { st, day, n }; return n; }
 
 welcome();

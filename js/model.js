@@ -1,7 +1,8 @@
+import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.4.4';
+export const APP_VERSION = '1.4.5';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -52,7 +53,40 @@ export function nextTradeId(state) { state.counters.trade += 1; return 'T-' + St
 export function checkFile(data) {
   if (!data || data.meta?.app !== 'trade-journal') return { ok: false, reason: 'This is not a Trade Journal data file.' };
   if (data.meta.schema > SCHEMA) return { ok: false, reason: 'This data file was saved by a newer version of the program. Update the program first.' };
+  const probs = dataProblems(data);
+  if (probs.length) return { ok: false, reason: 'Some values in this file are not valid, so it is not used:\n• ' + probs.slice(0, 8).join('\n• ') + (probs.length > 8 ? `\n… and ${probs.length - 8} more` : ''), problems: probs };
   return { ok: true };
+}
+// Review fix 2026-11-09: every number and date the program calculates with is checked before a file is used,
+// so one wrong value can never make the program unusable. Returns a list of plain-language problems (empty = fine).
+export function dataProblems(data) {
+  const out = []; const ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const isNum = (v) => (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && D.parse(v) !== null);
+  const num = (v, where, { opt = false, pos = false } = {}) => {
+    if ((v === '' || v === null || v === undefined) && opt) return;
+    if (!isNum(v)) return out.push(`${where}: "${v ?? ''}" is not a number`);
+    if (pos && D.parse(String(v)) <= 0n) out.push(`${where}: must be above 0`);
+  };
+  const date = (v, where, { opt = false } = {}) => { if ((v === '' || v === null || v === undefined) && opt) return; if (typeof v !== 'string' || !ISO.test(v) || Number.isNaN(Date.parse(v))) out.push(`${where}: "${v ?? ''}" is not a valid date`); };
+  const arr = (v, where) => { if (v !== undefined && !Array.isArray(v)) { out.push(`${where} is not a list`); return []; } return v || []; };
+  const stocks = arr(data.stocks, 'Stocks'); const ids = new Set(stocks.map((x) => x?.id));
+  // IDs are only letters, digits, - _ . (they are used inside the page and to find things again)
+  const ID = /^[A-Za-z0-9_.-]{1,40}$/;
+  for (const [list, name] of [['stocks', 'Stock'], ['setups', 'Setup'], ['errors', 'Mistake']]) for (const x of arr(data[list], name + 's')) if (!x || !ID.test(String(x.id))) out.push(`${name} "${x?.id ?? ''}": not a valid ID`);
+  for (const t of arr(data.trades, 'Trades')) {
+    const w = `Trade ${t?.id ?? '?'}`; if (!t || typeof t !== 'object') { out.push('A trade is empty'); continue; }
+    if (!ID.test(String(t.id))) out.push(`${w}: not a valid trade ID`);
+    if (!ids.has(t.stockId)) out.push(`${w}: its stock is missing`);
+    date(t.buyDate, w + ' buy date'); num(t.qty, w + ' shares', { pos: true }); num(t.buyPrice, w + ' buy price', { pos: true });
+    for (const k of ['buyCommission', 'initialStop', 'currentStop', 'last', 'highest', 'ema10', 'capitalAtOpen']) num(t[k], `${w} ${k}`, { opt: true });
+    date(t.nextReport, w + ' next report', { opt: true });
+    for (const x of arr(t.sales, w + ' sales')) { if (!ID.test(String(x?.id))) out.push(w + ': a sale has no valid ID'); date(x?.date, w + ' sale date'); num(x?.qty, w + ' sold shares', { pos: true }); num(x?.price, w + ' sell price'); num(x?.commission, w + ' sell commission', { opt: true }); }
+  }
+  const cap = data.capital || {};
+  if (cap.start) { num(cap.start.amount, 'Start capital'); date(cap.start.date, 'Start capital date'); }
+  for (const f of arr(cap.flows, 'Deposits and withdrawals')) { num(f?.amount, 'Deposit/withdrawal amount', { pos: true }); date(f?.date, 'Deposit/withdrawal date'); }
+  for (const dv of arr(data.dividends, 'Dividends')) { num(dv?.amount, 'Dividend amount'); date(dv?.payDate, 'Dividend date'); }
+  return out;
 }
 // Migration hook: each future structure change is one step. Returns the (possibly upgraded) data.
 export function migrate(data) {

@@ -114,3 +114,47 @@ test('open trade on a stock traded before: only missing sector / industry / exch
   assert.ok(A.openTrade(st, { symbol: 'WMT', buyDate: '2026-11-09', qty: '1', buyPrice: '130', initialStop: '125', stockInfo: { sector: 'Other', industry: 'Discount Stores', exchange: '' } }).ok);
   assert.equal(s.sector, 'Retail Trade'); assert.equal(s.industry, 'Discount Stores'); assert.equal(s.exchange, '');
 });
+
+test('review fix: Undo keeps a change that was saved without Undo after it', async () => {
+  const { Store } = await import('../js/store.js');
+  const { st, b } = setup();
+  const s = new Store(st);
+  assert.ok(s.run((d) => A.editDaily(d, b.id, 'currentStop', '27,5'), { label: 'stop' }).ok);
+  s.run((d) => { d.reminders = { o2: { stopped: true, next: 100 } }; return { ok: true }; }, { noUndo: true });
+  assert.ok(s.undo());
+  assert.equal(A.tradeById(s.state, b.id).currentStop, '27'); assert.deepEqual(s.state.reminders, { o2: { stopped: true, next: 100 } });
+});
+
+test('review fix: import Update keeps two equal deposits on one day and gives new trades the capital after the file\'s deposits', async () => {
+  const { mergeImport } = await import('../js/importer.js');
+  const cur = emptyState(); assert.ok(A.setStartCapital(cur, { amount: '1000', date: '2026-01-01' }).ok);
+  const inc = structuredClone(cur);
+  assert.ok(A.addFlow(inc, { type: 'deposit', date: '2026-02-01', amount: '500' }).ok);
+  assert.ok(A.addFlow(inc, { type: 'deposit', date: '2026-02-01', amount: '500' }).ok);
+  assert.ok(A.openTrade(inc, { symbol: 'AAA', buyDate: '2026-03-01', qty: '1', buyPrice: '10', initialStop: '9' }).ok);
+  const r = mergeImport(cur, inc); assert.ok(r.ok, JSON.stringify(r.conflicts));
+  assert.equal(r.state.capital.flows.length, 2);
+  assert.equal(r.state.trades[0].capitalAtOpen, '2000');
+});
+
+test('review fix: restoring from the Trash is checked (stock gone, too many sold, name taken)', () => {
+  const { st, c } = setup(); // WMT, only trade of its stock
+  assert.ok(A.deleteTrade(st, c.id).ok);
+  st.stocks = st.stocks.filter((x) => x.id !== c.stockId); // the stock is gone from the list
+  assert.equal(A.restoreFromTrash(st, st.trash.findIndex((e) => e.kind === 'trade')).ok, false);
+  const { st: s2, a } = setup();
+  assert.ok(A.closeSale(s2, { date: '2026-11-05', price: '29', commission: '1', allocations: [{ tradeId: a.id, qty: '11' }] }).ok);
+  assert.ok(A.reopenSales(s2, a.id, [a.sales[0].id]).ok);
+  assert.ok(A.editBuyData(s2, a.id, { qty: '5' }).ok);
+  const i2 = s2.trash.findIndex((e) => e.kind === 'sales'); const r2 = A.restoreFromTrash(s2, i2);
+  assert.equal(r2.ok, false);
+});
+
+test('review fix: reverse and uneven splits give exact shares and prices', () => {
+  for (const [rn, ro, q, p, q2, p2] of [['1', '3', '300', '10', '100', '30'], ['3', '2', '100', '30', '150', '20']]) {
+    const st = emptyState(); A.setStartCapital(st, { amount: '6000', date: '2026-01-01' });
+    const t = A.openTrade(st, { symbol: 'SPL', buyDate: '2026-02-02', qty: q, buyPrice: p, initialStop: String(+p * 0.9) }).data;
+    assert.ok(A.applySplit(st, t.stockId, rn, ro, '2026-02-10').ok);
+    assert.equal(t.qty, q2); assert.equal(t.buyPrice, p2);
+  }
+});

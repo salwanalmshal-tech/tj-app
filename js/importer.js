@@ -6,7 +6,7 @@ import * as A from './actions.js';
 import { emptyState, nextId, nextSeq, nextTradeId } from './model.js';
 import { parseDMY, addDays } from './dates.js';
 
-const SHEETS = ['Open positions', 'History', 'Capital start', 'Deposits withdrawals', 'Dividends', 'Stocks list', 'Setups list', 'Errors list'];
+const SHEETS = ['Open positions', 'History', 'Sales history', 'Capital start', 'Deposits withdrawals', 'Dividends', 'Stocks list', 'Setups list', 'Errors list'];
 const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const EX = 'example row (ignored by import)';
 
@@ -19,7 +19,9 @@ export function toDate(v) {
 }
 export function toNum(v) {
   if (v === null || v === undefined || String(v).trim() === '') return { empty: true };
-  const p = typeof v === 'number' ? D.parse(String(v)) : D.parse(String(v)); // JS numbers print their shortest exact decimal text
+  // JS numbers print their shortest exact decimal text; very small or big ones use e-notation, so those are written out (review fix)
+  const txt = typeof v === 'number' ? (Number.isFinite(v) ? (/e/i.test(String(v)) ? v.toFixed(8) : String(v)) : '') : String(v);
+  const p = D.parse(txt);
   return p === null ? { bad: true } : { v: p };
 }
 
@@ -85,8 +87,10 @@ export function buildFromSheets(rawSheets, now = new Date().toISOString()) {
     const nr = toDate(get(r, 'Next report')); if (nr.bad) err(o.sheet, r.__row, 'Next report is not a valid date (dd-mm-yyyy).'); else if (!nr.empty) o.nextReport = nr.iso;
     lines.push(o);
   }
-  for (const r of rowsOf('History') || []) {
-    const o = readCommon('History', r); o.kind = 'sale';
+  // Excel does not allow a sheet named "History" when writing (SheetJS 0.20), so the program writes "Sales history"; both are read
+  const histName = rowsOf('History') ? 'History' : 'Sales history';
+  for (const r of rowsOf(histName) || []) {
+    const o = readCommon(histName, r); o.kind = 'sale';
     const q = toNum(get(r, 'Quantity sold')); if (q.empty) err(o.sheet, r.__row, 'Quantity sold is missing.'); else if (q.bad || q.v <= 0n) err(o.sheet, r.__row, 'Quantity sold must be a number above 0.'); else o.qty = q.v;
     const sd = toDate(get(r, 'Sell date')); if (sd.empty) err(o.sheet, r.__row, 'Sell date is missing. A closed trade needs its sell date.'); else if (sd.bad) err(o.sheet, r.__row, 'Sell date is not a valid date (dd-mm-yyyy).'); else o.sellDate = sd.iso;
     const sp = toNum(get(r, 'Sell price')); if (sp.empty) err(o.sheet, r.__row, 'Sell price is missing. The result cannot be calculated without it.'); else if (sp.bad || sp.v <= 0n) err(o.sheet, r.__row, 'Sell price must be a number above 0.'); else o.sellPrice = sp.v;
@@ -110,7 +114,7 @@ export function buildFromSheets(rawSheets, now = new Date().toISOString()) {
     const first = g[0]; const opens = g.filter((x) => x.kind === 'open'), sales = g.filter((x) => x.kind === 'sale');
     if (g.some((x) => keyOf(x) !== keyOf(first))) { const bad = g.find((x) => keyOf(x) !== keyOf(first)); err(bad.sheet, bad.row, `Trade ID ${bad.id} is used for different buy lines (symbol, buy date or buy price differ). Check the rows.`); continue; }
     if (opens.length > 1) { err(opens[1].sheet, opens[1].row, `Trade ${opens[0].id || opens[0].sym} appears twice in Open positions. One row per buy line.`); continue; }
-    const open = opens[0]; const soldQty = sales.reduce((a, s) => a + s.qty, 0n); const qty = soldQty + (open?.qty ?? 0n);
+    const open = opens[0]; const soldQty = sales.reduce((a, s) => a + (typeof s.qty === 'bigint' ? s.qty : 0n), 0n); const qty = soldQty + (typeof open?.qty === 'bigint' ? open.qty : 0n); // a missing quantity is already listed as an error (review fix: no crash)
     const stops = [...new Set(g.map((x) => x.initialStop).filter(Boolean).map(String))];
     if (stops.length > 1) { err(first.sheet, first.row, `Rows of this trade have different Initial stops (${stops.join(', ')}).`); continue; }
     const comms = g.map((x) => x.buyCommission).filter((x) => x !== undefined);
@@ -194,7 +198,7 @@ export function toSheets(state) {
     for (const x of det) hist.push({ 'Trade ID': t.id, Symbol: sym(t), 'Buy date': dt(t.buyDate), 'Sell date': dt(x.sale.date), 'Quantity sold': n(x.sale.qty), 'Buy price': n(t.buyPrice), 'Sell price': n(x.sale.price), 'Buy commission (share for these shares)': t.buyCommission === '' ? '' : n(D.toStr(x.buyShare)), 'Sell commission': n(x.sale.commission), 'Initial stop': n(t.initialStop), Setup: nm('setups', t.setupId), Error: nm('errors', t.errorId), Comment: t.comment });
   }
   return {
-    'Open positions': open, History: hist,
+    'Open positions': open, 'Sales history': hist,
     'Capital start': state.capital.start ? [{ 'Start capital (USD)': n(state.capital.start.amount), 'Start date': dt(state.capital.start.date) }] : [],
     'Deposits withdrawals': state.capital.flows.map((f) => ({ Date: dt(f.date), 'Type (Deposit or Withdrawal)': f.type === 'deposit' ? 'Deposit' : 'Withdrawal', 'Amount (USD)': n(f.amount), Note: '' })),
     Dividends: state.dividends.map((d) => ({ 'Pay date': dt(d.payDate), Symbol: state.stocks.find((s) => s.id === d.stockId)?.symbol ?? '', 'Net amount (USD)': n(d.amount) })),
@@ -237,7 +241,7 @@ export function mergeImport(current, inc) {
   // trades: same Symbol + Buy date + Buy price = the same trade (K4 key)
   const have = new Map(current.trades.map((t) => [key(symOf(current, t.stockId), t.buyDate, t.buyPrice), t]));
   const soldOf = (t) => t.sales.reduce((s, x) => s + D.d(x.qty), 0n);
-  const startDate = st.capital.start?.date;
+  const startDate = st.capital.start?.date; const newTrades = [];
   for (const t of inc.trades.slice().sort((x, y) => x.seq - y.seq)) {
     const sym = symOf(inc, t.stockId); const k = key(sym, t.buyDate, t.buyPrice); const old = have.get(k);
     const label = `${sym} bought ${t.buyDate.split('-').reverse().join('-')} at ${S(D.d(t.buyPrice))}`;
@@ -249,20 +253,22 @@ export function mergeImport(current, inc) {
     if (startDate && t.buyDate < startDate) { conflicts.push(`${label}: the buy date is before the start capital date.`); continue; }
     const nt = { ...structuredClone(t), id: nextTradeId(st), seq: nextSeq(st), stockId: stockMap.get(t.stockId), setupId: t.setupId ? setupMap.get(t.setupId) : null, errorId: t.errorId ? errorMap.get(t.errorId) : null };
     nt.sales = t.sales.map((s) => ({ ...s, id: nextId(st, 'x'), seq: nextSeq(st) }));
-    nt.capitalAtOpen = S(C.capitalBefore(st, nt.buyDate, nt.seq));
-    st.trades.push(nt); added.trades++; added.sales += nt.sales.length;
+    st.trades.push(nt); newTrades.push(nt); added.trades++; added.sales += nt.sales.length;
   }
   // deposits / withdrawals and dividends: same date and amount (and type / stock) = already there
   for (const f of inc.capital.flows) {
-    if (st.capital.flows.some((x) => x.date === f.date && x.type === f.type && D.d(x.amount) === D.d(f.amount))) { skipped.push(`${f.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of ${S(D.d(f.amount))} on ${f.date.split('-').reverse().join('-')}: already in the program.`); continue; }
+    if (current.capital.flows.some((x) => x.date === f.date && x.type === f.type && D.d(x.amount) === D.d(f.amount))) { skipped.push(`${f.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of ${S(D.d(f.amount))} on ${f.date.split('-').reverse().join('-')}: already in the program.`); continue; }
     if (startDate && f.date < startDate) { conflicts.push(`${f.type} on ${f.date.split('-').reverse().join('-')}: the date is before the start capital date.`); continue; }
     st.capital.flows.push({ ...f, id: nextId(st, 'f'), seq: nextSeq(st) }); added.flows++;
   }
   for (const dv of inc.dividends) {
     const sid = stockMap.get(dv.stockId);
-    if (st.dividends.some((x) => x.stockId === sid && x.payDate === dv.payDate && D.d(x.amount) === D.d(dv.amount))) { skipped.push(`Dividend ${symOf(inc, dv.stockId)} ${S(D.d(dv.amount))} on ${dv.payDate.split('-').reverse().join('-')}: already in the program.`); continue; }
+    if (current.dividends.some((x) => x.stockId === sid && x.payDate === dv.payDate && D.d(x.amount) === D.d(dv.amount))) { skipped.push(`Dividend ${symOf(inc, dv.stockId)} ${S(D.d(dv.amount))} on ${dv.payDate.split('-').reverse().join('-')}: already in the program.`); continue; }
+    if (startDate && dv.payDate < startDate) { conflicts.push(`Dividend on ${dv.payDate.split('-').reverse().join('-')}: the date is before the start capital date.`); continue; }
     st.dividends.push({ ...dv, id: nextId(st, 'd'), stockId: sid, seq: nextSeq(st) }); added.dividends++;
   }
+  // review fix 2026-11-09: capital at open of new trades only after the file's deposits, withdrawals and dividends are in
+  for (const nt of newTrades) nt.capitalAtOpen = S(C.capitalBefore(st, nt.buyDate, nt.seq));
   if (!conflicts.length) for (const t of st.trades) if (C.quantityProblems(t).length) conflicts.push(`${symOf(st, t.stockId)} ${t.id}: quantities do not add up.`);
   if (conflicts.length) return { ok: false, conflicts, skipped, added };
   st.changeLog.push({ ts: new Date().toISOString(), type: 'import-update', added: Object.entries(added).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing new' });

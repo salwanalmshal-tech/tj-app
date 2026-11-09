@@ -4,6 +4,7 @@
 import { APP_VERSION } from '../model.js';
 import { h, dialog, para, toast, infoBtn } from './dom.js';
 import * as D from '../decimal.js';
+import * as C from '../calc.js';
 
 const getP = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
 const setP = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
@@ -138,7 +139,17 @@ export function render(ctx) {
     if (ns.excelCopyDays < 1 || ns.excelCopyDays > 365) return fail('Make an Excel copy every 1 to 365 days.');
     if (ns.excelCopyKeep < 1 || ns.excelCopyKeep > 52) return fail('Keep between 1 and 52 Excel copies.');
     if (ns.saveDelaySec > 120) return fail('Waiting more than 120 seconds before saving is too long.');
-    const ok = await dialog({ title: 'Save the new settings?', body: para('Marks and labels are recalculated on every screen. Saved trades keep their data.', ''), ok: 'Save settings' }); if (!ok) return;
+    // review fix 2026-11-09: limits that contradict each other would make some marks or labels never appear
+    const num = (x) => D.d(String(x));
+    for (let i = 1; i < ns.rCategories.length; i++) if (num(ns.rCategories[i][0]) >= num(ns.rCategories[i - 1][0])) return fail(`Trade result labels: each limit must be lower than the one above it (“${ns.rCategories[i][1]}”).`);
+    for (let i = 1; i < ns.stopDistance.length; i++) if (num(ns.stopDistance[i][0]) <= num(ns.stopDistance[i - 1][0])) return fail(`Stop distance labels: each limit must be higher than the one above it (“${ns.stopDistance[i][1]}”).`);
+    if (num(ns.riskWarn) >= num(ns.riskRed)) return fail('The risk attention limit must be lower than the red risk limit.');
+    if (num(ns.posSmallFrom) >= num(ns.posSmallTo)) return fail('Position size “small from” must be lower than “small to”.');
+    if (num(ns.posNear) >= num(ns.posTooBig)) return fail('Position size “near the limit” must be lower than “too big”.');
+    // Q20 (agreed 2026-11-08): say how many closed trades get a different label
+    let changed = 0; for (const t of st.trades) { if (!(t.sales.length && C.openQty(t) === 0n)) continue; const R = C.rMultiple(t), sd = C.stopDistancePct(t);
+      if (C.rCategory(R, st.settings) !== C.rCategory(R, ns) || C.stopDistanceLabel(sd, st.settings) !== C.stopDistanceLabel(sd, ns)) changed++; }
+    const ok = await dialog({ title: 'Save the new settings?', body: para('Marks and labels are recalculated on every screen. Saved trades keep their data.' + (changed ? ` ${changed} closed trade${changed === 1 ? ' gets' : 's get'} a different result or stop-distance label.` : ''), ''), ok: 'Save settings' }); if (!ok) return;
     const r = ctx.act((d) => { d.settings = ns; return { ok: true }; }, { label: 'settings', now: true }); toast(r.ok ? 'Settings saved.' : r.error);
   };
 

@@ -1,14 +1,15 @@
 // History (2026-11-09, agreed with the owner in 6 preview rounds): three tabs — Report (7 checks), Trades (one row per trade), Compare.
 // Rules: see the History decisions (checks 1–7, filters Q16, compare Q17, one mistake + "Followed my plan" Q19, changes marked once).
 // The analysis works on plain numbers taken from the journal data; every value is recalculated from the trades on each draw.
-import { h, dialog, para, toast, money, signed, qtyTxt, field, changeTable, datePicker, download } from './dom.js';
+import { h, closeTopDialog, dialog, para, toast, money, signed, qtyTxt, field, changeTable, datePicker, download } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
 import { parseDMY, todayISO } from '../dates.js';
 import { editTrade, withNew, resolveNew } from './tradeforms.js';
-import { loadXLSX } from './data.js';
+// data.js is loaded only when exporting (keeps History importable in the tests)
 
+let loadedState = null;
 let RAW, S, stockBy, setupBy, errBy, PLAN, TR = [], ROOT, CTX;
 const $ = (id) => ROOT.querySelector('#' + id);
 const PLAN_NAME = 'Followed my plan';
@@ -25,7 +26,7 @@ function load(state) {
 export function analyse(state) { load(state); return { trades: TR, stats: stats(TR), checks: CHECKS.map((c) => c(TR)) }; }
 
 // ---------------------------------------------------------------- formatting (journal style: 1 234,56 · dd-mm-yyyy)
-const fx=(n,d=2)=>{if(n===null||n===undefined||isNaN(n))return'–';const s=Math.abs(n).toFixed(d).split('.');s[0]=s[0].replace(/\B(?=(\d{3})+(?!\d))/g,' ');return (n<0?'−':'')+s.join(',');};
+const fx=(n,d=2)=>{if(n===null||n===undefined||isNaN(n))return'–';const m=10**d,r=Math.round(Math.abs(n)*m+1e-7)/m;const s=r.toFixed(d).split('.');s[0]=s[0].replace(/\B(?=(\d{3})+(?!\d))/g,' ');return (n<0?'−':'')+s.join(',');};
 const sx=(n,d=2)=>n===null||n===undefined||isNaN(n)?'–':(n>0?'+':'')+fx(n,d);
 const usd=(n)=>n===null||n===undefined?'–':(n>0?'+$':n<0?'−$':'$')+fx(Math.abs(n),2);
 const usd0=(n)=>(n>0?'+':n<0?'−':'')+fx(Math.abs(n),0);
@@ -39,31 +40,29 @@ const sum=(a)=>a.reduce((x,y)=>x+y,0);
 const times=(x)=>x===null?'–':(x>=1.95&&x<2.05?'2':x>=2.4&&x<2.6?'2½':x>=1.4&&x<1.6?'1½':fx(x,1));
 
 // ---------------------------------------------------------------- model
-const rLabel=(r)=>{if(r===null)return'–';for(const [lim,name] of S.rCategories)if(r>=+lim)return name;return S.rCategoryElse;};
-const sdLabel=(p)=>{if(p===null)return'No SL';for(const [lim,name] of S.stopDistance)if(p<=+lim)return name;return S.stopDistanceElse;};
-
+// Review fix 2026-11-09: every per-trade value comes from the program's exact calculations (calc.js, BigInt decimals), so History can
+// never differ from Close trade, Capital or the cards. Plain numbers are made only afterwards, for averages and display.
+const BN=(b)=>b===null||b===undefined?null:Number(b)/1e8;            // exact value → number (8 decimals)
+const BC=(b)=>{if(b===null||b===undefined)return null;const neg=b<0n,v=neg?-b:b,q=v/1000000n+((v%1000000n)*2n>=1000000n?1n:0n);return (neg?-1:1)*Number(q)/100;}; // money: rounded to cents like the rest of the program
 function build(){
   const all=RAW.trades.map(t=>{
-    const qty=+t.qty, buy=+t.buyPrice, bc=+t.buyCommission||0, sold=sum(t.sales.map(s=>+s.qty));
-    const sales=t.sales.map(s=>{const q=+s.qty;const net=(+s.price-buy)*q-(+s.commission||0)-bc*q/qty;return {...s,q,net};});
+    const qty=BN(D.d(t.qty)), buy=BN(D.d(t.buyPrice)), bc=BN(C.N(t.buyCommission)??0n), soldB=C.soldQty(t), closed=t.sales.length>0&&C.openQty(t)===0n;
+    const det=C.salesDetail(t), sales=det.map(x=>({...x.sale,q:BN(D.d(x.sale.qty)),net:BC(x.net)}));
     const last=t.sales.length?t.sales.reduce((a,b)=>(a.date>b.date||(a.date===b.date&&a.seq>b.seq))?a:b):null;
-    const setupId=t.setupId, errorId=t.errorId;
-    const init=t.initialStop===''?null:+t.initialStop;
-    return {id:t.id,seq:t.seq,stockId:t.stockId,sym:stockBy[t.stockId]?.symbol??'?',buyDate:t.buyDate,qty,buy,bc,init,sold,closed:t.sales.length>0&&Math.abs(sold-qty)<1e-9,
-      sellDate:last?last.date:null,lastSeq:last?last.seq:0,sales,setupId,errorId,comment:t.comment||'',capAtOpen:+t.capitalAtOpen};
+    const initB=C.N(t.initialStop);
+    return {id:t.id,seq:t.seq,stockId:t.stockId,symRaw:stockBy[t.stockId]?.symbol??'?',sym:esc(stockBy[t.stockId]?.symbol??'?'),buyDate:t.buyDate,qty,buy,bc,init:BN(initB),sold:BN(soldB),closed,src:t,
+      sellDate:last?last.date:null,lastSeq:last?last.seq:0,sales,setupId:t.setupId,errorId:t.errorId,comment:t.comment||'',capAtOpen:BN(C.N(t.capitalAtOpen)??0n)};
   });
   for(const t of all){
     if(!t.closed)continue;
-    t.net=sum(t.sales.map(s=>s.net));
-    t.days=dayN(t.sellDate)-dayN(t.buyDate);
-    t.avgSell=sum(t.sales.map(s=>+s.price*s.q))/t.sold;
-    t.capPct=t.capAtOpen?100*t.net/t.capAtOpen:null;
-    const rps=t.init===null?null:t.buy-t.init;
-    t.R=rps&&rps>0?t.net/(rps*t.sold):null;
-    t.label=rLabel(t.R);
-    t.sdPct=t.init===null?null:100*(t.buy-t.init)/t.buy;
-    t.sd=sdLabel(t.sdPct);
-    t.comm=t.bc+sum(t.sales.map(s=>+s.commission||0));
+    const src=t.src,netB=C.realized(src),capB=C.N(src.capitalAtOpen),RB=C.rMultiple(src),sdB=C.stopDistancePct(src);
+    t.netB=netB; t.net=BC(netB);
+    t.days=C.holdingDays(src);
+    t.avgSell=BN(D.div(src.sales.reduce((a,x)=>a+D.mul(D.d(x.price),D.d(x.qty)),0n),C.soldQty(src)));
+    t.capPct=capB&&capB!==0n?BN(D.pct(netB,capB)):null;
+    t.R=BN(RB); t.labelRaw=C.rCategory(RB,S)??'–'; t.label=esc(t.labelRaw);
+    t.sdPct=BN(sdB); t.sdRaw=C.stopDistanceLabel(sdB,S)??'No SL'; t.sd=esc(t.sdRaw);
+    t.comm=BN((C.N(src.buyCommission)??0n)+src.sales.reduce((a,x)=>a+(C.N(x.commission)??0n),0n));
   }
   // how you bought (agreed: first / added higher / added lower / bought again after a loss or win within 15 days)
   const byBuy=[...all].sort((a,b)=>a.buyDate<b.buyDate?-1:a.buyDate>b.buyDate?1:a.seq-b.seq);
@@ -81,9 +80,13 @@ function build(){
   return closed;
 }
 
-const setupName=(t)=>t.setupId?setupBy[t.setupId]?.name??'?':null;
-const realSetup=(t)=>{const n=setupName(t);return n&&n!=='Unclassified';};
-const mistakeName=(t)=>(PLAN&&t.errorId===PLAN)?'Followed my plan':t.errorId?errBy[t.errorId]?.name??'?':null;
+// Review fix 2026-11-09: names typed by you (or imported) are made safe text here, once, before they go into the page.
+// The *Raw versions keep the original text for filters and the Excel export.
+const setupNameRaw=(t)=>t.setupId?setupBy[t.setupId]?.name??'?':null;
+const mistakeNameRaw=(t)=>(PLAN&&t.errorId===PLAN)?'Followed my plan':t.errorId?errBy[t.errorId]?.name??'?':null;
+const setupName=(t)=>{const n=setupNameRaw(t);return n===null?null:esc(n);};
+const mistakeName=(t)=>{const n=mistakeNameRaw(t);return n===null?null:esc(n);};
+const realSetup=(t)=>{const n=setupNameRaw(t);return !!n&&n!=='Unclassified';};
 
 // ---------------------------------------------------------------- statistics (shared by summary, checks, compare)
 function stats(ts){
@@ -92,7 +95,7 @@ function stats(ts){
   const wR=W.map(t=>t.R).filter(r=>r!==null),lR=L.map(t=>t.R).filter(r=>r!==null),aR=ts.map(t=>t.R).filter(r=>r!==null);
   const winR=mean(wR),lossR=mean(lR),payoff=winR!==null&&lossR?winR/-lossR:null;
   return {n:ts.length,w:W.length,l:L.length,wr,winR,lossR,payoff,be:payoff!==null?1/(1+payoff):null,avgR:mean(aR),nR:aR.length,
-    net:sum(ts.map(t=>t.net)),capPct:sum(ts.map(t=>t.capPct||0)),days:mean(ts.map(t=>t.days)),
+    net:BC(ts.reduce((a,t)=>a+(t.netB??0n),0n)),capPct:sum(ts.map(t=>t.capPct||0)),days:mean(ts.map(t=>t.days)),
     best:ts.length?ts.reduce((a,b)=>b.net>a.net?b:a):null,worst:ts.length?ts.reduce((a,b)=>b.net<a.net?b:a):null};
 }
 const sample=(n)=>n<5?'Too little data':n<10?'Early signal':n<20?'Developing pattern':'Stronger observed pattern';
@@ -187,11 +190,8 @@ function check4(ts){
   const body=(best?`Your best stretch was <b>${dmy(best.w[0].sellDate)} – ${dmy(best.w[best.w.length-1].sellDate)}</b>: ${usd0(best.n)} in ${RECENT} trades. `:'')+
     (since>0?`Since your best point on <b>${dmy(pk.sellDate)}</b> you've given back <b>${usd0(drop)}</b> over ${since} trades`:'You are at your best point right now')+
     (streak>1?`, and your last <b>${streak} trades are all losses</b>.`:'.');
-  const max=Math.max(...blocks.map(b=>Math.abs(sum(b.map(t=>t.net)))),1);
-  const bars=`<div class="blocks"><div class="blk-axis">${blocks.map(b=>{const n=sum(b.map(t=>t.net)),h=Math.max(2,Math.abs(n)/max*38);return `<div class="blk" title="${dmy(b[0].sellDate)} – ${dmy(b[b.length-1].sellDate)}: ${usd0(n)}"><div class="bar" style="${n>=0?`bottom:40px;height:${h}px;background:var(--pos)`:`top:40px;height:${h}px;background:var(--neg)`}"></div></div>`;}).join('')}</div>
-    <div class="blk-labels">${blocks.map(b=>`<span class="${sum(b.map(t=>t.net))>=0?'pos':'neg'}"><b>${usd0(sum(b.map(t=>t.net)))}</b></span>`).join('')}</div>
-    <div class="blk-labels">${blocks.map((b,i)=>`<span>trades ${i*10+1}–${i*10+b.length}</span>`).join('')}</div></div>`;
-  return {id:4,name:'Results over time',v,head,body:body+bars+`<span class="small">Blocks of 10 trades, in the order they were closed.</span>`,recent:null,
+  // (the blocks chart is drawn in the check's facts; the long text has no chart)
+  return {id:4,name:'Results over time',v,head,body:body,recent:null,
     q:best?`What was different during ${mon(best.w[0].sellDate)}–${mon(best.w[best.w.length-1].sellDate)} compared with now?`:'What changed?',why:'It could be the market (fewer strong trends), the kind of stocks you picked, or how you managed your trades.',
     detail:`Best point ${usd0(peak)} on ${dmy(pk.sellDate)} · now ${usd0(cum)} · ${ts.length} trades · ${sample(ts.length)}`,
     acts:best?[{l:'Compare your best stretch with the trades since',f:()=>openCompareIds(best.w.map(t=>t.id),ts.slice(pi+1).map(t=>t.id),'Best stretch','Since the best point')},{l:'Show last 20 trades',f:()=>{F={...newF(),period:'last20'};renderAll();scrollToTable();}}]:[]};
@@ -269,20 +269,20 @@ function applyF(f,ts=TR){
     else if(f.period==='year')from=new Date(Date.UTC(t.getFullYear(),0,1));
     if(from){const iso=from.toISOString().slice(0,10);r=r.filter(x=>x.sellDate>=iso);}
     if(f.period==='custom'){if(f.from)r=r.filter(x=>x.sellDate>=f.from);if(f.to)r=r.filter(x=>x.sellDate<=f.to);}}
-  if(f.syms.length)r=r.filter(t=>f.syms.includes(t.sym));
+  if(f.syms.length)r=r.filter(t=>f.syms.includes(t.symRaw));
   if(f.result==='winners')r=r.filter(t=>t.net>0);else if(f.result==='losers')r=r.filter(t=>t.net<0);
-  if(f.labels.length)r=r.filter(t=>f.labels.includes(t.label));
-  if(f.setups.length)r=r.filter(t=>f.setups.includes(realSetup(t)?setupName(t):'__none'));
-  if(f.mistakes.length)r=r.filter(t=>f.mistakes.includes(t.errorId?mistakeName(t):'__none'));
+  if(f.labels.length)r=r.filter(t=>f.labels.includes(t.labelRaw));
+  if(f.setups.length)r=r.filter(t=>f.setups.includes(realSetup(t)?setupNameRaw(t):'__none'));
+  if(f.mistakes.length)r=r.filter(t=>f.mistakes.includes(t.errorId?mistakeNameRaw(t):'__none'));
   if(f.days.length)r=r.filter(t=>f.days.some(d=>t.days>=DAYS[d][0]&&t.days<=DAYS[d][1]));
-  if(f.sds.length)r=r.filter(t=>f.sds.includes(t.sd));
+  if(f.sds.length)r=r.filter(t=>f.sds.includes(t.sdRaw));
   if(f.how.length)r=r.filter(t=>f.how.includes(t.how));
   if(f.q.trim())r=r.filter(t=>t.comment.toLowerCase().includes(f.q.trim().toLowerCase()));
   if(f.ids)r=r.filter(t=>f.ids.includes(t.id));
   return r;
 }
 const OPTS={
-  syms:()=>[...new Set(TR.map(t=>t.sym))].sort().map(s=>[s,s]),
+  syms:()=>[...new Set(TR.map(t=>t.symRaw))].sort().map(s=>[s,s]),
   labels:()=>[...S.rCategories.map(r=>r[1]),S.rCategoryElse,'–'].map(s=>[s,s==='–'?'No label (no stop)':s]),
   setups:()=>[['__none','No setup'],...RAW.setups.filter(s=>s.name!=='Unclassified').map(s=>[s.name,s.name])],
   mistakes:()=>[['__none','Not filled in'],['Followed my plan','Followed my plan'],...realErrors().map(e=>[e.name,e.name])],
@@ -319,7 +319,7 @@ const PRESETS={
   fast:()=>[{...newF(),days:['0–1'],result:'losers',name:'Failed right away'},{...newF(),days:['6–20','21+'],name:'Held 6+ days'}],
   top3:()=>{const top=[...TR].filter(t=>t.net>0).sort((a,b)=>b.net-a.net).slice(0,3).map(t=>t.id);return [{...newF(),ids:top,idsLabel:'3 biggest wins',name:'3 biggest wins'},{...newF(),ids:TR.filter(t=>!top.includes(t.id)).map(t=>t.id),idsLabel:'all others',name:'All other trades'}];},
   plan:()=>[{...newF(),mistakes:['Followed my plan'],name:'Followed my plan'},{...newF(),mistakes:realErrors().map(e=>e.name),name:'With a mistake'}],
-  stock:()=>{const top=Object.entries(TR.reduce((m,t)=>(m[t.sym]=(m[t.sym]||0)+1,m),{})).sort((a,b)=>b[1]-a[1])[0][0];return [{...newF(),syms:[top],name:top},{...newF(),syms:[...new Set(TR.map(t=>t.sym))].filter(s=>s!==top),name:'All other stocks'}];},
+  stock:()=>{const top=Object.entries(TR.reduce((m,t)=>(m[t.symRaw]=(m[t.symRaw]||0)+1,m),{})).sort((a,b)=>b[1]-a[1])[0][0];return [{...newF(),syms:[top],name:top},{...newF(),syms:[...new Set(TR.map(t=>t.symRaw))].filter(s=>s!==top),name:'All other stocks'}];},
 };
 const PNAMES=[['recent',`Last ${RECENT} vs before`],['lower','First trades vs added lower'],['fast','Failed right away vs held 6+ days'],['top3','3 biggest wins vs the rest'],['plan','Followed my plan vs mistakes'],['stock','One stock vs all others']];
 function openCompare(k){gInit=true;[G.a,G.b]=PRESETS[k]();view='compare';renderAll();scrollToTable();}
@@ -347,8 +347,8 @@ function factsFor(id){
       f('Per trade',R(st.avgR),'all trades together',st.avgR>0?'pos':'neg',`Wins and losses together: each trade ${st.avgR>=0?'made':'lost'} on average ${fx(Math.abs(st.avgR),2)} times the money you risked. Above 0 = you make money over time. ${RTIP}`)],
     last:rs?(()=>{const bs=stats(sp.before);const smaller=bs.winR&&rs.winR&&rs.winR<bs.winR*0.85;return `You won ${rs.w} of ${RECENT} (${pct(rs.wr*100)}). ${smaller?`Your wins were smaller than before (${R(rs.winR)} instead of ${R(bs.winR)}), so you`:'You'} needed ${pct(rs.be*100)} to break even — ${rs.avgR<0?'so these trades lost money':'so these trades still made money'}.`;})():null};
   if(id===2){const top=[...ts].filter(t=>t.net>0).sort((a,b)=>b.net-a.net).slice(0,3),tsum=sum(top.map(t=>t.net)),gross=sum(ts.filter(t=>t.net>0).map(t=>t.net)),rest=st.net-tsum;
-    return{f:[f('Your 3 biggest wins','+'+m0(tsum),top.map(t=>t.sym).join(', '),'pos',`${top.map(t=>`${t.sym} ${usd0(t.net)}`).join(', ')}. Together ${m0(tsum)}.`),
-      f(`The other ${ts.length-3} trades`,(rest<0?'−':'+')+m0(rest),'all together',rest>=0?'pos':'neg',`All your other trades together ${rest<0?'lost':'made'} ${m0(rest)}. ${rest<0?'Without the 3 big wins you would be at a loss.':''}`),
+    return{f:[f(`Your ${top.length} biggest win${top.length===1?'':'s'}`,'+'+m0(tsum),top.map(t=>t.sym).join(', '),'pos',`${top.map(t=>`${t.sym} ${usd0(t.net)}`).join(', ')}. Together ${m0(tsum)}.`),
+      f(`The other ${ts.length-top.length} trades`,(rest<0?'−':'+')+m0(rest),'all together',rest>=0?'pos':'neg',`All your other trades together ${rest<0?'lost':'made'} ${m0(rest)}. ${rest<0?'Without the 3 big wins you would be at a loss.':''}`),
       f('Share of all your gains',pct(100*tsum/gross),'came from those 3','',`Of all the money your winning trades made (${m0(gross)}), ${pct(100*tsum/gross)} came from just these 3 trades.`)],
       last:rs?(rs.net<0?`Your biggest win was only ${m0(rs.best.net)} (${rs.best.sym}). No big win came to pay for the small losses, so these ${RECENT} trades lost ${m0(rs.net)} together.`:`These ${RECENT} trades made ${m0(rs.net)} together; the biggest win was ${m0(rs.best.net)} (${rs.best.sym}).`):null};}
   if(id===3){const x=stopFacts(ts),y=sp?stopFacts(r):null,worst=x.past.length?x.past.reduce((a,b)=>b.R<a.R?b:a):null;
@@ -370,8 +370,8 @@ function factsFor(id){
       f('Added at a lower price',R(c.avgR),`per trade · ${c.n} trades`,c.avgR>0?'pos':'neg',tip('Bought more while the first trade was open, at a lower price (adding to a loser)',c))],
       last:sp?(parts.length?capz(parts.join(', '))+'.':'No re-buys.'):null};}
   if(id===6){const fast=ts.filter(t=>t.net<0&&t.days<=1),held=stats(ts.filter(t=>t.days>=6)),rf=r.filter(t=>t.net<0&&t.days<=1);
-    return{f:[f('Lost within a day',`${fast.length} of ${ts.length}`,`about 1 in ${Math.round(ts.length/fast.length)}`,'',`${fast.length} trades were sold at a loss on the day of buying or the day after: ${symCount(fast)}.`),
-      f('What they cost','−'+m0(sum(fast.map(t=>t.net))),'together','neg',`Those ${fast.length} trades lost ${m0(sum(fast.map(t=>t.net)))} together — ${pct(-100*sum(fast.map(t=>t.net))/st.net)} of your total profit.`),
+    return{f:[f('Lost within a day',`${fast.length} of ${ts.length}`,fast.length?`about 1 in ${Math.round(ts.length/fast.length)}`:'none','',`${fast.length} trades were sold at a loss on the day of buying or the day after: ${symCount(fast)}.`),
+      f('What they cost',(fast.length?'−':'')+m0(sum(fast.map(t=>t.net))),'together','neg',`Those ${fast.length} trades lost ${m0(sum(fast.map(t=>t.net)))} together${st.net>0&&fast.length?` — ${pct(-100*sum(fast.map(t=>t.net))/st.net)} of your total profit`:''}.`),
       f('Held 6 days or more',(held.net<0?'−':'+')+m0(held.net),`${held.w} of ${held.n} won`,held.net>0?'pos':'neg',`Trades you kept 6 days or more: ${held.n} trades, ${held.w} won, ${usd0(held.net)} together.`)],
       last:sp?(rf.length?`${rf.length} trades lost within a day (${symCount(rf)}) and cost ${m0(sum(rf.map(t=>t.net)))} together.`:'No trade lost within a day.')+(Math.abs(rf.length/RECENT-fast.length/ts.length)<0.06?' About the same as before.':rf.length/RECENT<fast.length/ts.length?' Fewer than before.':' More than before.'):null};}
   if(id===7){const real=ts.filter(realSetup).length,mist=ts.filter(t=>t.errorId&&t.errorId!==PLAN).length,none=ts.filter(t=>!t.errorId).length,rr=r.filter(realSetup).length;
@@ -401,7 +401,7 @@ function renderChecks(){
       <div class="hline"><span class="k">Ask yourself</span><span>${c.q}</span></div>
     </div>
     <div id="ckacts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"></div>
-    <details class="hmore" style="margin-top:14px"><summary>Read the full explanation</summary><p>${c.body.replace(/<div class="blocks">[\s\S]*$/,'')}</p>${c.recent?`<p><b>Last ${RECENT} trades:</b> ${c.recent.txt}</p>`:''}<p><i>${c.why}</i></p><p class="note">${c.detail}</p></details>`;
+    <details class="hmore" style="margin-top:14px"><summary>Read the full explanation</summary><p>${c.body}</p>${c.recent?`<p><b>Last ${RECENT} trades:</b> ${c.recent.txt}</p>`:''}<p><i>${c.why}</i></p><p class="note">${c.detail}</p></details>`;
   const a=$('ckacts');c.acts.forEach((x,i)=>{const b=document.createElement('button');b.className='btn'+(i===0?' pri':'');b.textContent=x.l;b.onclick=x.f;a.append(b);});
 }
 
@@ -418,7 +418,7 @@ function renderTable(ts){
   v.innerHTML=`<div class="tw fx"><table class="stk"><thead><tr>${COLS4.map(([k,l,c])=>`<th class="sortable ${c||''}${sort.k===k?' on':''}">${k==='c'?'':`<button data-k="${k}">${l}<span class="sa">${sort.k===k?(sort.d>0?'▲':'▼'):'↕'}</span></button>`}</th>`).join('')}</tr></thead><tbody>${
     shown.map(t=>{const nw=PREV?.trades?.ids&&!PREV.trades.ids.includes(t.id);return `<tr class="hrow${openRow===t.id?' open':''}${nw?' newrow':''}" data-id="${t.id}" tabindex="0"><td><b class="lsym">${t.sym}</b>${nw?' <span class="chgtag">New</span>':''}<span class="htid">${t.id}</span></td><td>${dmy(t.sellDate)}</td><td class="r">${t.days}</td>
      <td class="r ${tn(t.net)}"><b>${usd(t.net)}</b></td><td class="r ${tn(t.net)}">${sx(t.capPct,2)} %</td><td class="r">${t.R===null?'<span class="mut">–</span>':sx(t.R,2)}</td>
-     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.label)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?esc(setupName(t)):'<span class="lmiss">Missing</span>'}</td><td>${mistakeName(t)?esc(mistakeName(t)):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
+     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.label)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Missing</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
     <div class="lfoot"><span class="note">Showing ${shown.length} of ${rows.length} trades · click a row for details</span><span style="display:flex;gap:8px;align-items:center">${pages>1?`<span class="lpager">${Array.from({length:pages},(_,i)=>`<button class="btn sm${i===page?' on':''}" data-p="${i}">${i+1}</button>`).join('')}</span>`:''}<button class="btn sm" id="hx-export">Export to Excel</button></span></div>`;
   $('hx-export').onclick=()=>exportExcel(rows);
   // 2026-11-09: a second sideways scroll bar that stays at the bottom of the window while the table's own bar is out of sight
@@ -587,10 +587,10 @@ function saveTag(id,field,value){
   if(!r.ok)toast(r.error);
 }
 async function exportExcel(rows){
-  try{const X=await loadXLSX();
-    const data=rows.map((t)=>({'Trade ID':t.id,Symbol:t.sym,'Buy date':dmy(t.buyDate),'Sell date':dmy(t.sellDate),Days:t.days,Shares:t.qty,'Buy price':t.buy,'Average sell price':+t.avgSell.toFixed(4),
-      'Net result':+t.net.toFixed(2),'% of capital':t.capPct===null?'':+t.capPct.toFixed(2),R:t.R===null?'':+t.R.toFixed(2),Result:t.label,'Stop distance':t.sd,Setup:setupName(t)||'',Mistake:mistakeName(t)||'','How you bought':t.how,Comment:t.comment}));
-    const wb=X.utils.book_new();X.utils.book_append_sheet(wb,X.utils.json_to_sheet(data),'History');
+  try{const X=await (await import('./data.js')).loadXLSX();
+    const data=rows.map((t)=>({'Trade ID':t.id,Symbol:t.symRaw,'Buy date':dmy(t.buyDate),'Sell date':dmy(t.sellDate),Days:t.days,Shares:t.qty,'Buy price':t.buy,'Average sell price':+t.avgSell.toFixed(4),
+      'Net result':+t.net.toFixed(2),'% of capital':t.capPct===null?'':+t.capPct.toFixed(2),R:t.R===null?'':+t.R.toFixed(2),Result:t.labelRaw,'Stop distance':t.sdRaw,Setup:setupNameRaw(t)||'',Mistake:mistakeNameRaw(t)||'','How you bought':t.how,Comment:t.comment}));
+    const wb=X.utils.book_new();X.utils.book_append_sheet(wb,X.utils.json_to_sheet(data),'Closed trades');
     download(`TradeJournal-History-${todayISO()}.xlsx`,new Blob([X.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
   }catch(e){toast(e.message);}
 }
@@ -607,12 +607,13 @@ const SKELETON=`<div class="hlists">
   </div>`;
 
 export function render(ctx) {
-  CTX = ctx; load(ctx.store.state);
+  // review fix 2026-11-09: the analysis runs again only when the data changed, not on every redraw
+  CTX = ctx; const fresh = ctx.store.state !== loadedState; if (fresh) { load(ctx.store.state); loadedState = ctx.store.state; }
   ROOT = h('div'); ROOT.innerHTML = SKELETON;
   if (!TR.length) { ROOT.innerHTML = '<section class="card"><div class="card-b"><b>No closed trades yet.</b><p class="note" style="margin:6px 0 0">When you close your first trade (Open positions → Close trade), History shows your report, your trades and comparisons here.</p></div></section>'; return ROOT; }
   if (ctx.params !== lastParams) { lastParams = ctx.params; newVisit(); }
   if (gInit && cmpKey !== 'custom') [G.a, G.b] = PRESETS[cmpKey](); // ready-made groups follow new trades
-  NOW = snapNow();
+  if (fresh || !NOW) NOW = snapNow();
   for (const k of ['report', 'trades', 'compare']) $('v-' + k).onclick = () => { view = k; renderAll(); };
   renderAll();
   return ROOT;
@@ -623,10 +624,10 @@ function editSale(ctx, tradeId, saleId) {
   const date = datePicker({ iso: s.date, label: 'Sell date' }), qty = h('input', { value: D.edit(D.d(s.qty)), style: { textAlign: 'right' }, 'aria-label': 'Quantity sold' }), price = h('input', { value: D.edit(D.d(s.price)), style: { textAlign: 'right' }, 'aria-label': 'Sell price' }), comm = h('input', { value: s.commission === '' ? '' : D.edit(D.d(s.commission)), style: { textAlign: 'right' }, 'aria-label': 'Sell commission' });
   dialog({ title: `Edit sale of ${sym} · ${t.id}`, wide: true, ok: 'Save', body: h('div', { style: { display: 'grid', gap: '12px' } },
     h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Sell date', date), field('Quantity sold', qty), field('Sell price', price), field('Sell commission', comm)),
-    h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => { document.querySelector('.scrim')?.remove(); editTrade(ctx, t.id); } }, 'Edit buy data…'),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => { closeTopDialog(); editTrade(ctx, t.id); } }, 'Edit buy data…'),
       h('button', { class: 'btn quiet-dng', onClick: async () => {
         const ok = await dialog({ title: `Reopen ${sym}: remove this sale?`, ok: 'Remove sale', body: para(`The ${qtyTxt(D.d(s.qty))} shares become open again and the sale moves to the Trash for 15 days. Capital and statistics change.`, '') });
-        if (!ok) return; const r = ctx.act((d) => A.reopenSales(d, t.id, [s.id]), { label: 'reopen ' + sym, now: true }); if (r.ok) { document.querySelector('.scrim')?.remove(); toast(`${sym} sale removed.`, 'Undo', () => ctx.store.undo()); } else toast(r.error); } }, 'Reopen (remove this sale)…'))),
+        if (!ok) return; const r = ctx.act((d) => A.reopenSales(d, t.id, [s.id]), { label: 'reopen ' + sym, now: true }); if (r.ok) { closeTopDialog(); toast(`${sym} sale removed.`, 'Undo', () => ctx.store.undo()); } else toast(r.error); } }, 'Reopen (remove this sale)…'))),
     onOk: async () => {
       const iso = parseDMY(date.value); if (!iso) return 'Enter a valid sell date (dd-mm-yyyy).';
       const patch = { date: iso, qty: qty.value, price: price.value, commission: comm.value.trim() };
