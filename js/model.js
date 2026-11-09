@@ -1,7 +1,7 @@
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.4.2';
+export const APP_VERSION = '1.4.3';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
