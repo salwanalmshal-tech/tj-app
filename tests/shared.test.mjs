@@ -87,3 +87,15 @@ test('every mark says what is wrong with its number', async () => {
   assert.ok(s2.some((x) => x.startsWith('Price 10,8 % above the stop')), s2.join(' | '));
   assert.ok(s2.includes('Price only 0,8 % above EMA10'), s2.join(' | '));
 });
+
+test('a sale with an earlier date: trades opened after it are found for recalculation (2026-11-09)', () => {
+  const { st, a, b, c } = setup(); // WMT bought 23-10, WPP 02-11 and 04-11
+  assert.equal(A.capitalDiffs(st).length, 0);
+  const late = A.openTrade(st, { symbol: 'NUE', buyDate: '2026-10-20', qty: '10', buyPrice: '100', initialStop: '95' }).data; // the missed trade
+  assert.equal(A.capitalDiffs(st).length, 0, 'a buy alone changes no capital');
+  assert.ok(A.closeSale(st, { date: '2026-10-28', price: '110', commission: '1', allocations: [{ tradeId: late.id, qty: '10' }] }).ok);
+  const ids = A.capitalDiffs(st).map((x) => x.id).sort();
+  assert.deepEqual(ids, [a.id, b.id].sort(), 'only the trades opened after 28-10 change');
+  assert.ok(A.recalcCapital(st).ok); assert.equal(A.capitalDiffs(st).length, 0);
+  assert.equal(a.capitalAtOpen, '6099'); assert.equal(c.capitalAtOpen, '6000');
+});

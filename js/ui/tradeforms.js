@@ -3,6 +3,7 @@ import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
 import { parseDMY, weekdayName, isWeekend } from '../dates.js';
+import { askRecalc } from './capital.js';
 
 const sel = (items, value, { blank = '–' } = {}) => h('select', null, h('option', { value: '' }, blank), items.map((x) => h('option', { value: x.id, selected: x.id === value }, x.name ?? x.symbol)));
 const dateInput = (iso, label) => datePicker({ iso: iso || '', label });
@@ -255,15 +256,20 @@ export function renderClose(ctx) {
       return { t, sale, net, tradePct: cost > 0n ? D.pct(net, cost) : null, capPct: cap && cap > 0n ? D.pct(net, cap) : null, days: C.saleDays(t, sale), left: C.openQty(t) };
     });
     const notes = Object.keys(buyFix).length ? `Buy commission saved for ${Object.keys(buyFix).join(', ')}.` : null;
+    // A sale with an earlier date changes the capital of trades opened after it (2026-11-09): ask right away, not only on the Capital page.
+    const diffKey = (x) => x.id + ':' + x.after; const diffsBefore = new Set(A.capitalDiffs(st).map(diffKey));
+    let saved = false;
     for (let k = 0; k < results.length; k++) {
       const first = k === 0; const ok = await dialog({ title: `${sym} · ${results[k].t.id}`, cls: 'resdlg', info: !first, ok: first ? 'Close trade' : 'OK', body: resultCard(results[k], { k, n: results.length, first, price: price.value, notes: first ? notes : null }) });
       if (first) {
         if (!ok) return;
         const res = ctx.act((d) => apply(d), { label: 'sale ' + sym, now: true });
         if (!res.ok) return toast(res.error);
+        saved = true;
       }
     }
     back(ctx);
+    if (saved && A.capitalDiffs(ctx.store.state).some((x) => !diffsBefore.has(diffKey(x)))) setTimeout(() => askRecalc(ctx), 0);
   }
   symSel.addEventListener('change', () => { touchedLines = false; total.value = ''; buildLines(false); });
   total.addEventListener('input', () => { touchedLines = false; buildLines(true); });
