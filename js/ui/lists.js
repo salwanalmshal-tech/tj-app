@@ -1,4 +1,4 @@
-import { h, dialog, para, toast, field } from './dom.js';
+import { h, dialog, para, toast, field, suggest } from './dom.js';
 import * as A from '../actions.js';
 
 // Layout 2026-11-06 (his Lists example + Q12): tabs Stocks / Setups / Errors with counts, search, filters, sortable columns,
@@ -77,10 +77,18 @@ function rowMenu(ctx, list, it, used) {
     h('div', { class: 'lpop' }, item('Edit…', () => edit(ctx, list, it)), item(it.archived ? 'Restore' : 'Archive', () => archive(ctx, list, it)), item('Delete…', () => del(ctx, list, it, used), 'dng')));
   return wrap;
 }
+// sector / industry / exchange suggestions from the 2nd letter (2026-11-09), from the values your stocks already use
+function suggestInfo(st, x) {
+  const uniqOf = (k) => [...new Set(st.stocks.map((s) => (s[k] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  suggest(x.sector, () => uniqOf('sector').map((v) => ({ value: v })));
+  suggest(x.industry, () => { const sec = x.sector.value.trim().toLowerCase(); const inSec = new Set(st.stocks.filter((s) => (s.sector || '').toLowerCase() === sec).map((s) => s.industry)); return uniqOf('industry').sort((a, b) => inSec.has(b) - inSec.has(a)).map((v) => ({ value: v, sub: inSec.has(v) ? x.sector.value.trim() : '' })); });
+  suggest(x.exchange, () => uniqOf('exchange').map((v) => ({ value: v })), { min: 1 });
+}
 function addItem(ctx, list) {
   const [, key, one] = NAMES[list];
   const name = h('input', { 'aria-label': list === 'stocks' ? 'Symbol' : 'Name', style: list === 'stocks' ? { textTransform: 'uppercase' } : null, autocomplete: 'off' });
   const extra = list === 'stocks' ? { sector: h('input', { 'aria-label': 'Sector' }), industry: h('input', { 'aria-label': 'Industry' }), exchange: h('input', { 'aria-label': 'Exchange' }) } : null;
+  if (extra) suggestInfo(ctx.store.state, extra);
   setTimeout(() => name.focus(), 0);
   dialog({ title: 'Add ' + one, ok: 'Add', body: h('div', { style: { display: 'grid', gap: '10px' } }, field(list === 'stocks' ? 'Symbol' : 'Name', name), extra ? [field('Sector', extra.sector), field('Industry', extra.industry), field('Exchange', extra.exchange)] : null),
     onOk: () => {
@@ -91,6 +99,7 @@ function addItem(ctx, list) {
 function edit(ctx, list, it) {
   const key = NAMES[list][1]; const name = h('input', { value: it[key], 'aria-label': 'Name' });
   const extra = list === 'stocks' ? { sector: h('input', { value: it.sector || '', 'aria-label': 'Sector' }), industry: h('input', { value: it.industry || '', 'aria-label': 'Industry' }), exchange: h('input', { value: it.exchange || '', 'aria-label': 'Exchange' }) } : null;
+  if (extra) suggestInfo(ctx.store.state, extra);
   dialog({ title: `Edit ${it[key]}`, ok: 'Save', body: h('div', { style: { display: 'grid', gap: '10px' } }, field(list === 'stocks' ? 'Symbol' : 'Name', name), extra ? [field('Sector', extra.sector), field('Industry', extra.industry), field('Exchange', extra.exchange)] : null),
     onOk: async () => {
       if (name.value.trim().toUpperCase() !== it[key].toUpperCase() || (list !== 'stocks' && name.value.trim() !== it[key])) {

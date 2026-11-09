@@ -109,6 +109,7 @@ export function openTrade(st, f) {
   const v = validateOpen(st, f); if (v.errors.length) return err(v.errors[0], { errors: v.errors });
   let stock = findStock(st, f.symbol);
   if (!stock) { const r = addListItem(st, 'stocks', f.symbol, f.stockInfo ?? {}); stock = r.data; }
+  else if (f.stockInfo) for (const k of ['sector', 'industry', 'exchange']) { const v = (f.stockInfo[k] || '').trim(); if (v && !(stock[k] || '').trim()) stock[k] = v; } // fills only what is missing (2026-11-09)
   if (stock.archived) stock.archived = false;
   const seq = nextSeq(st);
   const t = {

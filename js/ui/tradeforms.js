@@ -1,4 +1,4 @@
-import { h, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn, datePicker } from './dom.js';
+import { h, suggest, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
@@ -52,8 +52,11 @@ export function renderOpen(ctx) {
   const inp = (label, extra = {}) => h('input', { 'aria-label': label, autocomplete: 'off', ...extra });
   const pick = (items, label, blank) => h('select', { 'aria-label': label }, h('option', { value: '' }, blank), items.map((x) => h('option', { value: x.id }, x.name)));
 
-  const sym = inp('Symbol', { list: 'stocklist', placeholder: 'PLTR', style: { textTransform: 'uppercase' } });
-  const dl = h('datalist', { id: 'stocklist' }, st.stocks.filter((s) => !s.archived).map((s) => h('option', { value: s.symbol })));
+  const sym = inp('Symbol', { placeholder: 'PLTR', style: { textTransform: 'uppercase' } });
+  const dl = null;
+  // suggestions from the 2nd letter (2026-11-09): your stocks, and the sectors, industries and exchanges you already use
+  const uniqOf = (k) => [...new Set(st.stocks.map((s) => (s[k] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  suggest(sym, () => st.stocks.filter((s) => !s.archived).map((s) => ({ value: s.symbol, sub: [s.sector, s.exchange].filter(Boolean).join(' · ') })));
   const bp = inp('Buy price', { inputmode: 'decimal', placeholder: '0,00' }), qty = inp('Shares', { inputmode: 'decimal', placeholder: '0' });
   const bd = datePicker({ iso: today, label: 'Buy date' }), bc = inp('Buy commission', { inputmode: 'decimal', placeholder: '0,00' });
   const is = inp('Initial stop', { inputmode: 'decimal', placeholder: '0,00' });
@@ -62,8 +65,28 @@ export function renderOpen(ctx) {
   const cs = inp('Current stop', { inputmode: 'decimal', placeholder: 'Same as Initial stop' }), last = inp('Last price', { inputmode: 'decimal', placeholder: 'Same as buy price' });
   const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = datePicker({ label: 'Next report' });
   const sector = inp('Sector'), industry = inp('Industry'), exch = inp('Exchange');
+  suggest(sector, () => uniqOf('sector').map((v) => ({ value: v })));
+  // industries of the sector you typed come first
+  suggest(industry, () => { const sec = sector.value.trim().toLowerCase(); const inSec = new Set(st.stocks.filter((s) => (s.sector || '').toLowerCase() === sec).map((s) => s.industry)); return uniqOf('industry').sort((a, b) => inSec.has(b) - inSec.has(a)).map((v) => ({ value: v, sub: inSec.has(v) ? sector.value.trim() : '' })); });
+  suggest(exch, () => uniqOf('exchange').map((v) => ({ value: v })), { min: 1 });
   const newStock = h('div', { class: 'newstock', hidden: true }, of('Sector', box(sector)), of('Industry', box(industry)), of('Exchange', box(exch)));
   const newNote = h('p', { class: 'note', hidden: true, style: { margin: 0 } }, 'New stock: add its sector, industry and exchange once.');
+  // Sector / industry / exchange (2026-11-09): a stock traded before fills in what it already has (read-only, change it in Lists);
+  // the missing ones are empty boxes to fill. None of them is required. Shown for a new stock or when something is missing.
+  let infoFor = null;
+  function syncInfo() {
+    const key = sym.value.trim().toUpperCase(); if (key === infoFor) return; infoFor = key;
+    const stock = key ? A.findStock(st, key) : null;
+    for (const [x, k] of [[sector, 'sector'], [industry, 'industry'], [exch, 'exchange']]) {
+      const have = stock ? (stock[k] || '').trim() : '';
+      x.value = have; x.readOnly = !!have; x.closest('.box')?.classList.toggle('ro', !!have);
+      x.title = have ? 'Saved with ' + key + '. Change it in Lists.' : '';
+      x.placeholder = stock && !have ? 'Missing — optional' : 'Optional';
+    }
+    const missing = stock ? ['sector', 'industry', 'exchange'].filter((k) => !(stock[k] || '').trim()) : [];
+    newNote.textContent = !stock ? 'New stock: add its sector, industry and exchange once (optional).' : `${key} has no ${missing.join(', ').replace(/, ([^,]*)$/, ' or $1')} yet — add it here if you like (optional).`;
+    const show = !!key && (!stock || missing.length > 0); newStock.hidden = !show; newNote.hidden = !show;
+  }
   const dnote = h('span', { class: 'n' });
   const bpBox = box(bp, '$'), isBox = box(is, '$'), qtyBox = box(qty), symBox = box(sym), bdBox = box(bd);
 
@@ -85,7 +108,7 @@ export function renderOpen(ctx) {
     for (const [x, name] of [[hi, 'Highest price'], [ema, 'EMA10'], [cs, 'Current stop'], [last, 'Last price']]) if (x.value.trim() && D.parse(x.value) === null) extra.push(name + ' must be a number.');
     if (nr.getISO() === null) extra.push('Next report is not a valid date (dd-mm-yyyy).');
     const errors = [...v.errors, ...extra];
-    const isNew = !!f.symbol && !A.findStock(st, f.symbol); newStock.hidden = !isNew; newNote.hidden = !isNew;
+    syncInfo();
     dnote.textContent = f.buyDate ? weekdayName(f.buyDate) + (isWeekend(f.buyDate) ? ' · weekend' : '') + (f.buyDate > today ? ' · in the future' : '') : '';
     const q = D.parse(qty.value), p = D.parse(bp.value), stop = D.parse(is.value);
     const okQP = q !== null && p !== null && q > 0n && p > 0n;

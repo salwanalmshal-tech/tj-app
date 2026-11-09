@@ -66,6 +66,7 @@ export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = fal
     const scrim = h('div', { class: 'scrim fixed' }, box);
     const onKey = (e) => {
       if (document.querySelector('.dp-pop')) return; // a calendar is open on top: it handles its own keys
+      if (document.querySelector('.sugg-pop') && ['Escape', 'Enter', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; // a suggestion list is open: it handles these keys
       if (e.key === 'Escape' && e.target.closest?.('.addnew')) return; // the "+ New…" field closes itself
       if (e.key === 'Escape') { e.stopPropagation(); close(info ? true : false); }
       else if (e.key === 'Tab') { const f = [...box.querySelectorAll('button:not(:disabled),input,select,textarea,[tabindex]')].filter((x) => x.offsetParent !== null); if (!f.length) return; const i = f.indexOf(document.activeElement); if (e.shiftKey && i <= 0) { e.preventDefault(); f.at(-1).focus(); } else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); } }
@@ -150,4 +151,45 @@ export function datePicker({ iso = '', label = 'Date', onChange } = {}) {
   btn.addEventListener('click', open);
   inp.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); open(); } });
   return wrap;
+}
+
+// Suggestions under a text box (2026-11-09): from the 2nd letter a short list opens with matching values from his own lists.
+// Values that START with the letters come first, then values that contain them. Mouse or ↑ ↓ + Enter picks; Escape closes.
+// items(): [{ value, sub? }] — read fresh each time, so new stocks show up at once. onPick(value) runs after the box is filled.
+export function suggest(input, items, { min = 2, max = 8, onPick } = {}) {
+  let pop = null, list = [], at = -1;
+  const close = () => { pop?.remove(); pop = null; at = -1; };
+  const pick = (v) => { input.value = v; close(); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); onPick?.(v); };
+  const mark = () => pop?.querySelectorAll('.sugg-i').forEach((el, i) => { el.classList.toggle('on', i === at); if (i === at) el.scrollIntoView({ block: 'nearest' }); });
+  const show = () => {
+    const q = input.value.trim().toLowerCase();
+    if (q.length < min || input.readOnly) return close();
+    const all = items().filter((x) => x.value && x.value.toLowerCase() !== q);
+    const seen = new Set(); list = [];
+    for (const pass of [(v) => v.startsWith(q), (v) => v.includes(q)]) for (const x of all) { const v = x.value.toLowerCase(); if (!seen.has(v) && pass(v)) { seen.add(v); list.push(x); } }
+    list = list.slice(0, max);
+    if (!list.length) return close();
+    if (!pop) { pop = h('div', { class: 'sugg-pop', role: 'listbox' }); document.body.append(pop); }
+    const r = input.closest('.box')?.getBoundingClientRect() || input.getBoundingClientRect();
+    Object.assign(pop.style, { left: r.left + 'px', top: r.bottom + 4 + 'px', minWidth: Math.max(r.width, 200) + 'px' });
+    pop.replaceChildren(...list.map((x, i) => {
+      const v = x.value, k = v.toLowerCase().indexOf(q);
+      const el = h('div', { class: 'sugg-i', role: 'option' }, h('span', null, v.slice(0, k), h('b', null, v.slice(k, k + q.length)), v.slice(k + q.length)), x.sub ? h('small', null, x.sub) : null);
+      el.addEventListener('mousedown', (e) => { e.preventDefault(); pick(v); });
+      el.addEventListener('mousemove', () => { if (at !== i) { at = i; mark(); } });
+      return el;
+    }));
+    at = -1;
+  };
+  input.addEventListener('input', (e) => { if (e.isTrusted) show(); });
+  input.addEventListener('focus', show);
+  input.addEventListener('blur', () => setTimeout(close, 120));
+  input.addEventListener('keydown', (e) => {
+    if (!pop) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); at = Math.min(list.length - 1, at + 1); mark(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); at = Math.max(0, at - 1); mark(); }
+    else if (e.key === 'Enter' && at >= 0) { e.preventDefault(); e.stopPropagation(); pick(list[at].value); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  });
+  return input;
 }

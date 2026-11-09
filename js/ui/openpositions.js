@@ -222,6 +222,9 @@ function posCard(ctx, l, today) {
   const size = m.positionPct; const sizeN = size === null ? 0 : Math.max(0, Number(size) / Number(D.SCALE));
   const tick = Math.min(100, Number(D.d(S.posSmallTo)) / Number(D.SCALE) / SIZE_FULL * 100);
   const sizeCls = hl.size ? hl.size.c : 'g';
+  // 2026-11-09: what is still missing for this trade, in its own raspberry red; each word goes away once it is filled in
+  const st = ctx.store.state; const stock = A.stockById(st, t.stockId) || {}; const setupName = st.setups.find((x) => x.id === t.setupId)?.name;
+  const missing = [['sector', !(stock.sector || '').trim()], ['industry', !(stock.industry || '').trim()], ['exchange', !(stock.exchange || '').trim()], ['setup', !setupName || setupName === 'Unclassified']].filter((x) => x[1]).map((x) => x[0]);
   const open = () => detail(ctx, t.id);
   return h('article', { class: 'pcard ' + cs, 'data-id': t.id, tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${CS_WORD[cs]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
     h('div', { class: 'pc-top' }, h('span', { class: 'pc-sym', title: t.id + (t.sales.length ? ' · partly sold' : '') }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null)), // status label removed 2026-11-06 (Auto order and the filters still use the status)
@@ -238,6 +241,7 @@ function posCard(ctx, l, today) {
         h('div', null, lab('Risk of Capital'), val('risk', risk, 'mid')),
         h('div', null, lab('Performance'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'From buy price to last price' }, result === null ? '–' : spct(result, 2))))),
     h('div', { class: 'pc-size', title: 'Position size: last price × open shares as % of the estimated account' },
+      missing.length ? h('span', { class: 'pc-miss', title: 'Sector, industry and exchange: add them in Lists → Stocks. Setup: Edit trade.' }, 'Missing: ' + missing.join(', ')) : null,
       // 2026-11-06: the size line is removed; its colours now go to the size text (green / orange / red, same limits)
       h('span', { class: 'sz c-' + sizeCls, title: hl.size ? hl.size.why.join(' · ') : null }, 'Position size ' + pctTxt(size, 1))));
 }

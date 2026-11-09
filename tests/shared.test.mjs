@@ -107,3 +107,10 @@ test('top-bar quotes: same quote while on a page, another one on a new page; all
   for (const [t] of Q.QUOTES) assert.ok(t.length <= 110, t);
   assert.ok(Q.QUOTES.length >= 30);
 });
+
+test('open trade on a stock traded before: only missing sector / industry / exchange are filled in (2026-11-09)', () => {
+  const { st } = setup();
+  const s = A.findStock(st, 'WMT'); s.sector = 'Retail Trade'; s.industry = ''; s.exchange = '';
+  assert.ok(A.openTrade(st, { symbol: 'WMT', buyDate: '2026-11-09', qty: '1', buyPrice: '130', initialStop: '125', stockInfo: { sector: 'Other', industry: 'Discount Stores', exchange: '' } }).ok);
+  assert.equal(s.sector, 'Retail Trade'); assert.equal(s.industry, 'Discount Stores'); assert.equal(s.exchange, '');
+});
