@@ -14,7 +14,7 @@ const back = (ctx) => ctx.go('open');
 // "+ New…" at the bottom of a Setup / Mistake drop-down (2026-11-06): type a name right there, without leaving the screen.
 // The new name is only added to the list when the trade is saved (same step, one Undo). Returns the small row to place under the box.
 const NEW_OPT = '__new';
-function withNew(select, label) {
+export function withNew(select, label) {
   select.append(h('option', { value: NEW_OPT }, '+ New…'));
   const inp = h('input', { 'aria-label': `New ${label.toLowerCase()} name`, placeholder: `Name of the new ${label.toLowerCase()}`, autocomplete: 'off' });
   const msg = h('span', { class: 'note' });
@@ -35,7 +35,7 @@ function withNew(select, label) {
   return row;
 }
 // inside the saving step: turn a "new:Name" choice into a list item (an archived item with that name comes back instead)
-function resolveNew(d, list, v) {
+export function resolveNew(d, list, v) {
   if (!v || v === NEW_OPT) return null; if (!v.startsWith('new:')) return v;
   const nm = v.slice(4); const ex = d[list].find((x) => x.name.toLowerCase() === nm.toLowerCase());
   if (ex) { ex.archived = false; return ex.id; }

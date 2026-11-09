@@ -702,3 +702,4 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 .hcg-big.chg::after{display:block;font-size:12px}
 .metric .was{color:var(--warn);font-weight:600}
 .ltable tr.newrow td{background:var(--warnbg)}#tview .tw{overflow-x:auto}.hlists .lhead .hf input[type=search]{min-width:0}
+.dtag .addnew{flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dtag .addnew[hidden]{display:none}.dtag .addnew input{height:32px;border:1px solid var(--field);border-radius:8px;padding:0 10px;font:inherit;min-width:220px}

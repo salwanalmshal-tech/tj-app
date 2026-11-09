@@ -6,7 +6,7 @@ import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
 import { parseDMY, todayISO } from '../dates.js';
-import { editTrade } from './tradeforms.js';
+import { editTrade, withNew, resolveNew } from './tradeforms.js';
 import { loadXLSX } from './data.js';
 
 let RAW, S, stockBy, setupBy, errBy, PLAN, TR = [], ROOT, CTX;
@@ -426,10 +426,13 @@ function renderTable(ts){
   v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{page=+b.dataset.p;renderTable(ts);});
   v.querySelectorAll('[data-symf]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();F={...newF(),syms:[b.dataset.symf]};openRow=null;renderAll();});
   v.querySelectorAll('[data-esale]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();editSale(CTX,b.dataset.trade,b.dataset.esale);});
-  v.querySelectorAll('select[data-tag]').forEach(s=>{s.onclick=(e)=>e.stopPropagation();s.onchange=()=>saveTag(s.dataset.id,s.dataset.tag,s.value);});
+  v.querySelectorAll('select[data-tag]').forEach(s=>{s.onclick=(e)=>e.stopPropagation();
+    // "+ New…" like in Edit trade (2026-11-09): type a new setup or mistake right here; it is added to the list and saved on the trade in one step
+    const row=withNew(s,s.dataset.tag==='setupId'?'Setup':'Mistake');s.closest('.dtag').append(row);
+    s.addEventListener('change',()=>{if(s.value!=='__new')saveTag(s.dataset.id,s.dataset.tag,s.value);});});
 }
 function detailRow4(t){
-  const so=RAW.setups.map(s=>`<option value="${s.id}"${t.setupId===s.id?' selected':''}>${esc(s.name)}</option>`).join(''),eo=realErrors().map(s=>`<option value="${s.id}"${t.errorId===s.id?' selected':''}>${esc(s.name)}</option>`).join('');
+  const so=RAW.setups.filter(s=>!s.archived||t.setupId===s.id).map(s=>`<option value="${s.id}"${t.setupId===s.id?' selected':''}>${esc(s.name)}</option>`).join(''),eo=realErrors().filter(s=>!s.archived||t.errorId===s.id).map(s=>`<option value="${s.id}"${t.errorId===s.id?' selected':''}>${esc(s.name)}</option>`).join('');
   return `<tr class="dt"><td colspan="${COLS4.length}"><div class="dgrid">
     <div><span>Bought</span><b>${dmy(t.buyDate)} · ${fx(t.qty,0)} × $${fx(t.buy,2)}</b></div><div><span>Average sell price</span><b>$${fx(t.avgSell,2)}</b></div>
     <div><span>Initial stop</span><b>${t.init===null?'No stop':`$${fx(t.init,2)} · ${fx(t.sdPct,1)} % · ${t.sd}`}</b></div><div><span>How you bought</span><b>${t.how}</b></div>
@@ -570,6 +573,7 @@ function renderAll(keepMs,keepQ){
 function scrollToTable(){if(view==='report'){view='trades';renderAll();}$('trades-top')?.scrollIntoView({behavior:'smooth',block:'start'});}
 function saveTag(id,field,value){
   const r=CTX.act((d)=>{let v=value||'';
+    if(v.startsWith('new:')){v=resolveNew(d,field==='setupId'?'setups':'errors',v);if(!v)return {ok:false,error:'Could not add that name.'};}
     if(v==='__plan'){let it=d.errors.find((e)=>e.name===PLAN_NAME);if(!it){const x=A.addListItem(d,'errors',PLAN_NAME);if(!x.ok)return x;it=x.data;}v=it.id;}
     return A.editDaily(d,id,field,v);},{label:(field==='setupId'?'setup ':'mistake ')+id});
   if(!r.ok)toast(r.error);
