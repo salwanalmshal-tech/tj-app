@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.4.8';
+export const APP_VERSION = '1.4.9';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -80,7 +80,8 @@ export function dataProblems(data) {
     date(t.buyDate, w + ' buy date'); num(t.qty, w + ' shares', { pos: true }); num(t.buyPrice, w + ' buy price', { pos: true });
     for (const k of ['buyCommission', 'initialStop', 'currentStop', 'last', 'highest', 'ema10', 'capitalAtOpen']) num(t[k], `${w} ${k}`, { opt: true });
     date(t.nextReport, w + ' next report', { opt: true });
-    if (t.stars !== undefined && t.stars !== null && !(typeof t.stars === 'number' && t.stars >= 0.5 && t.stars <= 5 && Math.round(t.stars * 2) === t.stars * 2)) out.push(`${w} stars: "${t.stars}" is not 0,5 to 5`);
+    // half stars (1.4.8) are still read here; migrate() clears them (decision 2026-11-10: whole stars only)
+    if (t.stars !== undefined && t.stars !== null && !(typeof t.stars === 'number' && t.stars >= 0.5 && t.stars <= 5 && Math.round(t.stars * 2) === t.stars * 2)) out.push(`${w} stars: "${t.stars}" is not 1 to 5`);
     for (const x of arr(t.sales, w + ' sales')) { if (!ID.test(String(x?.id))) out.push(w + ': a sale has no valid ID'); date(x?.date, w + ' sale date'); num(x?.qty, w + ' sold shares', { pos: true }); num(x?.price, w + ' sell price'); num(x?.commission, w + ' sell commission', { opt: true }); }
   }
   const cap = data.capital || {};
@@ -95,6 +96,8 @@ export function migrate(data) {
   const base = emptyState();
   for (const k of Object.keys(base)) if (out[k] === undefined) out[k] = base[k];
   out.settings = { ...base.settings, ...out.settings };
+  // 1.4.9: whole stars only. A half-star rating from 1.4.8 is cleared, so the trade shows as not rated and can be rated again.
+  for (const t of out.trades || []) if (t && t.stars !== undefined && t.stars !== null && !Number.isInteger(t.stars)) t.stars = null;
   out.meta.schema = SCHEMA; out.meta.version = APP_VERSION;
   return out;
 }

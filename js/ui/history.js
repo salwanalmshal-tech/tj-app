@@ -90,10 +90,10 @@ const mistakeNameRaw=(t)=>(PLAN&&t.errorId===PLAN)?'Followed my plan':t.errorId?
 const setupName=(t)=>{const n=setupNameRaw(t);return n===null?null:esc(n);};
 const mistakeName=(t)=>{const n=mistakeNameRaw(t);return n===null?null:esc(n);};
 const realSetup=(t)=>{const n=setupNameRaw(t);return !!n&&n!=='Unclassified';};
-// setup rating (2026-11-10): 0,5 to 5 stars; only a real setup (not "Unclassified", not "No setup") can be rated
+// setup rating (2026-11-10): 1 to 5 whole stars; only a real setup (not "Unclassified", not "No setup") can be rated
 const starTxt=(n)=>n===null||n===undefined?'':String(n).replace('.',',')+(n===1?' star':' stars');
 const starsHtml=(n)=>`<span class="hstars" title="${starTxt(n)}">${[1,2,3,4,5].map(i=>`<span class="hs"><span style="width:${Math.max(0,Math.min(1,n-i+1))*100}%">★</span>★</span>`).join('')}</span>`;
-const STEPS=[0.5,1,1.5,2,2.5,3,3.5,4,4.5,5];
+const STEPS=[1,2,3,4,5];
 
 // ---------------------------------------------------------------- statistics (shared by summary, checks, compare)
 function stats(ts){
@@ -349,10 +349,10 @@ const PRESETS={
   fast:()=>[{...newF(),days:['0–1'],result:'losers',name:'Failed right away'},{...newF(),days:['6–20','21+'],name:'Held 6+ days'}],
   top3:()=>{const top=[...TR].filter(t=>t.net>0).sort((a,b)=>b.net-a.net).slice(0,3).map(t=>t.id);return [{...newF(),ids:top,idsLabel:'3 biggest wins',name:'3 biggest wins'},{...newF(),ids:TR.filter(t=>!top.includes(t.id)).map(t=>t.id),idsLabel:'all others',name:'All other trades'}];},
   plan:()=>[{...newF(),mistakes:['Followed my plan'],name:'Followed my plan'},{...newF(),mistakes:realErrors().map(e=>e.name),name:'With a mistake'}],
-  stars:()=>[{...newF(),starsFrom:'4',starsTo:'5',name:'4 to 5 stars'},{...newF(),starsFrom:'0.5',starsTo:'2',name:'0,5 to 2 stars'}],
+  stars:()=>[{...newF(),starsFrom:'4',starsTo:'5',name:'4 to 5 stars'},{...newF(),starsFrom:'1',starsTo:'2',name:'1 to 2 stars'}],
   stock:()=>{const top=Object.entries(TR.reduce((m,t)=>(m[t.symRaw]=(m[t.symRaw]||0)+1,m),{})).sort((a,b)=>b[1]-a[1])[0][0];return [{...newF(),syms:[top],name:top},{...newF(),syms:[...new Set(TR.map(t=>t.symRaw))].filter(s=>s!==top),name:'All other stocks'}];},
 };
-const PNAMES=[['recent',`Last ${RECENT} vs before`],['lower','First trades vs added lower'],['fast','Failed right away vs held 6+ days'],['top3','3 biggest wins vs the rest'],['plan','Followed my plan vs mistakes'],['stars','4–5 stars vs 0,5–2 stars'],['stock','One stock vs all others']];
+const PNAMES=[['recent',`Last ${RECENT} vs before`],['lower','First trades vs added lower'],['fast','Failed right away vs held 6+ days'],['top3','3 biggest wins vs the rest'],['plan','Followed my plan vs mistakes'],['stars','4–5 stars vs 1–2 stars'],['stock','One stock vs all others']];
 function openCompare(k){gInit=true;[G.a,G.b]=PRESETS[k]();view='compare';renderAll();scrollToTable();}
 function openCompareIds(a,b,na,nb){gInit=true;G.a={...newF(),ids:a,idsLabel:na.toLowerCase(),name:na};G.b={...newF(),ids:b,idsLabel:nb.toLowerCase(),name:nb};view='compare';renderAll();scrollToTable();}
 function openIds(ids,label){F={...newF(),ids,idsLabel:label};view='trades';renderAll();scrollToTable();}

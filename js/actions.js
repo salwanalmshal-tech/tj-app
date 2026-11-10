@@ -15,23 +15,23 @@ export const symbolOf = (st, t) => stockById(st, t.stockId)?.symbol ?? '?';
 export const tradeById = (st, id) => st.trades.find((t) => t.id === id);
 
 // ---------- setup rating (stars, 2026-11-10) ----------
-// 0,5 to 5 stars in half steps, per trade, beside Setup. Only a REAL setup can be rated:
+// 1 to 5 whole stars per trade, beside Setup (half stars removed 2026-11-10, version 1.4.9). Only a REAL setup can be rated:
 // "Unclassified" (setup missing) and "No setup" (traded without a setup) have nothing to rate.
 // Changing the setup of a trade clears its stars (a rating for one setup does not fit another).
 const setupNameNorm = (st, id) => (st.setups.find((x) => x.id === id)?.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 export const isNoSetupName = (n) => (n || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'no setup';
 export const canRate = (st, setupId) => { if (!setupId) return false; const n = setupNameNorm(st, setupId); return !!n && n !== 'unclassified' && n !== 'no setup'; };
-// a valid rating as a number (0.5, 1 … 5), or null for "not rated"; undefined when the value is not valid
+// a valid rating as a number (1 … 5), or null for "not rated"; undefined when the value is not valid
 export function normStars(v) {
   if (v === null || v === undefined || v === '' || v === 0 || v === '0') return null;
   const n = typeof v === 'number' ? v : Number(String(v).trim().replace(',', '.'));
-  if (!Number.isFinite(n) || n < 0.5 || n > 5 || Math.round(n * 2) !== n * 2) return undefined;
+  if (!Number.isFinite(n) || n < 1 || n > 5 || !Number.isInteger(n)) return undefined;
   return n;
 }
 // set the setup of a trade; when it really changes, the stars are cleared
 export function setTradeSetup(t, setupId) { const v = setupId || null; if ((t.setupId || null) !== v) { t.setupId = v; t.stars = null; } }
 export function setTradeStars(st, t, raw) {
-  const n = normStars(raw); if (n === undefined) return err('Stars must be 0,5 to 5 in half steps.');
+  const n = normStars(raw); if (n === undefined) return err('Stars must be 1, 2, 3, 4 or 5.');
   if (n !== null && !canRate(st, t.setupId)) return err('Choose a setup first. “Unclassified” and “No setup” have no stars.');
   t.stars = n; return ok(t);
 }
@@ -127,7 +127,7 @@ export function validateOpen(st, f) {
   if (need(f.buyCommission) && bc === null) errors.push('Buy commission must be a number.');
   // review fix 2026-11-09: the same rule as when you edit them later — a number above 0, or empty
   for (const [k, name] of [['currentStop', 'Current stop'], ['last', 'Last price'], ['highest', 'Highest price'], ['ema10', 'EMA10']]) if (need(f[k])) { const p = D.parse(f[k]); if (p === null) errors.push(`${name} must be a number.`); else if (p <= 0n) errors.push(`${name} must be above 0.`); }
-  if (normStars(f.stars) === undefined) errors.push('Stars must be 0,5 to 5 in half steps.');
+  if (normStars(f.stars) === undefined) errors.push('Stars must be 1, 2, 3, 4 or 5.');
   if (!st.capital.start) errors.push('Capital is not set. Set the start capital first.');
   else if (f.buyDate && f.buyDate < st.capital.start.date) errors.push(`Your start capital date is ${st.capital.start.date.split('-').reverse().join('-')}, but the buy date is earlier. Change the buy date or the start date.`);
   if (!need(f.initialStop)) warnings.push('No Initial stop: the line is “No SL” and stays out of R statistics.');

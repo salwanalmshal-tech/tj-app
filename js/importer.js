@@ -76,7 +76,7 @@ export function buildFromSheets(rawSheets, now = new Date().toISOString()) {
     const is = toNum(get(r, 'Initial stop')); if (is.bad || (!is.empty && is.v <= 0n)) fail('Initial stop must be a number above 0.'); else if (!is.empty) o.initialStop = is.v;
     if (o.initialStop && o.buyPrice && o.initialStop >= o.buyPrice) fail('Initial stop must be below the buy price.');
     // setup rating (2026-11-10): optional; a wrong value is only a warning and is left empty
-    const sv = get(r, 'Stars', ['Setup rating']); if (sv !== undefined && String(sv).trim() !== '') { const n = A.normStars(String(sv)); if (n === undefined) warn(sheet, r.__row, `Stars "${sv}" is not 0,5 to 5 in half steps. Left empty.`); else o.stars = n; }
+    const sv = get(r, 'Stars', ['Setup rating']); if (sv !== undefined && String(sv).trim() !== '') { const n = A.normStars(String(sv)); if (n === undefined) warn(sheet, r.__row, `Stars "${sv}" is not 1, 2, 3, 4 or 5. Left empty.`); else o.stars = n; }
     const dnum = (name, alias, key, label, must) => { const x = toNum(get(r, name, alias)); if (x.bad || (!x.empty && x.v < 0n)) fail(label + ' must be a number.'); else if (!x.empty) o[key] = x.v; };
     o.bad = false; o.fail = () => bad; return o;
   };
