@@ -75,6 +75,8 @@ export function buildFromSheets(rawSheets, now = new Date().toISOString()) {
     const bp = toNum(get(r, 'Buy price')); if (bp.empty) fail('Buy price is missing.'); else if (bp.bad || bp.v <= 0n) fail('Buy price must be a number above 0.'); else o.buyPrice = bp.v;
     const is = toNum(get(r, 'Initial stop')); if (is.bad || (!is.empty && is.v <= 0n)) fail('Initial stop must be a number above 0.'); else if (!is.empty) o.initialStop = is.v;
     if (o.initialStop && o.buyPrice && o.initialStop >= o.buyPrice) fail('Initial stop must be below the buy price.');
+    // setup rating (2026-11-10): optional; a wrong value is only a warning and is left empty
+    const sv = get(r, 'Stars', ['Setup rating']); if (sv !== undefined && String(sv).trim() !== '') { const n = A.normStars(String(sv)); if (n === undefined) warn(sheet, r.__row, `Stars "${sv}" is not 0,5 to 5 in half steps. Left empty.`); else o.stars = n; }
     const dnum = (name, alias, key, label, must) => { const x = toNum(get(r, name, alias)); if (x.bad || (!x.empty && x.v < 0n)) fail(label + ' must be a number.'); else if (!x.empty) o[key] = x.v; };
     o.bad = false; o.fail = () => bad; return o;
   };
@@ -119,7 +121,7 @@ export function buildFromSheets(rawSheets, now = new Date().toISOString()) {
     if (stops.length > 1) { err(first.sheet, first.row, `Rows of this trade have different Initial stops (${stops.join(', ')}).`); continue; }
     const comms = g.map((x) => x.buyCommission).filter((x) => x !== undefined);
     trades.push({ g, open, sales, qty, buyDate: first.buyDate, buyPrice: first.buyPrice, sym: first.sym, initialStop: stops[0] ? BigInt(stops[0]) : null, buyCommission: comms.length ? comms.reduce((a, b) => a + b, 0n) : null,
-      setup: open?.setup || g.find((x) => x.setup)?.setup || '', error: open?.error || g.find((x) => x.error)?.error || '', comment: open?.comment || g.find((x) => x.comment)?.comment || '', rows: g });
+      setup: open?.setup || g.find((x) => x.setup)?.setup || '', error: open?.error || g.find((x) => x.error)?.error || '', comment: open?.comment || g.find((x) => x.comment)?.comment || '', stars: open?.stars ?? g.find((x) => x.stars != null)?.stars ?? null, rows: g });
     if (!stops.length) warn(first.sheet, first.row, `${first.sym}: no Initial stop. The trade is “No SL” and stays out of R statistics.`);
     if (!comms.length) warn(first.sheet, first.row, `${first.sym}: no buy commission. The result is calculated without it.`);
   }
@@ -170,6 +172,7 @@ export function buildFromSheets(rawSheets, now = new Date().toISOString()) {
       const tr = { id: nextTradeId(st), seq: nextSeq(st), stockId: sid(t.sym), buyDate: t.buyDate, qty: S(t.qty), buyPrice: S(t.buyPrice), buyCommission: t.buyCommission === null ? '' : S(t.buyCommission), initialStop: t.initialStop ? S(t.initialStop) : '',
         currentStop: open?.currentStop ? S(open.currentStop) : '', last: open?.last ? S(open.last) : S(t.buyPrice), highest: open?.highest ? S(open.highest) : S(t.buyPrice), ema10: open?.ema10 ? S(open.ema10) : '', nextReport: open?.nextReport || '',
         setupId: listId('setups', t.setup), errorId: listId('errors', t.error), comment: t.comment, direction: 'Long', capitalAtOpen: '', sales: [] };
+      tr.stars = A.canRate(st, tr.setupId) ? t.stars : null; // only a real setup keeps its stars
       if (open && !tr.currentStop) tr.currentStop = tr.initialStop; // an open line with an Initial stop and no Current stop starts with the Initial stop
       st.trades.push(tr); built.set(t, tr);
     } else {
@@ -194,8 +197,8 @@ export function toSheets(state) {
   const trades = state.trades.slice().sort((a, b) => a.seq - b.seq);
   for (const t of trades) {
     const det = C.salesDetail(t); const shares = det.reduce((a, x) => a + x.buyShare, 0n); const oq = C.openQty(t);
-    if (oq > 0n) open.push({ 'Trade ID': t.id, Symbol: sym(t), 'Buy date': dt(t.buyDate), Quantity: n(D.toStr(oq)), 'Buy price': n(t.buyPrice), 'Initial stop': n(t.initialStop), 'Current stop': n(t.currentStop), 'Last price': n(t.last), 'Highest price': n(t.highest), EMA10: n(t.ema10), 'Next report': dt(t.nextReport), 'Buy commission': t.buyCommission === '' ? '' : n(D.toStr(D.d(t.buyCommission) - shares)), Setup: nm('setups', t.setupId), Error: nm('errors', t.errorId), Comment: t.comment });
-    for (const x of det) hist.push({ 'Trade ID': t.id, Symbol: sym(t), 'Buy date': dt(t.buyDate), 'Sell date': dt(x.sale.date), 'Quantity sold': n(x.sale.qty), 'Buy price': n(t.buyPrice), 'Sell price': n(x.sale.price), 'Buy commission (share for these shares)': t.buyCommission === '' ? '' : n(D.toStr(x.buyShare)), 'Sell commission': n(x.sale.commission), 'Initial stop': n(t.initialStop), Setup: nm('setups', t.setupId), Error: nm('errors', t.errorId), Comment: t.comment });
+    if (oq > 0n) open.push({ 'Trade ID': t.id, Symbol: sym(t), 'Buy date': dt(t.buyDate), Quantity: n(D.toStr(oq)), 'Buy price': n(t.buyPrice), 'Initial stop': n(t.initialStop), 'Current stop': n(t.currentStop), 'Last price': n(t.last), 'Highest price': n(t.highest), EMA10: n(t.ema10), 'Next report': dt(t.nextReport), 'Buy commission': t.buyCommission === '' ? '' : n(D.toStr(D.d(t.buyCommission) - shares)), Setup: nm('setups', t.setupId), Stars: t.stars ?? '', Error: nm('errors', t.errorId), Comment: t.comment });
+    for (const x of det) hist.push({ 'Trade ID': t.id, Symbol: sym(t), 'Buy date': dt(t.buyDate), 'Sell date': dt(x.sale.date), 'Quantity sold': n(x.sale.qty), 'Buy price': n(t.buyPrice), 'Sell price': n(x.sale.price), 'Buy commission (share for these shares)': t.buyCommission === '' ? '' : n(D.toStr(x.buyShare)), 'Sell commission': n(x.sale.commission), 'Initial stop': n(t.initialStop), Setup: nm('setups', t.setupId), Stars: t.stars ?? '', Error: nm('errors', t.errorId), Comment: t.comment });
   }
   return {
     'Open positions': open, 'Sales history': hist,

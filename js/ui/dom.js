@@ -197,3 +197,43 @@ export function suggest(input, items, { min = 2, max = 8, onPick } = {}) {
   });
   return input;
 }
+
+// ---- setup rating: 5 stars, half stars, mouse-over preview (2026-11-10) ----
+// Click to set (left half of a star = half star); click the same value again, or the small "x", to clear.
+// Locked (greyed, no stars) when there is no real setup to rate. Returns an element with getValue / setValue / setLocked.
+export function starsInput({ value = null, onChange, label = 'Setup rating' } = {}) {
+  let val = value ?? null, locked = false, lockText = '';
+  const stars = [1, 2, 3, 4, 5].map((i) => h('span', { class: 'sr-s', 'data-i': i }, '★', h('span', { class: 'sr-fg' }, '★')));
+  const row = h('span', { class: 'sr-row', role: 'slider', tabindex: 0, 'aria-label': label, 'aria-valuemin': 0.5, 'aria-valuemax': 5 }, stars);
+  const x = h('button', { type: 'button', class: 'sr-x', 'aria-label': 'Clear stars', title: 'Clear' }, 'x');
+  const txt = h('span', { class: 'sr-v' });
+  const w = h('span', { class: 'sr' }, row, x, txt);
+  const fmt = (n) => (n === null ? '' : String(n).replace('.', ',') + (n === 1 ? ' star' : ' stars'));
+  const paint = (n) => stars.forEach((s, k) => { s.lastChild.style.width = Math.max(0, Math.min(1, (n || 0) - k)) * 100 + '%'; });
+  const show = () => {
+    paint(locked ? 0 : val); w.classList.toggle('lock', locked); w.classList.toggle('set', val !== null && !locked);
+    txt.textContent = locked ? lockText : fmt(val);
+    row.setAttribute('aria-valuenow', val ?? 0); row.setAttribute('aria-valuetext', locked ? (lockText || 'No stars') : val === null ? 'Not rated' : fmt(val));
+    row.setAttribute('aria-disabled', String(locked));
+  };
+  const at = (e, s) => { const r = s.getBoundingClientRect(); return +s.dataset.i - (e.clientX - r.left < r.width / 2 ? 0.5 : 0); };
+  const set = (n) => { if (locked) return; val = n; show(); onChange?.(val); };
+  for (const s of stars) {
+    s.addEventListener('mousemove', (e) => { if (locked) return; const n = at(e, s); paint(n); txt.textContent = fmt(n); });
+    s.addEventListener('click', (e) => { e.stopPropagation(); if (locked) return; const n = at(e, s); set(val === n ? null : n); });
+  }
+  row.addEventListener('mouseleave', show);
+  row.addEventListener('keydown', (e) => {
+    if (locked) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); set(Math.min(5, (val || 0) + 0.5)); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); set(val === null || val <= 0.5 ? null : val - 0.5); }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); set(null); }
+  });
+  x.addEventListener('click', (e) => { e.stopPropagation(); set(null); });
+  // inside a <label> a click would also 'press' the x button: only the x itself may act
+  w.addEventListener('click', (e) => { if (e.target !== x) e.preventDefault(); e.stopPropagation(); });
+  w.getValue = () => (locked ? null : val);
+  w.setValue = (n) => { val = n ?? null; show(); };
+  w.setLocked = (on, text = '') => { locked = !!on; lockText = text; if (locked) val = null; show(); };
+  show(); return w;
+}

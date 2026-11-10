@@ -1,7 +1,7 @@
 // History (2026-11-09, agreed with the owner in 6 preview rounds): three tabs — Report (7 checks), Trades (one row per trade), Compare.
 // Rules: see the History decisions (checks 1–7, filters Q16, compare Q17, one mistake + "Followed my plan" Q19, changes marked once).
 // The analysis works on plain numbers taken from the journal data; every value is recalculated from the trades on each draw.
-import { h, closeTopDialog, dialog, para, toast, money, signed, qtyTxt, field, changeTable, datePicker, download } from './dom.js';
+import { h, closeTopDialog, dialog, para, toast, money, signed, qtyTxt, field, changeTable, datePicker, download, starsInput } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
@@ -24,6 +24,9 @@ function load(state) {
 }
 // For tests: the numbers History shows, from a journal state.
 export function analyse(state) { load(state); return { trades: TR, stats: stats(TR), checks: CHECKS.map((c) => c(TR)) }; }
+// the History filters on a journal (used by the tests): returns the trades that match
+export function filtered(state, f) { load(state); return applyF({ ...newF(), ...f }); }
+export const presetGroups = (state, k) => { load(state); return PRESETS[k]().map((g) => applyF(g)); };
 
 // ---------------------------------------------------------------- formatting (journal style: 1 234,56 · dd-mm-yyyy)
 const fx=(n,d=2)=>{if(n===null||n===undefined||isNaN(n))return'–';const m=10**d,r=Math.round(Math.abs(n)*m+1e-7)/m;const s=r.toFixed(d).split('.');s[0]=s[0].replace(/\B(?=(\d{3})+(?!\d))/g,' ');return (n<0?'−':'')+s.join(',');};
@@ -51,7 +54,7 @@ function build(){
     const last=t.sales.length?t.sales.reduce((a,b)=>(a.date>b.date||(a.date===b.date&&a.seq>b.seq))?a:b):null;
     const initB=C.N(t.initialStop);
     return {id:t.id,seq:t.seq,stockId:t.stockId,symRaw:stockBy[t.stockId]?.symbol??'?',sym:esc(stockBy[t.stockId]?.symbol??'?'),buyDate:t.buyDate,qty,buy,bc,init:BN(initB),sold:BN(soldB),closed,src:t,
-      sellDate:last?last.date:null,lastSeq:last?last.seq:0,sales,setupId:t.setupId,errorId:t.errorId,comment:t.comment||'',capAtOpen:BN(C.N(t.capitalAtOpen)??0n)};
+      sellDate:last?last.date:null,lastSeq:last?last.seq:0,sales,setupId:t.setupId,stars:A.canRate(RAW,t.setupId)?(t.stars??null):null,rateable:A.canRate(RAW,t.setupId),errorId:t.errorId,comment:t.comment||'',capAtOpen:BN(C.N(t.capitalAtOpen)??0n)};
   });
   for(const t of all){
     if(!t.closed)continue;
@@ -87,6 +90,10 @@ const mistakeNameRaw=(t)=>(PLAN&&t.errorId===PLAN)?'Followed my plan':t.errorId?
 const setupName=(t)=>{const n=setupNameRaw(t);return n===null?null:esc(n);};
 const mistakeName=(t)=>{const n=mistakeNameRaw(t);return n===null?null:esc(n);};
 const realSetup=(t)=>{const n=setupNameRaw(t);return !!n&&n!=='Unclassified';};
+// setup rating (2026-11-10): 0,5 to 5 stars; only a real setup (not "Unclassified", not "No setup") can be rated
+const starTxt=(n)=>n===null||n===undefined?'':String(n).replace('.',',')+(n===1?' star':' stars');
+const starsHtml=(n)=>`<span class="hstars" title="${starTxt(n)}">${[1,2,3,4,5].map(i=>`<span class="hs"><span style="width:${Math.max(0,Math.min(1,n-i+1))*100}%">★</span>★</span>`).join('')}</span>`;
+const STEPS=[0.5,1,1.5,2,2.5,3,3.5,4,4.5,5];
 
 // ---------------------------------------------------------------- statistics (shared by summary, checks, compare)
 function stats(ts){
@@ -258,7 +265,7 @@ let openCheck=0;
 
 // ---------------------------------------------------------------- filters
 const DAYS={'0–1':[0,1],'2–5':[2,5],'6–20':[6,20],'21+':[21,99999]};
-const newF=()=>({period:'all',from:'',to:'',syms:[],result:'all',labels:[],setups:[],mistakes:[],days:[],sds:[],how:[],q:'',ids:null,idsLabel:'',not:[],skip:[]});
+const newF=()=>({period:'all',from:'',to:'',syms:[],result:'all',labels:[],setups:[],mistakes:[],days:[],sds:[],how:[],q:'',ids:null,idsLabel:'',not:[],skip:[],starsFrom:'',starsTo:''});
 let F=newF();
 function applyF(f,ts=TR){
   let r=ts;
@@ -279,6 +286,9 @@ function applyF(f,ts=TR){
   keep('days',t=>f.days.some(d=>t.days>=DAYS[d][0]&&t.days<=DAYS[d][1]));
   keep('sds',t=>f.sds.includes(t.sdRaw));
   keep('how',t=>f.how.includes(t.how));
+  // stars: "from … to" (both ends counted); "none" = a real setup that is not rated yet
+  if(f.starsFrom==='none')r=r.filter(t=>t.rateable&&t.stars===null);
+  else if(f.starsFrom!==''&&f.starsFrom!==undefined||f.starsTo!==''&&f.starsTo!==undefined)r=r.filter(t=>t.stars!==null&&(f.starsFrom===''||f.starsFrom===undefined||t.stars>=+f.starsFrom)&&(f.starsTo===''||f.starsTo===undefined||t.stars<=+f.starsTo));
   if(f.q.trim())r=r.filter(t=>t.comment.toLowerCase().includes(f.q.trim().toLowerCase()));
   if(f.ids)r=r.filter(t=>f.ids.includes(t.id));
   if(f.skip&&f.skip.length)r=r.filter(t=>!f.skip.includes(t.id));
@@ -316,6 +326,16 @@ function ms(key,f,onChange){
     w.append(p);};
   w.append(b);return w;
 }
+// Stars filter: two small boxes "Stars from … to …" (from can also be "Not rated")
+function starsF(f,onChange){
+  const w=document.createElement('span');w.className='hsf';
+  const mk=(k,lab,first)=>{const s=document.createElement('select');s.setAttribute('aria-label',lab);
+    [['',first],...(k==='starsFrom'?[['none','Not rated']]:[]),...STEPS.map(n=>[String(n),String(n).replace('.',',')])].forEach(([v,l])=>{const o=new Option(l,v);o.selected=String(f[k]??'')===v;s.add(o);});
+    s.onchange=()=>{f[k]=s.value;if(k==='starsFrom'&&s.value==='none')f.starsTo='';onChange();};return s;};
+  const a=mk('starsFrom','Stars from','Stars: any'),b=mk('starsTo','Stars to','any');if(f.starsFrom==='none')b.disabled=true;
+  w.append(a,document.createTextNode('to'),b);return w;
+}
+const starsChip=(f)=>f.starsFrom==='none'?'Stars: not rated':(f.starsFrom!==''&&f.starsFrom!==undefined)||(f.starsTo!==''&&f.starsTo!==undefined)?`Stars ${f.starsFrom!==''&&f.starsFrom!==undefined?'from '+String(f.starsFrom).replace('.',','):''} ${f.starsTo!==''&&f.starsTo!==undefined?'to '+String(f.starsTo).replace('.',','):''}`.replace(/\s+/g,' ').trim():'';
 let showMore=false;
 
 let view='report',sort={k:'sellDate',d:-1},page=0,openRow=null;const PAGE=25;
@@ -329,9 +349,10 @@ const PRESETS={
   fast:()=>[{...newF(),days:['0–1'],result:'losers',name:'Failed right away'},{...newF(),days:['6–20','21+'],name:'Held 6+ days'}],
   top3:()=>{const top=[...TR].filter(t=>t.net>0).sort((a,b)=>b.net-a.net).slice(0,3).map(t=>t.id);return [{...newF(),ids:top,idsLabel:'3 biggest wins',name:'3 biggest wins'},{...newF(),ids:TR.filter(t=>!top.includes(t.id)).map(t=>t.id),idsLabel:'all others',name:'All other trades'}];},
   plan:()=>[{...newF(),mistakes:['Followed my plan'],name:'Followed my plan'},{...newF(),mistakes:realErrors().map(e=>e.name),name:'With a mistake'}],
+  stars:()=>[{...newF(),starsFrom:'4',starsTo:'5',name:'4 to 5 stars'},{...newF(),starsFrom:'0.5',starsTo:'2',name:'0,5 to 2 stars'}],
   stock:()=>{const top=Object.entries(TR.reduce((m,t)=>(m[t.symRaw]=(m[t.symRaw]||0)+1,m),{})).sort((a,b)=>b[1]-a[1])[0][0];return [{...newF(),syms:[top],name:top},{...newF(),syms:[...new Set(TR.map(t=>t.symRaw))].filter(s=>s!==top),name:'All other stocks'}];},
 };
-const PNAMES=[['recent',`Last ${RECENT} vs before`],['lower','First trades vs added lower'],['fast','Failed right away vs held 6+ days'],['top3','3 biggest wins vs the rest'],['plan','Followed my plan vs mistakes'],['stock','One stock vs all others']];
+const PNAMES=[['recent',`Last ${RECENT} vs before`],['lower','First trades vs added lower'],['fast','Failed right away vs held 6+ days'],['top3','3 biggest wins vs the rest'],['plan','Followed my plan vs mistakes'],['stars','4–5 stars vs 0,5–2 stars'],['stock','One stock vs all others']];
 function openCompare(k){gInit=true;[G.a,G.b]=PRESETS[k]();view='compare';renderAll();scrollToTable();}
 function openCompareIds(a,b,na,nb){gInit=true;G.a={...newF(),ids:a,idsLabel:na.toLowerCase(),name:na};G.b={...newF(),ids:b,idsLabel:nb.toLowerCase(),name:nb};view='compare';renderAll();scrollToTable();}
 function openIds(ids,label){F={...newF(),ids,idsLabel:label};view='trades';renderAll();scrollToTable();}
@@ -416,20 +437,20 @@ function renderChecks(){
 }
 
 // ---- trades table (program list table)
-const COLS4=[['sym','Symbol'],['sellDate','Sold'],['days','Days','r'],['net','Net result','r'],['capPct','% capital','r'],['R','R','r'],['label','Result'],['setup','Setup'],['mistake','Mistake'],['c','']];
+const COLS4=[['sym','Symbol'],['sellDate','Sold'],['days','Days','r'],['net','Net result','r'],['capPct','% capital','r'],['R','R','r'],['label','Result'],['setup','Setup'],['stars','Stars'],['mistake','Mistake'],['c','']];
 const labC=(l)=>/WINNER|GAIN/.test(l)?'g':l==='CONTROLLED LOSS'?'o':/LOSS/.test(l)?'r':'';
 function renderTable(ts,inc=ts){
   const counted=new Set(inc.map(t=>t.id));
   const v=$('tview');
   if(!ts.length){v.innerHTML=`<div class="hempty"><b>No trades match these filters.</b><br><button class="linkbtn" id="rst">Reset filters</button></div>`;$('rst').onclick=()=>{F=newF();renderAll();};return;}
-  const val=(t,k)=>k==='setup'?(realSetup(t)?setupName(t):'~'):k==='mistake'?(mistakeName(t)??'~'):k==='c'?t.comment:t[k];
+  const val=(t,k)=>k==='setup'?(realSetup(t)?setupName(t):'~'):k==='stars'?t.stars:k==='mistake'?(mistakeName(t)??'~'):k==='c'?t.comment:t[k];
   const rows=[...ts].sort((a,b)=>{const x=val(a,sort.k),y=val(b,sort.k);return ((x??-1e9)<(y??-1e9)?-1:(x??-1e9)>(y??-1e9)?1:a.order-b.order)*sort.d;});
   const pages=Math.max(1,Math.ceil(rows.length/PAGE));if(page>=pages)page=pages-1;const shown=rows.slice(page*PAGE,page*PAGE+PAGE);
   const tn=(n)=>n>0?'pos':n<0?'neg':'';
   v.innerHTML=`<div class="tw fx"><table class="stk"><thead><tr>${COLS4.map(([k,l,c])=>`<th class="sortable ${c||''}${sort.k===k?' on':''}">${k==='c'?'':`<button data-k="${k}">${l}<span class="sa">${sort.k===k?(sort.d>0?'▲':'▼'):'↕'}</span></button>`}</th>`).join('')}</tr></thead><tbody>${
     shown.map(t=>{const nw=PREV?.trades?.ids&&!PREV.trades.ids.includes(t.id);return `<tr class="hrow${openRow===t.id?' open':''}${nw?' newrow':''}${counted.has(t.id)?'':' outrow'}" data-id="${t.id}" tabindex="0"><td><input type="checkbox" class="hcount" data-cnt="${t.id}"${counted.has(t.id)?' checked':''}${!counted.has(t.id)&&!F.skip.includes(t.id)?' disabled title="Left out by a filter"':' title="Untick to leave this trade out of the numbers"'} aria-label="Count ${t.symRaw} ${t.id}"><b class="lsym">${t.sym}</b>${nw?' <span class="chgtag">New</span>':''}<span class="htid">${t.id}</span></td><td>${dmy(t.sellDate)}</td><td class="r">${t.days}</td>
      <td class="r ${tn(t.net)}"><b>${usd(t.net)}</b></td><td class="r ${tn(t.net)}">${sx(t.capPct,2)} %</td><td class="r">${t.R===null?'<span class="mut">–</span>':sx(t.R,2)}</td>
-     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.label)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Missing</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
+     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.label)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Missing</span>'}</td><td>${t.stars!==null?starsHtml(t.stars):t.rateable?'<span class="mut">Not rated</span>':'<span class="mut">–</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
     <div class="lfoot"><span class="note">Showing ${shown.length} of ${rows.length} trades${rows.length>counted.size?` · <b>${rows.length-counted.size} left out</b> (grey)`:''} · untick a trade to leave it out · click a row for details</span><span style="display:flex;gap:8px;align-items:center">${pages>1?`<span class="lpager">${Array.from({length:pages},(_,i)=>`<button class="btn sm${i===page?' on':''}" data-p="${i}">${i+1}</button>`).join('')}</span>`:''}<button class="btn sm" id="hx-export">Export to Excel</button></span></div>`;
   $('hx-export').onclick=()=>exportExcel(rows.filter(t=>counted.has(t.id)));
   v.querySelectorAll('[data-cnt]').forEach(c=>{c.onclick=(e)=>e.stopPropagation();c.onchange=()=>{const id=c.dataset.cnt;F.skip=c.checked?F.skip.filter(x=>x!==id):[...F.skip,id];renderAll();};});
@@ -441,7 +462,7 @@ function renderTable(ts,inc=ts){
    tw.addEventListener('scroll',()=>{if(lock)return;lock=true;fl.scrollLeft=tw.scrollLeft;lock=false;});
    const foot=v.querySelector('.lfoot');if(foot&&'IntersectionObserver' in window)new IntersectionObserver((e)=>{own=e[0].isIntersecting;sync();}).observe(foot);
    if('ResizeObserver' in window)new ResizeObserver(sync).observe(tw);requestAnimationFrame(sync);}
-  v.querySelectorAll('th button').forEach(b=>b.onclick=()=>{const k=b.dataset.k;sort={k,d:sort.k===k?-sort.d:(['net','R','capPct','days','sellDate'].includes(k)?-1:1)};renderTable(ts,inc);});
+  v.querySelectorAll('th button').forEach(b=>b.onclick=()=>{const k=b.dataset.k;sort={k,d:sort.k===k?-sort.d:(['net','R','capPct','days','sellDate','stars'].includes(k)?-1:1)};renderTable(ts,inc);});
   v.querySelectorAll('tr.hrow').forEach(r=>{const go=()=>{openRow=openRow===r.dataset.id?null:r.dataset.id;renderTable(ts,inc);};r.onclick=go;r.onkeydown=(e)=>{if(e.key==='Enter'){e.preventDefault();go();}};});
   v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{page=+b.dataset.p;renderTable(ts,inc);});
   v.querySelectorAll('[data-symf]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();F={...newF(),syms:[b.dataset.symf]};openRow=null;renderAll();});
@@ -450,6 +471,11 @@ function renderTable(ts,inc=ts){
     // "+ New…" like in Edit trade (2026-11-09): type a new setup or mistake right here; it is added to the list and saved on the trade in one step
     const row=withNew(s,s.dataset.tag==='setupId'?'Setup':'Mistake');s.closest('.dtag').append(row);
     s.addEventListener('change',()=>{if(s.value!=='__new')saveTag(s.dataset.id,s.dataset.tag,s.value);});});
+  // stars in the row details: saved at once; locked without a real setup (a setup change clears them, see A.setTradeSetup)
+  v.querySelectorAll('[data-stars]').forEach(el=>{const t=TR.find(x=>x.id===el.dataset.stars);if(!t)return;
+    const w=starsInput({value:t.stars,onChange:(n)=>saveTag(t.id,'stars',n)});
+    if(!t.rateable||CTX.readOnly)w.setLocked(true,!t.rateable&&A.isNoSetupName(setupNameRaw(t))?'No setup':'');
+    else w.setValue(t.stars);el.replaceWith(w);});
 }
 function detailRow4(t){
   const so=RAW.setups.filter(s=>s.name!=='Unclassified'&&(!s.archived||t.setupId===s.id)).map(s=>`<option value="${s.id}"${t.setupId===s.id?' selected':''}>${esc(s.name)}</option>`).join(''),eo=realErrors().filter(s=>!s.archived||t.errorId===s.id).map(s=>`<option value="${s.id}"${t.errorId===s.id?' selected':''}>${esc(s.name)}</option>`).join('');
@@ -460,6 +486,7 @@ function detailRow4(t){
     ${t.comment?`<p style="margin:12px 0 0;max-width:80ch">💬 ${esc(t.comment)}</p>`:''}
     <table class="dsales"><tbody>${t.sales.map(s=>`<tr><td class="note">Sale ${dmy(s.date)}</td><td>${fx(s.q,0)} × $${fx(+s.price,2)}</td><td class="${s.net>=0?'pos':'neg'}">${usd(s.net)}</td><td><button class="btn sm" data-esale="${s.id}" data-trade="${t.id}"${CTX.readOnly?' disabled':''}>Edit sale…</button></td></tr>`).join('')}</tbody></table>
     <div class="dtag"><label class="fld">Setup<select data-tag="setupId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Unclassified</option>${so}</select></label>
+    <div class="fld">Setup rating<span data-stars="${t.id}"></span></div>
     <label class="fld">Mistake<select data-tag="errorId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Not filled in</option><option value="${PLAN||'__plan'}"${PLAN&&(PLAN&&t.errorId===PLAN)?' selected':''}>Followed my plan</option>${eo}</select></label>
     <button class="btn" data-symf="${t.sym}">All ${t.sym} trades</button><span class="note">Changes are saved at once</span></div></td></tr>`;
 }
@@ -502,7 +529,7 @@ function renderFilters(){
   const res=document.createElement('select');res.setAttribute('aria-label','Result');[['all','Winners and losers'],['winners','Winners'],['losers','Losers']].forEach(([v,l])=>{const o=new Option(l,v);o.selected=F.result===v;res.add(o);});res.onchange=()=>{F.result=res.value;renderAll();};
   const q=document.createElement('input');q.type='search';q.placeholder='Search in comments';q.value=F.q;q.setAttribute('aria-label','Search in comments');q.oninput=()=>{F.q=q.value;renderAll(false,true);};
   r1.append(per,dates,ms('syms',F,()=>renderAll()),res,q);
-  if(showMore)for(const k of ['labels','setups','mistakes','days','sds','how'])r1.append(ms(k,F,()=>renderAll()));
+  if(showMore){for(const k of ['labels','setups','mistakes','days','sds','how'])r1.append(ms(k,F,()=>renderAll()));r1.append(starsF(F,()=>renderAll()));}
   const more=document.createElement('button');more.className='linkbtn';more.type='button';more.textContent=showMore?'Fewer filters':'More filters';more.onclick=()=>{showMore=!showMore;renderFilters();};
   const rs=document.createElement('button');rs.className='linkbtn';rs.type='button';rs.textContent='Reset';rs.onclick=()=>{F=newF();renderAll();};
   r1.append(more,rs);el.append(r1);
@@ -512,6 +539,7 @@ function renderFilters(){
   for(const k of Object.keys(FNAME))for(const v of F[k])ch.push([`${F.not.includes(k)?'Leave out '+FNAME[k].toLowerCase():FNAME[k]}: ${OPTS[k]().find(o=>o[0]===v)?.[1]??v}`,()=>{F[k]=F[k].filter(x=>x!==v);},F.not.includes(k)]);
   if(F.skip.length)ch.push([`Left out by hand: ${F.skip.length} trade${F.skip.length>1?'s':''}`,()=>{F.skip=[];},true]);
   if(F.result!=='all')ch.push([F.result==='winners'?'Winners':'Losers',()=>{F.result='all';}]);
+  if(starsChip(F))ch.push([starsChip(F),()=>{F.starsFrom='';F.starsTo='';}]);
   if(F.q.trim())ch.push([`Comment: “${F.q.trim()}”`,()=>{F.q='';}]);
   if(F.ids)ch.push([`${capz(F.idsLabel)} (${F.ids.length})`,()=>{F.ids=null;}]);
   if(ch.length){const c=document.createElement('div');c.className='hchips';for(const [l,fn,o] of ch){const s=document.createElement('span');s.className='hchip'+(o?' out':'');s.textContent=l;const x=document.createElement('button');x.type='button';x.setAttribute('aria-label','Remove '+l);x.textContent='×';x.onclick=()=>{fn();renderAll();};s.append(x);c.append(s);}el.append(c);}
@@ -560,7 +588,7 @@ function renderCompare(){if(!gInit){gInit=true;[G.a,G.b]=PRESETS.recent();cmpKey
   v.querySelectorAll('.hf[data-g]').forEach(fl=>{const g=G[fl.dataset.g];
     const per=document.createElement('select');per.setAttribute('aria-label','Period');PERIODS.filter(p=>p[0]!=='custom').forEach(([val,l])=>{const o=new Option(l,val);o.selected=g.period===val;per.add(o);});per.onchange=()=>{g.period=per.value;cmpKey='custom';renderCompare();};fl.append(per);
     const res=document.createElement('select');res.setAttribute('aria-label','Result');[['all','Winners and losers'],['winners','Winners'],['losers','Losers']].forEach(([val,l])=>{const o=new Option(l,val);o.selected=g.result===val;res.add(o);});res.onchange=()=>{g.result=res.value;cmpKey='custom';renderCompare();};fl.append(res);
-    CMPF.forEach(k=>fl.append(ms(k,g,()=>{cmpKey='custom';renderCompare();})));});
+    CMPF.forEach(k=>fl.append(ms(k,g,()=>{cmpKey='custom';renderCompare();})));fl.append(starsF(g,()=>{cmpKey='custom';renderCompare();}));});
   v.querySelectorAll('[data-gname]').forEach(i=>{i.onchange=()=>{G[i.dataset.gname].name=i.value||('Group '+i.dataset.gname.toUpperCase());renderCompare();};});
   v.querySelectorAll('[data-clr]').forEach(b=>b.onclick=()=>{G[b.dataset.clr].ids=null;cmpKey='custom';renderCompare();});
   v.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{const g=G[b.dataset.view];F={...g};delete F.name;view='trades';renderAll();scrollToTable();});
@@ -603,6 +631,7 @@ function renderAll(keepMs,keepQ){
 
 function scrollToTable(){if(view==='report'){view='trades';renderAll();}$('trades-top')?.scrollIntoView({behavior:'smooth',block:'start'});}
 function saveTag(id,field,value){
+  if(field==='stars'){const r=CTX.act((d)=>A.editDaily(d,id,'stars',value),{label:'stars '+id});if(!r.ok)toast(r.error);return;}
   const r=CTX.act((d)=>{let v=value||'';
     if(v.startsWith('new:')){v=resolveNew(d,field==='setupId'?'setups':'errors',v);if(!v)return {ok:false,error:'Could not add that name.'};}
     if(v==='__plan'){let it=d.errors.find((e)=>e.name===PLAN_NAME);if(!it){const x=A.addListItem(d,'errors',PLAN_NAME);if(!x.ok)return x;it=x.data;}v=it.id;}
@@ -612,7 +641,7 @@ function saveTag(id,field,value){
 async function exportExcel(rows){
   try{const X=await (await import('./data.js')).loadXLSX();
     const data=rows.map((t)=>({'Trade ID':t.id,Symbol:t.symRaw,'Buy date':dmy(t.buyDate),'Sell date':dmy(t.sellDate),Days:t.days,Shares:t.qty,'Buy price':t.buy,'Average sell price':+t.avgSell.toFixed(4),
-      'Net result':+t.net.toFixed(2),'% of capital':t.capPct===null?'':+t.capPct.toFixed(2),R:t.R===null?'':+t.R.toFixed(2),Result:t.labelRaw,'Stop distance':t.sdRaw,Setup:setupNameRaw(t)||'',Mistake:mistakeNameRaw(t)||'','How you bought':t.how,Comment:t.comment}));
+      'Net result':+t.net.toFixed(2),'% of capital':t.capPct===null?'':+t.capPct.toFixed(2),R:t.R===null?'':+t.R.toFixed(2),Result:t.labelRaw,'Stop distance':t.sdRaw,Setup:setupNameRaw(t)||'',Stars:t.stars??'',Mistake:mistakeNameRaw(t)||'','How you bought':t.how,Comment:t.comment}));
     const wb=X.utils.book_new();X.utils.book_append_sheet(wb,X.utils.json_to_sheet(data),'Closed trades');
     download(`TradeJournal-History-${todayISO()}.xlsx`,new Blob([X.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
   }catch(e){toast(e.message);}

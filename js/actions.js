@@ -13,6 +13,28 @@ export const findStock = (st, sym) => st.stocks.find((x) => x.symbol.toUpperCase
 export const stockById = (st, id) => st.stocks.find((x) => x.id === id);
 export const symbolOf = (st, t) => stockById(st, t.stockId)?.symbol ?? '?';
 export const tradeById = (st, id) => st.trades.find((t) => t.id === id);
+
+// ---------- setup rating (stars, 2026-11-10) ----------
+// 0,5 to 5 stars in half steps, per trade, beside Setup. Only a REAL setup can be rated:
+// "Unclassified" (setup missing) and "No setup" (traded without a setup) have nothing to rate.
+// Changing the setup of a trade clears its stars (a rating for one setup does not fit another).
+const setupNameNorm = (st, id) => (st.setups.find((x) => x.id === id)?.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+export const isNoSetupName = (n) => (n || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'no setup';
+export const canRate = (st, setupId) => { if (!setupId) return false; const n = setupNameNorm(st, setupId); return !!n && n !== 'unclassified' && n !== 'no setup'; };
+// a valid rating as a number (0.5, 1 … 5), or null for "not rated"; undefined when the value is not valid
+export function normStars(v) {
+  if (v === null || v === undefined || v === '' || v === 0 || v === '0') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).trim().replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0.5 || n > 5 || Math.round(n * 2) !== n * 2) return undefined;
+  return n;
+}
+// set the setup of a trade; when it really changes, the stars are cleared
+export function setTradeSetup(t, setupId) { const v = setupId || null; if ((t.setupId || null) !== v) { t.setupId = v; t.stars = null; } }
+export function setTradeStars(st, t, raw) {
+  const n = normStars(raw); if (n === undefined) return err('Stars must be 0,5 to 5 in half steps.');
+  if (n !== null && !canRate(st, t.setupId)) return err('Choose a setup first. “Unclassified” and “No setup” have no stars.');
+  t.stars = n; return ok(t);
+}
 function log(st, entry) { st.changeLog.push({ ts: new Date().toISOString(), ...entry }); }
 
 // ---------- capital ----------
@@ -105,6 +127,7 @@ export function validateOpen(st, f) {
   if (need(f.buyCommission) && bc === null) errors.push('Buy commission must be a number.');
   // review fix 2026-11-09: the same rule as when you edit them later — a number above 0, or empty
   for (const [k, name] of [['currentStop', 'Current stop'], ['last', 'Last price'], ['highest', 'Highest price'], ['ema10', 'EMA10']]) if (need(f[k])) { const p = D.parse(f[k]); if (p === null) errors.push(`${name} must be a number.`); else if (p <= 0n) errors.push(`${name} must be above 0.`); }
+  if (normStars(f.stars) === undefined) errors.push('Stars must be 0,5 to 5 in half steps.');
   if (!st.capital.start) errors.push('Capital is not set. Set the start capital first.');
   else if (f.buyDate && f.buyDate < st.capital.start.date) errors.push(`Your start capital date is ${st.capital.start.date.split('-').reverse().join('-')}, but the buy date is earlier. Change the buy date or the start date.`);
   if (!need(f.initialStop)) warnings.push('No Initial stop: the line is “No SL” and stays out of R statistics.');
@@ -123,9 +146,10 @@ export function openTrade(st, f) {
     buyCommission: need(f.buyCommission) ? S(D.d(f.buyCommission)) : '', initialStop: need(f.initialStop) ? S(D.d(f.initialStop)) : '',
     currentStop: need(f.currentStop) ? S(D.d(f.currentStop)) : (need(f.initialStop) ? S(D.d(f.initialStop)) : ''),
     last: need(f.last) ? S(D.d(f.last)) : S(D.d(f.buyPrice)), highest: need(f.highest) ? S(D.d(f.highest)) : S(D.d(f.buyPrice)),
-    ema10: need(f.ema10) ? S(D.d(f.ema10)) : '', nextReport: f.nextReport || '', setupId: f.setupId || null, errorId: f.errorId || null, comment: f.comment || '',
+    ema10: need(f.ema10) ? S(D.d(f.ema10)) : '', nextReport: f.nextReport || '', setupId: f.setupId || null, stars: null, errorId: f.errorId || null, comment: f.comment || '',
     direction: 'Long', capitalAtOpen: '', sales: [],
   };
+  if (canRate(st, t.setupId)) t.stars = normStars(f.stars);
   t.capitalAtOpen = S(C.capitalBefore(st, t.buyDate, seq));
   const held = sameStockOpen(st, t);
   st.trades.push(t); log(st, { type: 'open', tradeId: t.id });
@@ -145,7 +169,9 @@ function joinShared(t, held, typed = {}) {
 const NUM_FIELDS = new Set(['last', 'highest', 'ema10', 'currentStop']);
 export function editDaily(st, id, field, raw) {
   const t = tradeById(st, id); if (!t) return err('Not found.');
-  if (!['last', 'highest', 'ema10', 'currentStop', 'nextReport', 'comment', 'setupId', 'errorId'].includes(field)) return err('This value cannot be edited here.');
+  if (!['last', 'highest', 'ema10', 'currentStop', 'nextReport', 'comment', 'setupId', 'errorId', 'stars'].includes(field)) return err('This value cannot be edited here.');
+  if (field === 'stars') return setTradeStars(st, t, raw);
+  if (field === 'setupId') { setTradeSetup(t, raw); return ok(t); }
   let val = raw;
   if (NUM_FIELDS.has(field)) {
     if (!need(raw)) val = '';

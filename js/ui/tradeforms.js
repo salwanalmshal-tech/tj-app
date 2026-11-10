@@ -1,4 +1,4 @@
-import { h, closeTopDialog, suggest, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn, datePicker } from './dom.js';
+import { h, closeTopDialog, suggest, dialog, para, toast, money, signed, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, field, changeTable, infoBtn, datePicker, starsInput } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
@@ -36,6 +36,16 @@ export function withNew(select, label) {
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); add(); } else if (e.key === 'Escape') { e.stopPropagation(); cancel(); } });
   return row;
 }
+// Setup rating (2026-11-10): stars only for a real setup. A Setup box value is '' (Unclassified / keep), a list ID, "new:Name" or "+ New…".
+const choiceName = (st, v) => (!v || v === NEW_OPT ? '' : v.startsWith('new:') ? v.slice(4) : st.setups.find((x) => x.id === v)?.name || '');
+export const rateableChoice = (st, v) => { const n = choiceName(st, v).trim().toLowerCase(); return !!n && n !== 'unclassified' && !A.isNoSetupName(n); };
+// stars box next to a Setup box: locked without a real setup; a Setup change by you clears the stars
+export function starsFor(st, setupSel, { value = null, onChange, onSetupChange } = {}) {
+  const w = starsInput({ value, onChange });
+  w.sync = () => { const ok = rateableChoice(st, setupSel.value); if (!ok) w.setLocked(true, A.isNoSetupName(choiceName(st, setupSel.value)) ? 'No setup' : ''); else if (w.classList.contains('lock')) w.setLocked(false); };
+  setupSel.addEventListener('change', () => { if (setupSel.value === NEW_OPT) return; w.setValue(null); w.sync(); onSetupChange?.(); });
+  w.sync(); return w;
+}
 // inside the saving step: turn a "new:Name" choice into a list item (an archived item with that name comes back instead)
 export function resolveNew(d, list, v) {
   if (!v || v === NEW_OPT) return null; if (!v.startsWith('new:')) return v;
@@ -62,6 +72,7 @@ export function renderOpen(ctx) {
   const bd = datePicker({ iso: today, label: 'Buy date' }), bc = inp('Buy commission', { inputmode: 'decimal', placeholder: '0,00' });
   const is = inp('Initial stop', { inputmode: 'decimal', placeholder: '0,00' });
   const setup = pick(st.setups.filter((x) => !x.archived && !isUncl(x)), 'Setup', 'Unclassified'); const setupNew = withNew(setup, 'Setup');
+  const stars = starsFor(st, setup);
   const com = h('textarea', { 'aria-label': 'Trade thesis', rows: 3, placeholder: 'Why is this trade worth taking?' });
   const cs = inp('Current stop', { inputmode: 'decimal', placeholder: 'Same as Initial stop' }), last = inp('Last price', { inputmode: 'decimal', placeholder: 'Same as buy price' });
   const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = datePicker({ label: 'Next report' });
@@ -101,7 +112,7 @@ export function renderOpen(ctx) {
   const nowRisk = account > 0n ? D.pct(D.abs(loss.loss), account) : null;
 
   function values() {
-    return { symbol: sym.value.trim(), buyDate: bd.getISO() || null, qty: qty.value, buyPrice: bp.value, buyCommission: bc.value, initialStop: is.value, currentStop: cs.value, last: last.value, highest: hi.value, ema10: ema.value, nextReport: nr.getISO() || '', setupId: setup.value && setup.value !== NEW_OPT ? setup.value : null, errorId: null, comment: com.value, stockInfo: { sector: sector.value, industry: industry.value, exchange: exch.value } };
+    return { symbol: sym.value.trim(), buyDate: bd.getISO() || null, qty: qty.value, buyPrice: bp.value, buyCommission: bc.value, initialStop: is.value, currentStop: cs.value, last: last.value, highest: hi.value, ema10: ema.value, nextReport: nr.getISO() || '', setupId: setup.value && setup.value !== NEW_OPT ? setup.value : null, stars: stars.getValue(), errorId: null, comment: com.value, stockInfo: { sector: sector.value, industry: industry.value, exchange: exch.value } };
   }
   function check() {
     const f = values(); const v = A.validateOpen(st, f);
@@ -174,7 +185,7 @@ export function renderOpen(ctx) {
           h('div', { class: 'fgrid' }, of('Symbol', symBox), of('Buy price', bpBox), of('Shares', qtyBox),
             of('Buy date', h('div', { class: 'datebox' }, bdBox, h('button', { class: 'btn today', type: 'button', onClick: () => { bd.setISO(today); } }, 'Today')), dnote),
             of('Buy commission', box(bc, '$'))), newNote, newStock),
-        card('Plan', 'Define the protection.', h('div', { class: 'fgrid' }, of('Initial stop', isBox), of('Setup', box(setup), setupNew)), more),
+        card('Plan', 'Define the protection.', h('div', { class: 'fgrid' }, of('Initial stop', isBox), of('Setup', box(setup), setupNew), h('div', { class: 'of' }, h('span', { class: 'l' }, 'Setup rating'), stars)), more),
         h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Note'), h('p', { class: 'lead' }, 'Optional. Keep only what is worth remembering.'))),
           h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, of('Trade thesis', com)))),
       h('aside', { class: 'card acc op-check', 'aria-label': 'Decision check' }, h('div', { class: 'card-b' },
@@ -203,6 +214,9 @@ export function renderClose(ctx) {
   const setupSel = h('select', { 'aria-label': 'Setup' }, h('option', { value: '' }, 'Keep as it is'), st.setups.filter((x) => !x.archived && !isUncl(x)).map((x) => h('option', { value: x.id }, x.name)));
   let setupTouched = false; setupSel.addEventListener('change', () => { setupTouched = true; });
   const setupNew = withNew(setupSel, 'Setup');
+  // stars beside Setup (2026-11-10): shows the stars of the lines when they all have the same; changing the Setup clears them
+  let starsTouched = false;
+  const starsSel = starsFor(st, setupSel, { onChange: () => { starsTouched = true; }, onSetupChange: () => { starsTouched = true; } });
 
   function lines() { return (bySym.get(symSel.value) || []).slice().sort((a, b) => (a.buyDate < b.buyDate ? -1 : a.buyDate > b.buyDate ? 1 : a.seq - b.seq)); }
   function buildLines(auto) {
@@ -247,7 +261,8 @@ export function renderClose(ctx) {
     prevBox.dataset.reason = reason;
     ctx._closeAlloc = allocations;
     if (!mistakeTouched) { const ids = [...new Set(allocations.map((a) => A.tradeById(st, a.tradeId)?.errorId).filter(Boolean))]; mistake.value = ids.length === 1 ? ids[0] : ''; }
-    if (!setupTouched) { const ids = [...new Set(allocations.map((a) => A.tradeById(st, a.tradeId)?.setupId ?? ''))]; setupSel.value = ids.length === 1 && ids[0] && [...setupSel.options].some((o) => o.value === ids[0]) ? ids[0] : ''; }
+    if (!setupTouched) { const ids = [...new Set(allocations.map((a) => A.tradeById(st, a.tradeId)?.setupId ?? ''))]; setupSel.value = ids.length === 1 && ids[0] && [...setupSel.options].some((o) => o.value === ids[0]) ? ids[0] : ''; starsSel.sync();
+      if (!starsTouched) { const sv = [...new Set(allocations.map((a) => A.tradeById(st, a.tradeId)?.stars ?? null))]; starsSel.setValue(setupSel.value && sv.length === 1 ? sv[0] : null); } }
   }
   async function submit() {
     const iso = parseDMY(date.value); const allocations = ctx._closeAlloc;
@@ -268,7 +283,9 @@ export function renderClose(ctx) {
       for (const [id, v] of Object.entries(buyFix)) { const r = A.editBuyData(d, id, { buyCommission: v }); if (!r.ok) return r; }
       const r = A.closeSale(d, { date: iso, price: price.value, commission: comm.value, allocations }); if (!r.ok) return r;
       const errId = resolveNew(d, 'errors', errV), setId = resolveNew(d, 'setups', setV);
-      for (const a of allocations) { const t = A.tradeById(d, a.tradeId); if (errId) t.errorId = errId; if (setId) t.setupId = setId; }
+      const starV = starsSel.getValue();
+      for (const a of allocations) { const t = A.tradeById(d, a.tradeId); if (errId) t.errorId = errId;
+        if (setId) { const changed = t.setupId !== setId; A.setTradeSetup(t, setId); if ((changed || starsTouched) && A.canRate(d, setId)) A.setTradeStars(d, t, starV); } }
       return r;
     };
     const draft = structuredClone(st); const res0 = apply(draft); if (!res0.ok) return toast(res0.error);
@@ -303,7 +320,7 @@ export function renderClose(ctx) {
   return h('div', { class: 'cols' }, h('section', { class: 'panel', style: { flex: '1 1 100%' } },
     h('div', { class: 'ph' }, '1. The sale', h('span', { class: 'sub' }, 'one sale, one price')),
     h('div', { class: 'pb' }, h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', alignItems: 'start' } }, field('Symbol', symSel), field('Total shares sold', total), field('Sell date', date, dnote), field('Sell price (USD)', price), field('Sell commission (USD)', comm)),
-      h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', alignItems: 'start', marginTop: '14px', maxWidth: '640px' } }, field('Setup', h('div', { class: 'selnew' }, setupSel, setupNew)), field('Mistake (if any)', h('div', { class: 'selnew' }, mistake, mistakeNew)))),
+      h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', alignItems: 'start', marginTop: '14px', maxWidth: '640px' } }, field('Setup', h('div', { class: 'selnew' }, setupSel, setupNew)), h('div', { class: 'fld' }, 'Setup rating', starsSel), field('Mistake (if any)', h('div', { class: 'selnew' }, mistake, mistakeNew)))),
     h('div', { class: 'ph', style: { borderTop: '1px solid var(--line)' } }, '2. Choose the lines', status), linesBox,
     h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, h('div', { class: 'row' }, btn, h('button', { class: 'btn', onClick: () => back(ctx) }, 'Cancel')), h('span', { class: 'note' }, 'The button stays off until every share is assigned and the price is filled in. It opens a confirmation first.'))),
     h('aside', { class: 'panel', style: { flex: '1 1 100%' }, 'aria-label': 'Preview' }, h('div', { class: 'ph' }, 'Preview before saving'), h('div', { class: 'pb' }, prevBox)));
@@ -332,6 +349,7 @@ export function editTrade(ctx, id) {
   const q = numInput(D.edit(D.d(t.qty)), 'Quantity'), bp = numInput(D.edit(D.d(t.buyPrice)), 'Buy price'), bc = numInput(t.buyCommission === '' ? '' : D.edit(D.d(t.buyCommission)), 'Buy commission'), bd = dateInput(t.buyDate, 'Buy date');
   const is = numInput(t.initialStop === '' ? '' : D.edit(D.d(t.initialStop)), 'Initial stop');
   const setup = sel(st.setups.filter((x) => !isUncl(x) && (!x.archived || x.id === t.setupId)), t.setupId, { blank: 'Unclassified' }); const setupNew = withNew(setup, 'Setup');
+  const stars = starsFor(st, setup, { value: t.stars ?? null });
   const err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId); const errNew = withNew(err, 'Error');
   const com = h('textarea', { rows: 2, 'aria-label': 'Comment' }); com.value = t.comment || '';
   const msg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
@@ -339,7 +357,7 @@ export function editTrade(ctx, id) {
   dialog({ title: `Edit ${sym} · ${t.id}`, wide: true, ok: 'Save', body: h('div', { style: { display: 'grid', gap: '12px' } },
     sold > 0n ? h('div', { class: 'msg info' }, `● ${qtyTxt(sold)} shares were already sold. Quantity cannot go below that.`) : null,
     h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Buy date', bd), field('Quantity', q), field('Buy price', bp), field('Buy commission', bc), field('Initial stop', is, 'Used for R. Changing it is logged.')),
-    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } }, field('Setup', h('div', { class: 'selnew' }, setup, setupNew)), field('Error', h('div', { class: 'selnew' }, err, errNew))), field('Comment', com), msg,
+    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } }, field('Setup', h('div', { class: 'selnew' }, setup, setupNew)), h('div', { class: 'fld' }, 'Setup rating', stars), field('Error', h('div', { class: 'selnew' }, err, errNew))), field('Comment', com), msg,
     h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', onClick: async () => { const ok = await dialog({ title: `Delete trade ${t.id} (${sym})?`, danger: true, ok: 'Delete trade', body: para(`This moves the trade${t.sales.length ? ' and its ' + t.sales.length + ' sale(s)' : ''} to the Trash for 15 days. Capital and statistics change. You can restore it from the Trash (Import / Export).`, '') }); if (!ok) return; const r = ctx.act((d) => A.deleteTrade(d, t.id), { label: 'delete trade', now: true }); if (r.ok) { closeTopDialog(); toast(`${t.id} moved to the Trash.`, 'Restore', () => ctx.store.undo()); } else toast(r.error); } }, 'Delete…'))),
     onOk: async () => {
       const bdi = parseDMY(bd.value); if (!bdi) return 'Enter a valid buy date (dd-mm-yyyy).';
@@ -370,7 +388,7 @@ export function editTrade(ctx, id) {
       const res = ctx.act((d) => {
         if (rows.length) { const r = A.editBuyData(d, t.id, patch); if (!r.ok) return r; }
         if (isChange) { const r = A.correctInitialStop(d, t.id, isNew); if (!r.ok) return r; }
-        const x = A.tradeById(d, t.id); x.setupId = resolveNew(d, 'setups', setup.value); x.errorId = resolveNew(d, 'errors', err.value); x.comment = com.value; return { ok: true };
+        const x = A.tradeById(d, t.id); A.setTradeSetup(x, resolveNew(d, 'setups', setup.value)); x.stars = A.canRate(d, x.setupId) ? A.normStars(stars.getValue()) ?? null : null; x.errorId = resolveNew(d, 'errors', err.value); x.comment = com.value; return { ok: true };
       }, { label: 'edit ' + sym, now: true });
       if (!res.ok) return res.error;
       // review fix 2026-11-09: never recalculate other trades silently — ask (D2), and only when this edit created new differences

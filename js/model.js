@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.4.7';
+export const APP_VERSION = '1.4.8';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -80,6 +80,7 @@ export function dataProblems(data) {
     date(t.buyDate, w + ' buy date'); num(t.qty, w + ' shares', { pos: true }); num(t.buyPrice, w + ' buy price', { pos: true });
     for (const k of ['buyCommission', 'initialStop', 'currentStop', 'last', 'highest', 'ema10', 'capitalAtOpen']) num(t[k], `${w} ${k}`, { opt: true });
     date(t.nextReport, w + ' next report', { opt: true });
+    if (t.stars !== undefined && t.stars !== null && !(typeof t.stars === 'number' && t.stars >= 0.5 && t.stars <= 5 && Math.round(t.stars * 2) === t.stars * 2)) out.push(`${w} stars: "${t.stars}" is not 0,5 to 5`);
     for (const x of arr(t.sales, w + ' sales')) { if (!ID.test(String(x?.id))) out.push(w + ': a sale has no valid ID'); date(x?.date, w + ' sale date'); num(x?.qty, w + ' sold shares', { pos: true }); num(x?.price, w + ' sell price'); num(x?.commission, w + ' sell commission', { opt: true }); }
   }
   const cap = data.capital || {};
