@@ -242,7 +242,7 @@ function check7(ts){
   const head=v==='bad'?"your journal can't yet tell you which setup works":v==='watch'?'some trades are still missing tags':'your trades are well tagged';
   const per={};real.forEach(t=>{(per[setupName(t)]??=[]).push(t);});
   const ready=Object.entries(per).filter(([,a])=>a.length>=10);
-  const body=`<b>${ts.length-real.length} of ${ts.length}</b> trades have no real setup (“Unclassified” or empty), so History can't compare your setups yet. `+
+  const body=`<b>${ts.length-real.length} of ${ts.length}</b> trades are still “Unclassified” (setup missing), so History can't compare your setups yet. `+
     `<b>Mistakes:</b> ${mist.length} trade${mist.length===1?'':'s'} have a mistake tagged (${[...new Set(mist.map(mistakeName))].map(n=>`${n} ×${mist.filter(t=>mistakeName(t)===n).length}`).join(', ')}), ${plan.length} are marked “Followed my plan”, and <b>${none.length} are not filled in</b>.`+
     (mention.length?` <b>${mention.length} comment${mention.length>1?'s':''} mention a mistake without the tag</b> (${list(mention)}).`:' No comment mentions a mistake without its tag.')+
     (ready.length?`<div style="margin-top:8px">${ready.map(([n,a])=>{const s=stats(a);return `<b>${esc(n)}</b>: ${s.n} trades, ${pct(s.wr*100)} won, ${R(s.avgR)} per trade`;}).join('<br>')}</div>`:'');
@@ -291,7 +291,7 @@ function baseF(f){const b={...f,not:[],skip:[]};for(const k of outKeys(f))b[k]=[
 const OPTS={
   syms:()=>[...new Set(TR.map(t=>t.symRaw))].sort().map(s=>[s,s]),
   labels:()=>[...S.rCategories.map(r=>r[1]),S.rCategoryElse,'–'].map(s=>[s,s==='–'?'No label (no stop)':s]),
-  setups:()=>[['__none','No setup'],...RAW.setups.filter(s=>s.name!=='Unclassified').map(s=>[s.name,s.name])],
+  setups:()=>[['__none','Unclassified (missing)'],...RAW.setups.filter(s=>s.name!=='Unclassified').map(s=>[s.name,s.name])],
   mistakes:()=>[['__none','Not filled in'],['Followed my plan','Followed my plan'],...realErrors().map(e=>[e.name,e.name])],
   days:()=>Object.keys(DAYS).map(d=>[d,d==='0–1'?'0–1 days (failed right away)':d+' days']),
   sds:()=>[...S.stopDistance.map(s=>s[1]),S.stopDistanceElse,'No SL'].map(s=>[s,s]),
@@ -452,14 +452,14 @@ function renderTable(ts,inc=ts){
     s.addEventListener('change',()=>{if(s.value!=='__new')saveTag(s.dataset.id,s.dataset.tag,s.value);});});
 }
 function detailRow4(t){
-  const so=RAW.setups.filter(s=>!s.archived||t.setupId===s.id).map(s=>`<option value="${s.id}"${t.setupId===s.id?' selected':''}>${esc(s.name)}</option>`).join(''),eo=realErrors().filter(s=>!s.archived||t.errorId===s.id).map(s=>`<option value="${s.id}"${t.errorId===s.id?' selected':''}>${esc(s.name)}</option>`).join('');
+  const so=RAW.setups.filter(s=>s.name!=='Unclassified'&&(!s.archived||t.setupId===s.id)).map(s=>`<option value="${s.id}"${t.setupId===s.id?' selected':''}>${esc(s.name)}</option>`).join(''),eo=realErrors().filter(s=>!s.archived||t.errorId===s.id).map(s=>`<option value="${s.id}"${t.errorId===s.id?' selected':''}>${esc(s.name)}</option>`).join('');
   return `<tr class="dt"><td colspan="${COLS4.length}"><div class="dgrid">
     <div><span>Bought</span><b>${dmy(t.buyDate)} · ${fx(t.qty,0)} × $${fx(t.buy,2)}</b></div><div><span>Average sell price</span><b>$${fx(t.avgSell,2)}</b></div>
     <div><span>Initial stop</span><b>${t.init===null?'No stop':`$${fx(t.init,2)} · ${fx(t.sdPct,1)} % · ${t.sd}`}</b></div><div><span>How you bought</span><b>${t.how}</b></div>
     <div><span>Commissions</span><b>$${fx(t.comm,2)}</b></div><div><span>Capital at open</span><b>$${fx(t.capAtOpen,2)}</b></div></div>
     ${t.comment?`<p style="margin:12px 0 0;max-width:80ch">💬 ${esc(t.comment)}</p>`:''}
     <table class="dsales"><tbody>${t.sales.map(s=>`<tr><td class="note">Sale ${dmy(s.date)}</td><td>${fx(s.q,0)} × $${fx(+s.price,2)}</td><td class="${s.net>=0?'pos':'neg'}">${usd(s.net)}</td><td><button class="btn sm" data-esale="${s.id}" data-trade="${t.id}"${CTX.readOnly?' disabled':''}>Edit sale…</button></td></tr>`).join('')}</tbody></table>
-    <div class="dtag"><label class="fld">Setup<select data-tag="setupId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">No setup</option>${so}</select></label>
+    <div class="dtag"><label class="fld">Setup<select data-tag="setupId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Unclassified</option>${so}</select></label>
     <label class="fld">Mistake<select data-tag="errorId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Not filled in</option><option value="${PLAN||'__plan'}"${PLAN&&(PLAN&&t.errorId===PLAN)?' selected':''}>Followed my plan</option>${eo}</select></label>
     <button class="btn" data-symf="${t.sym}">All ${t.sym} trades</button><span class="note">Changes are saved at once</span></div></td></tr>`;
 }

@@ -6,6 +6,8 @@ import { parseDMY, weekdayName, isWeekend } from '../dates.js';
 import { askRecalc } from './capital.js';
 import { checkReminders } from './reminders.js';
 
+// 2026-11-10: "Unclassified" = setup missing. The empty choice carries that name, so the list item with the same name is not offered again.
+export const isUncl = (x) => (x?.name || '').trim().toLowerCase() === 'unclassified';
 const sel = (items, value, { blank = '–' } = {}) => h('select', null, h('option', { value: '' }, blank), items.map((x) => h('option', { value: x.id, selected: x.id === value }, x.name ?? x.symbol)));
 const dateInput = (iso, label) => datePicker({ iso: iso || '', label });
 const numInput = (v = '', label) => h('input', { value: v, inputmode: 'decimal', style: { textAlign: 'right' }, 'aria-label': label, autocomplete: 'off' });
@@ -59,7 +61,7 @@ export function renderOpen(ctx) {
   const bp = inp('Buy price', { inputmode: 'decimal', placeholder: '0,00' }), qty = inp('Shares', { inputmode: 'decimal', placeholder: '0' });
   const bd = datePicker({ iso: today, label: 'Buy date' }), bc = inp('Buy commission', { inputmode: 'decimal', placeholder: '0,00' });
   const is = inp('Initial stop', { inputmode: 'decimal', placeholder: '0,00' });
-  const setup = pick(st.setups.filter((x) => !x.archived), 'Setup', 'No setup'); const setupNew = withNew(setup, 'Setup');
+  const setup = pick(st.setups.filter((x) => !x.archived && !isUncl(x)), 'Setup', 'Unclassified'); const setupNew = withNew(setup, 'Setup');
   const com = h('textarea', { 'aria-label': 'Trade thesis', rows: 3, placeholder: 'Why is this trade worth taking?' });
   const cs = inp('Current stop', { inputmode: 'decimal', placeholder: 'Same as Initial stop' }), last = inp('Last price', { inputmode: 'decimal', placeholder: 'Same as buy price' });
   const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = datePicker({ label: 'Next report' });
@@ -198,7 +200,7 @@ export function renderClose(ctx) {
   const mistakeNew = withNew(mistake, 'Mistake');
   // Setup when closing (2026-11-06): shows the setup of the lines; a chosen setup is saved on every trade closed in this sale,
   // empty = each trade keeps its own
-  const setupSel = h('select', { 'aria-label': 'Setup' }, h('option', { value: '' }, 'Keep as it is'), st.setups.filter((x) => !x.archived).map((x) => h('option', { value: x.id }, x.name)));
+  const setupSel = h('select', { 'aria-label': 'Setup' }, h('option', { value: '' }, 'Keep as it is'), st.setups.filter((x) => !x.archived && !isUncl(x)).map((x) => h('option', { value: x.id }, x.name)));
   let setupTouched = false; setupSel.addEventListener('change', () => { setupTouched = true; });
   const setupNew = withNew(setupSel, 'Setup');
 
@@ -329,7 +331,7 @@ export function editTrade(ctx, id) {
   const st = ctx.store.state; const t = A.tradeById(st, id); if (!t) return; const sym = A.symbolOf(st, t);
   const q = numInput(D.edit(D.d(t.qty)), 'Quantity'), bp = numInput(D.edit(D.d(t.buyPrice)), 'Buy price'), bc = numInput(t.buyCommission === '' ? '' : D.edit(D.d(t.buyCommission)), 'Buy commission'), bd = dateInput(t.buyDate, 'Buy date');
   const is = numInput(t.initialStop === '' ? '' : D.edit(D.d(t.initialStop)), 'Initial stop');
-  const setup = sel(st.setups.filter((x) => !x.archived || x.id === t.setupId), t.setupId); const setupNew = withNew(setup, 'Setup');
+  const setup = sel(st.setups.filter((x) => !isUncl(x) && (!x.archived || x.id === t.setupId)), t.setupId, { blank: 'Unclassified' }); const setupNew = withNew(setup, 'Setup');
   const err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId); const errNew = withNew(err, 'Error');
   const com = h('textarea', { rows: 2, 'aria-label': 'Comment' }); com.value = t.comment || '';
   const msg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
