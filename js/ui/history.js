@@ -258,7 +258,7 @@ let openCheck=0;
 
 // ---------------------------------------------------------------- filters
 const DAYS={'0–1':[0,1],'2–5':[2,5],'6–20':[6,20],'21+':[21,99999]};
-const newF=()=>({period:'all',from:'',to:'',syms:[],result:'all',labels:[],setups:[],mistakes:[],days:[],sds:[],how:[],q:'',ids:null,idsLabel:''});
+const newF=()=>({period:'all',from:'',to:'',syms:[],result:'all',labels:[],setups:[],mistakes:[],days:[],sds:[],how:[],q:'',ids:null,idsLabel:'',not:[],skip:[]});
 let F=newF();
 function applyF(f,ts=TR){
   let r=ts;
@@ -269,18 +269,25 @@ function applyF(f,ts=TR){
     else if(f.period==='year')from=new Date(Date.UTC(t.getFullYear(),0,1));
     if(from){const iso=from.toISOString().slice(0,10);r=r.filter(x=>x.sellDate>=iso);}
     if(f.period==='custom'){if(f.from)r=r.filter(x=>x.sellDate>=f.from);if(f.to)r=r.filter(x=>x.sellDate<=f.to);}}
-  if(f.syms.length)r=r.filter(t=>f.syms.includes(t.symRaw));
+  // 2026-11-10: each list filter can "show only" the chosen values or "leave out" them (f.not holds the keys in leave-out mode)
+  const keep=(k,fn)=>{if(f[k].length){const out=(f.not||[]).includes(k);r=r.filter(t=>fn(t)!==out);}};
+  keep('syms',t=>f.syms.includes(t.symRaw));
   if(f.result==='winners')r=r.filter(t=>t.net>0);else if(f.result==='losers')r=r.filter(t=>t.net<0);
-  if(f.labels.length)r=r.filter(t=>f.labels.includes(t.labelRaw));
-  if(f.setups.length)r=r.filter(t=>f.setups.includes(realSetup(t)?setupNameRaw(t):'__none'));
-  if(f.mistakes.length)r=r.filter(t=>f.mistakes.includes(t.errorId?mistakeNameRaw(t):'__none'));
-  if(f.days.length)r=r.filter(t=>f.days.some(d=>t.days>=DAYS[d][0]&&t.days<=DAYS[d][1]));
-  if(f.sds.length)r=r.filter(t=>f.sds.includes(t.sdRaw));
-  if(f.how.length)r=r.filter(t=>f.how.includes(t.how));
+  keep('labels',t=>f.labels.includes(t.labelRaw));
+  keep('setups',t=>f.setups.includes(realSetup(t)?setupNameRaw(t):'__none'));
+  keep('mistakes',t=>f.mistakes.includes(t.errorId?mistakeNameRaw(t):'__none'));
+  keep('days',t=>f.days.some(d=>t.days>=DAYS[d][0]&&t.days<=DAYS[d][1]));
+  keep('sds',t=>f.sds.includes(t.sdRaw));
+  keep('how',t=>f.how.includes(t.how));
   if(f.q.trim())r=r.filter(t=>t.comment.toLowerCase().includes(f.q.trim().toLowerCase()));
   if(f.ids)r=r.filter(t=>f.ids.includes(t.id));
+  if(f.skip&&f.skip.length)r=r.filter(t=>!f.skip.includes(t.id));
   return r;
 }
+// the same filters without anything "left out" (leave-out filters and ticked-off rows): the "before" side of the effect line
+const outKeys=(f)=>(f.not||[]).filter(k=>f[k].length);
+const hasOut=(f)=>outKeys(f).length>0||(f.skip||[]).length>0;
+function baseF(f){const b={...f,not:[],skip:[]};for(const k of outKeys(f))b[k]=[];return b;}
 const OPTS={
   syms:()=>[...new Set(TR.map(t=>t.symRaw))].sort().map(s=>[s,s]),
   labels:()=>[...S.rCategories.map(r=>r[1]),S.rCategoryElse,'–'].map(s=>[s,s==='–'?'No label (no stop)':s]),
@@ -297,10 +304,13 @@ if(typeof document!=='undefined')document.addEventListener('click',e=>{if(openMs
 function ms(key,f,onChange){
   const w=document.createElement('div');w.className='ms';
   const b=document.createElement('button');b.type='button';b.className=f[key].length?'act':'';
-  b.textContent=f[key].length?`${FNAME[key]}: ${f[key].length===1?(OPTS[key]().find(o=>o[0]===f[key][0])?.[1]??f[key][0]):f[key].length+' chosen'}`:FNAME[key];
+  const isOut=(f.not||[]).includes(key);if(isOut&&f[key].length)b.className='act out';
+  b.textContent=f[key].length?`${isOut?'Leave out ':FNAME[key]+': '}${f[key].length===1?(OPTS[key]().find(o=>o[0]===f[key][0])?.[1]??f[key][0]):f[key].length+(isOut?' '+FNAME[key].toLowerCase()+'s':' chosen')}`:FNAME[key];
   b.onclick=(e)=>{e.stopPropagation();if(openMs===w){w.querySelector('.pop')?.remove();openMs=null;return;}
     if(openMs){openMs.querySelector('.pop')?.remove();}openMs=w;
     const p=document.createElement('div');p.className='pop';
+    if(f.not){const sw=document.createElement('div');sw.className='msmode';for(const [m,l] of [[false,'Show only'],[true,'Leave out']]){const x=document.createElement('button');x.type='button';x.textContent=l;x.className=((f.not.includes(key))===m)?'on':'';
+      x.onclick=(e)=>{e.stopPropagation();f.not=m?[...new Set([...f.not,key])]:f.not.filter(k=>k!==key);p.querySelectorAll('.msmode button').forEach((y,i)=>y.className=(i===1)===m?'on':'');if(f[key].length)onChange(key);};sw.append(x);}p.append(sw);}
     for(const [v,l] of OPTS[key]()){const lab=document.createElement('label');const c=document.createElement('input');c.type='checkbox';c.checked=f[key].includes(v);
       c.onchange=()=>{f[key]=c.checked?[...f[key],v]:f[key].filter(x=>x!==v);onChange(key);};lab.append(c,document.createTextNode(l));p.append(lab);}
     w.append(p);};
@@ -408,7 +418,8 @@ function renderChecks(){
 // ---- trades table (program list table)
 const COLS4=[['sym','Symbol'],['sellDate','Sold'],['days','Days','r'],['net','Net result','r'],['capPct','% capital','r'],['R','R','r'],['label','Result'],['setup','Setup'],['mistake','Mistake'],['c','']];
 const labC=(l)=>/WINNER|GAIN/.test(l)?'g':l==='CONTROLLED LOSS'?'o':/LOSS/.test(l)?'r':'';
-function renderTable(ts){
+function renderTable(ts,inc=ts){
+  const counted=new Set(inc.map(t=>t.id));
   const v=$('tview');
   if(!ts.length){v.innerHTML=`<div class="hempty"><b>No trades match these filters.</b><br><button class="linkbtn" id="rst">Reset filters</button></div>`;$('rst').onclick=()=>{F=newF();renderAll();};return;}
   const val=(t,k)=>k==='setup'?(realSetup(t)?setupName(t):'~'):k==='mistake'?(mistakeName(t)??'~'):k==='c'?t.comment:t[k];
@@ -416,11 +427,12 @@ function renderTable(ts){
   const pages=Math.max(1,Math.ceil(rows.length/PAGE));if(page>=pages)page=pages-1;const shown=rows.slice(page*PAGE,page*PAGE+PAGE);
   const tn=(n)=>n>0?'pos':n<0?'neg':'';
   v.innerHTML=`<div class="tw fx"><table class="stk"><thead><tr>${COLS4.map(([k,l,c])=>`<th class="sortable ${c||''}${sort.k===k?' on':''}">${k==='c'?'':`<button data-k="${k}">${l}<span class="sa">${sort.k===k?(sort.d>0?'▲':'▼'):'↕'}</span></button>`}</th>`).join('')}</tr></thead><tbody>${
-    shown.map(t=>{const nw=PREV?.trades?.ids&&!PREV.trades.ids.includes(t.id);return `<tr class="hrow${openRow===t.id?' open':''}${nw?' newrow':''}" data-id="${t.id}" tabindex="0"><td><b class="lsym">${t.sym}</b>${nw?' <span class="chgtag">New</span>':''}<span class="htid">${t.id}</span></td><td>${dmy(t.sellDate)}</td><td class="r">${t.days}</td>
+    shown.map(t=>{const nw=PREV?.trades?.ids&&!PREV.trades.ids.includes(t.id);return `<tr class="hrow${openRow===t.id?' open':''}${nw?' newrow':''}${counted.has(t.id)?'':' outrow'}" data-id="${t.id}" tabindex="0"><td><input type="checkbox" class="hcount" data-cnt="${t.id}"${counted.has(t.id)?' checked':''}${!counted.has(t.id)&&!F.skip.includes(t.id)?' disabled title="Left out by a filter"':' title="Untick to leave this trade out of the numbers"'} aria-label="Count ${t.symRaw} ${t.id}"><b class="lsym">${t.sym}</b>${nw?' <span class="chgtag">New</span>':''}<span class="htid">${t.id}</span></td><td>${dmy(t.sellDate)}</td><td class="r">${t.days}</td>
      <td class="r ${tn(t.net)}"><b>${usd(t.net)}</b></td><td class="r ${tn(t.net)}">${sx(t.capPct,2)} %</td><td class="r">${t.R===null?'<span class="mut">–</span>':sx(t.R,2)}</td>
      <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.label)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Missing</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
-    <div class="lfoot"><span class="note">Showing ${shown.length} of ${rows.length} trades · click a row for details</span><span style="display:flex;gap:8px;align-items:center">${pages>1?`<span class="lpager">${Array.from({length:pages},(_,i)=>`<button class="btn sm${i===page?' on':''}" data-p="${i}">${i+1}</button>`).join('')}</span>`:''}<button class="btn sm" id="hx-export">Export to Excel</button></span></div>`;
-  $('hx-export').onclick=()=>exportExcel(rows);
+    <div class="lfoot"><span class="note">Showing ${shown.length} of ${rows.length} trades${rows.length>counted.size?` · <b>${rows.length-counted.size} left out</b> (grey)`:''} · untick a trade to leave it out · click a row for details</span><span style="display:flex;gap:8px;align-items:center">${pages>1?`<span class="lpager">${Array.from({length:pages},(_,i)=>`<button class="btn sm${i===page?' on':''}" data-p="${i}">${i+1}</button>`).join('')}</span>`:''}<button class="btn sm" id="hx-export">Export to Excel</button></span></div>`;
+  $('hx-export').onclick=()=>exportExcel(rows.filter(t=>counted.has(t.id)));
+  v.querySelectorAll('[data-cnt]').forEach(c=>{c.onclick=(e)=>e.stopPropagation();c.onchange=()=>{const id=c.dataset.cnt;F.skip=c.checked?F.skip.filter(x=>x!==id):[...F.skip,id];renderAll();};});
   // 2026-11-09: a second sideways scroll bar that stays at the bottom of the window while the table's own bar is out of sight
   // (e.g. with two windows side by side). Both bars move together; the floating one hides when the table's own bar is visible.
   {const tw=v.querySelector('.tw'),fl=document.createElement('div'),inner=document.createElement('div');fl.className='hfloat';fl.setAttribute('aria-hidden','true');fl.append(inner);tw.after(fl);
@@ -429,9 +441,9 @@ function renderTable(ts){
    tw.addEventListener('scroll',()=>{if(lock)return;lock=true;fl.scrollLeft=tw.scrollLeft;lock=false;});
    const foot=v.querySelector('.lfoot');if(foot&&'IntersectionObserver' in window)new IntersectionObserver((e)=>{own=e[0].isIntersecting;sync();}).observe(foot);
    if('ResizeObserver' in window)new ResizeObserver(sync).observe(tw);requestAnimationFrame(sync);}
-  v.querySelectorAll('th button').forEach(b=>b.onclick=()=>{const k=b.dataset.k;sort={k,d:sort.k===k?-sort.d:(['net','R','capPct','days','sellDate'].includes(k)?-1:1)};renderTable(ts);});
-  v.querySelectorAll('tr.hrow').forEach(r=>{const go=()=>{openRow=openRow===r.dataset.id?null:r.dataset.id;renderTable(ts);};r.onclick=go;r.onkeydown=(e)=>{if(e.key==='Enter'){e.preventDefault();go();}};});
-  v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{page=+b.dataset.p;renderTable(ts);});
+  v.querySelectorAll('th button').forEach(b=>b.onclick=()=>{const k=b.dataset.k;sort={k,d:sort.k===k?-sort.d:(['net','R','capPct','days','sellDate'].includes(k)?-1:1)};renderTable(ts,inc);});
+  v.querySelectorAll('tr.hrow').forEach(r=>{const go=()=>{openRow=openRow===r.dataset.id?null:r.dataset.id;renderTable(ts,inc);};r.onclick=go;r.onkeydown=(e)=>{if(e.key==='Enter'){e.preventDefault();go();}};});
+  v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{page=+b.dataset.p;renderTable(ts,inc);});
   v.querySelectorAll('[data-symf]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();F={...newF(),syms:[b.dataset.symf]};openRow=null;renderAll();});
   v.querySelectorAll('[data-esale]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();editSale(CTX,b.dataset.trade,b.dataset.esale);});
   v.querySelectorAll('select[data-tag]').forEach(s=>{s.onclick=(e)=>e.stopPropagation();
@@ -465,17 +477,27 @@ function sumCards(s,ts){
     m('Net result',usd(s.net),`${sx(s.capPct,2)} % of capital`,tn(s.net),`All these trades together, after commissions. % of capital = each trade's result divided by your capital when you bought it, added up.`);
 }
 function renderSummary(ts){$('sum').innerHTML=sumCards(stats(ts),ts);}
+// 2026-11-10 what-if: when trades are left out, one line shows how the numbers move (with them → without them)
+function renderEffect(all,ts){
+  let e=$('heffect');if(!e){e=document.createElement('div');e.id='heffect';$('sum').before(e);}
+  if(all===ts||all.length===ts.length){e.hidden=true;e.innerHTML='';return;}
+  const a=stats(all),b=stats(ts),n=all.length-ts.length,tn=(v)=>v>0?'pos':v<0?'neg':'';
+  const it=(l,x,y,f,c)=>`<span class="ef"><span class="k">${l}</span> <span class="${c?tn(x):''}">${f(x)}</span> <span class="ar">→</span> <b class="${c?tn(y):''}">${f(y)}</b></span>`;
+  e.hidden=false;e.className='heffect';
+  e.innerHTML=`<span class="eh">Without the ${n} trade${n>1?'s':''} you left out</span>${it('Win rate',a.wr===null?null:a.wr*100,b.wr===null?null:b.wr*100,pct,false)}${it('Per trade',a.avgR,b.avgR,R,true)}${it('Net result',a.net,b.net,usd,true)}${it('% of capital',a.capPct,b.capPct,(v)=>sx(v,2)+' %',true)}<button class="linkbtn" id="ef-undo" type="button">Count them again</button>`;
+  $('ef-undo').onclick=()=>{for(const k of outKeys(F))F[k]=[];F.not=[];F.skip=[];renderAll();};
+}
 
 // ---- filters: own dates in the main row
-const isoOf=(t)=>{const m=/^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec((t||'').trim());return m?`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:null;};
 function renderFilters(){
   const el=$('fbar');el.innerHTML='';
   const r1=document.createElement('div');r1.className='hf';
   const per=document.createElement('select');per.setAttribute('aria-label','Period');
   [['all','All trades'],['last20','Last 20 trades'],['month','This month'],['3m','Last 3 months'],['year','This year'],...(F.period==='custom'?[['custom','Own dates']]:[])].forEach(([v,l])=>{const o=new Option(l,v);o.selected=F.period===v;per.add(o);});
   per.onchange=()=>{F.period=per.value;F.from='';F.to='';renderAll();};
-  const dt=(k,ph)=>{const i=document.createElement('input');i.className='hdate';i.placeholder=ph;i.value=F[k]?dmy(F[k]):'';i.setAttribute('aria-label',ph+' (sell date, dd-mm-yyyy)');i.title='Sell date, dd-mm-yyyy';
-    i.onchange=()=>{const v=i.value.trim();if(v&&!isoOf(v)){i.style.borderColor='var(--neg)';return;}F[k]=v?isoOf(v):'';F.period=(F.from||F.to)?'custom':'all';renderAll();};return i;};
+  const dt=(k,ph)=>{const w=datePicker({iso:F[k]||'',label:ph+' (sell date)',onChange:()=>apply()});w.classList.add('hdate');w.title='Sell date, dd-mm-yyyy — type it or pick it in the calendar';
+    const apply=()=>{const v=w.getISO();if(v===null){w.classList.add('bad');return;}w.classList.remove('bad');if((v||'')===(F[k]||''))return;F[k]=v||'';F.period=(F.from||F.to)?'custom':'all';renderAll();};
+    w.input.addEventListener('change',apply);return w;};
   const dates=document.createElement('span');dates.className='hdates';dates.append(dt('from','From'),document.createTextNode('–'),dt('to','To'));
   const res=document.createElement('select');res.setAttribute('aria-label','Result');[['all','Winners and losers'],['winners','Winners'],['losers','Losers']].forEach(([v,l])=>{const o=new Option(l,v);o.selected=F.result===v;res.add(o);});res.onchange=()=>{F.result=res.value;renderAll();};
   const q=document.createElement('input');q.type='search';q.placeholder='Search in comments';q.value=F.q;q.setAttribute('aria-label','Search in comments');q.oninput=()=>{F.q=q.value;renderAll(false,true);};
@@ -487,11 +509,12 @@ function renderFilters(){
   const ch=[];
   if(F.period==='custom')ch.push([`Sold ${F.from?'from '+dmy(F.from):''} ${F.to?'to '+dmy(F.to):''}`.trim(),()=>{F.period='all';F.from='';F.to='';}]);
   else if(F.period!=='all')ch.push([PERIODS.find(p=>p[0]===F.period)[1],()=>{F.period='all';}]);
-  for(const k of Object.keys(FNAME))for(const v of F[k])ch.push([`${FNAME[k]}: ${OPTS[k]().find(o=>o[0]===v)?.[1]??v}`,()=>{F[k]=F[k].filter(x=>x!==v);}]);
+  for(const k of Object.keys(FNAME))for(const v of F[k])ch.push([`${F.not.includes(k)?'Leave out '+FNAME[k].toLowerCase():FNAME[k]}: ${OPTS[k]().find(o=>o[0]===v)?.[1]??v}`,()=>{F[k]=F[k].filter(x=>x!==v);},F.not.includes(k)]);
+  if(F.skip.length)ch.push([`Left out by hand: ${F.skip.length} trade${F.skip.length>1?'s':''}`,()=>{F.skip=[];},true]);
   if(F.result!=='all')ch.push([F.result==='winners'?'Winners':'Losers',()=>{F.result='all';}]);
   if(F.q.trim())ch.push([`Comment: “${F.q.trim()}”`,()=>{F.q='';}]);
   if(F.ids)ch.push([`${capz(F.idsLabel)} (${F.ids.length})`,()=>{F.ids=null;}]);
-  if(ch.length){const c=document.createElement('div');c.className='hchips';for(const [l,fn] of ch){const s=document.createElement('span');s.className='hchip';s.textContent=l;const x=document.createElement('button');x.type='button';x.setAttribute('aria-label','Remove '+l);x.textContent='×';x.onclick=()=>{fn();renderAll();};s.append(x);c.append(s);}el.append(c);}
+  if(ch.length){const c=document.createElement('div');c.className='hchips';for(const [l,fn,o] of ch){const s=document.createElement('span');s.className='hchip'+(o?' out':'');s.textContent=l;const x=document.createElement('button');x.type='button';x.setAttribute('aria-label','Remove '+l);x.textContent='×';x.onclick=()=>{fn();renderAll();};s.append(x);c.append(s);}el.append(c);}
 }
 
 // ---- compare (design 5): pick a question → two group cards with the same numbers → the differences in plain sentences
@@ -574,7 +597,7 @@ function renderAll(keepMs,keepQ){
   for(const k of ['report','trades','compare']){const b=$('v-'+k);b.className=view===k?'on':'';b.querySelector('.chgdot')?.remove();if(tabChanged(k)&&!seenTabs.has(k)){b.insertAdjacentHTML('beforeend',' <i class="chgdot" title="Something changed here since you last looked"></i>');}if(view===k&&!seenTabs.has(k)){seenTabs.add(k);setTimeout(()=>markSeen(k),0);}b.setAttribute('aria-selected',String(view===k));$('sec-'+k).className='hview'+(view===k?' on':'');}
   $('n-trades').textContent=ts.length===TR.length?TR.length:`${ts.length} of ${TR.length}`;
   $('tabnote').textContent=view==='report'?'7 checks on all your closed trades':view==='trades'?'The numbers follow your filters':'Two groups of trades side by side';
-  if(view==='trades'){renderSummary(ts);if(!keepQ)renderFilters();renderTable(ts);}
+  if(view==='trades'){const all=hasOut(F)?applyF(baseF(F)):ts;renderSummary(ts);renderEffect(all,ts);if(!keepQ)renderFilters();renderTable(all,ts);}
   else if(view==='compare')renderCompare();
 }
 

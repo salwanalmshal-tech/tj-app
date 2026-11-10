@@ -673,7 +673,9 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 .ltable td.best::after{content:" ●";color:var(--accent);font-size:9px;vertical-align:middle}
 @media (max-width:900px){.hrep,.hc-g{grid-template-columns:1fr}.hfacts{grid-template-columns:1fr}.metrics.five{grid-template-columns:1fr 1fr}.hline{flex-direction:column;gap:2px}.hline .k{flex:none}}
 .hdates{display:inline-flex;align-items:center;gap:6px;color:var(--faint)}
-.hf input.hdate{width:118px;flex:none;padding:0 10px}
+.hf .dp.hdate{width:150px;flex:none;height:38px;border:1px solid var(--field);border-radius:10px;background:var(--panel);padding:0 2px 0 10px;gap:2px}
+.hf .dp.hdate input{border:0;height:100%;padding:0;width:100%;background:transparent}
+.hf .dp.hdate.bad{border-color:var(--neg)}
 .hc-q{display:grid;gap:8px}
 .hc-chips{display:flex;flex-wrap:wrap;gap:8px}
 .hcq{all:unset;cursor:pointer;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:13px;color:var(--ink);display:inline-flex;align-items:center}
@@ -726,3 +728,16 @@ body.grabbing,body.grabbing *{cursor:grabbing!important}
 #tview .hfloat > div{height:1px}
 #tview .hfloat::-webkit-scrollbar{height:12px}#tview .hfloat::-webkit-scrollbar-track{background:var(--raised)}
 #tview .hfloat::-webkit-scrollbar-thumb{background:#9AA6B4;border-radius:8px;border:3px solid var(--raised)}#tview .hfloat::-webkit-scrollbar-thumb:hover{background:#7C8899}
+
+/* 2026-11-10 what-if: leave out trades */
+.msmode{display:flex;gap:4px;padding:4px;margin:0 0 6px;background:var(--raised);border-radius:9px}
+.msmode button{all:unset;cursor:pointer;flex:1;text-align:center;padding:5px 8px;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted)}
+.msmode button.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(21,35,59,.12)}
+.ms > button.act.out{border-color:#B7791F;color:#8A5A12;background:#FFF6E5}
+.hchip.out{background:#FFF6E5;color:#8A5A12}
+.heffect{display:flex;flex-wrap:wrap;align-items:center;gap:6px 22px;padding:11px 16px;margin:0 0 12px;border:1px solid #F1D8A8;background:#FFFBF2;border-radius:12px;font-size:13px}
+.heffect .eh{font-weight:700;color:#8A5A12}
+.heffect .ef{white-space:nowrap;font-variant-numeric:tabular-nums}.heffect .k{color:var(--muted)}.heffect .ar{color:var(--faint)}
+.heffect .linkbtn{margin-left:auto}
+input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;cursor:pointer}
+#tview tr.outrow td{color:var(--faint)}#tview tr.outrow td *{color:var(--faint)!important}#tview tr.outrow .hlab,#tview tr.outrow .lmiss{background:var(--raised)}
