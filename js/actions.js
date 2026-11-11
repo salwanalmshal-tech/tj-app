@@ -81,9 +81,17 @@ export function addListItem(st, list, name, extra = {}) {
   const it = { id: nextId(st, list[0]), [key]: norm, archived: false, ...(list === 'stocks' ? { sector: extra.sector ?? '', industry: extra.industry ?? '', exchange: extra.exchange ?? '' } : {}) };
   st[list].push(it); return ok(it);
 }
-export function listUsage(st, list, id) {
+export function listUsage(st, list, id) { // total references (trades + dividends), used only to decide "is this still in use"
   const f = list === 'stocks' ? 'stockId' : list === 'setups' ? 'setupId' : 'errorId';
   return st.trades.filter((t) => t[f] === id).length + (list === 'stocks' ? st.dividends.filter((d) => d.stockId === id).length : 0);
+}
+// #14: trades and dividends counted separately, so the "Trades" column and the delete warning say exactly
+// what they mean, instead of one number that silently mixes two different kinds of entry.
+export function listUsageDetail(st, list, id) {
+  const f = list === 'stocks' ? 'stockId' : list === 'setups' ? 'setupId' : 'errorId';
+  const trades = st.trades.filter((t) => t[f] === id).length;
+  const dividends = list === 'stocks' ? st.dividends.filter((d) => d.stockId === id).length : 0;
+  return { trades, dividends };
 }
 export function renameListItem(st, list, id, newName, { merge = false } = {}) {
   const key = list === 'stocks' ? 'symbol' : 'name';
@@ -184,11 +192,12 @@ export function editDaily(st, id, field, raw) {
   }
   if (SHARED.includes(field) && C.openQty(t) > 0n) {
     const group = sameStockOpen(st, t);
-    if (field === 'highest') {
-      // strictly highest wins (2026-11-06): a lower value only through "Correct highest price"
+    if (field === 'highest' && val !== '') {
+      // strictly highest wins (2026-11-06): a lower value only through "Correct highest price".
+      // Clearing it (val === '') is not "lower": it must work, like every other field (#11).
       const cur = maxHighest(group);
       const p = D.parse(val);
-      if (cur !== null && (p === null || p < cur)) return err(`The highest price can only go up (now ${D.fmt(cur, 2)}). Use “Correct highest price” to set a lower value.`, { lower: true });
+      if (cur !== null && p < cur) return err(`The highest price can only go up (now ${D.fmt(cur, 2)}). Use “Correct highest price” to set a lower value.`, { lower: true });
     }
     for (const x of group) x[field] = val;
     return ok(t);

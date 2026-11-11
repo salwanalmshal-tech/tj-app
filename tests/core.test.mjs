@@ -74,6 +74,29 @@ test('archive blocked with open position; delete only if unused; merge moves lin
   const s2 = A.addListItem(st, 'stocks', 'ABD').data; const m = A.renameListItem(st, 'stocks', s2.id, 'abc'); assert.equal(m.error, 'exists');
   const mm = A.renameListItem(st, 'stocks', s2.id, 'abc', { merge: true }); assert.ok(mm.ok); assert.equal(st.stocks.length, 1);
 });
+// #14: Lists' "Trades" count must not mix in dividends
+test('#14: listUsageDetail counts trades and dividends separately', () => {
+  const st = fresh(); const t = open(st).data;
+  A.addDividend(st, { stockId: t.stockId, payDate: '2026-09-10', amount: '5' });
+  A.addDividend(st, { stockId: t.stockId, payDate: '2026-09-11', amount: '5' });
+  const u = A.listUsageDetail(st, 'stocks', t.stockId);
+  assert.deepEqual(u, { trades: 1, dividends: 2 });
+  assert.equal(A.listUsage(st, 'stocks', t.stockId), 3); // the combined total still used to decide "in use"
+});
+// #12: Close trade's Mistake dropdown must clear an existing mistake when "None" is chosen
+test('#12: editDaily("errorId", null) clears an existing mistake, same as the edit screen', () => {
+  const st = fresh(); const t = open(st).data; const e = A.addListItem(st, 'errors', 'FOMO').data;
+  assert.ok(A.editDaily(st, t.id, 'errorId', e.id).ok); assert.equal(t.errorId, e.id);
+  assert.ok(A.editDaily(st, t.id, 'errorId', null).ok); assert.equal(t.errorId, null);
+});
+// #24: a "Small position" must get its own tone (blue), not silently fall back to the "Normal" green
+test('#24: a small position gets an "info" level mark of its own, not mistaken for Normal', () => {
+  const st = fresh(); const t = open(st, { qty: '10' }).data; // $500 of $24000 = 2,08 %: inside the 1-5 % "Small" zone
+  A.editDaily(st, t.id, 'last', '50');
+  const m = lineMarks(st, t, '2026-09-04', C.estimatedAccount(st));
+  const size = m.find((x) => x.text === 'Small position');
+  assert.ok(size, 'expected a "Small position" mark'); assert.equal(size.level, 'info');
+});
 test('split on a partly sold trade keeps money results and R', () => {
   const st = fresh(); const t = open(st).data;
   A.closeSale(st, { date: '2026-10-01', price: '60', commission: '', allocations: [{ tradeId: t.id, qty: '40' }] });

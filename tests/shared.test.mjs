@@ -32,7 +32,9 @@ test('highest price: strictly highest wins; only "Correct highest price" can low
   const { st, a, b } = setup();
   assert.ok(A.editDaily(st, a.id, 'highest', '30').ok); assert.equal(b.highest, '30');
   const low = A.editDaily(st, b.id, 'highest', '29'); assert.equal(low.ok, false); assert.equal(a.highest, '30');
-  assert.equal(A.editDaily(st, b.id, 'highest', '').ok, false);
+  // #11: clearing it is not "lower" - it must work, like every other field, and clears the whole shared group
+  assert.ok(A.editDaily(st, b.id, 'highest', '').ok); assert.equal(a.highest, ''); assert.equal(b.highest, '');
+  assert.ok(A.editDaily(st, a.id, 'highest', '30').ok); assert.equal(b.highest, '30'); // back to a known value for the rest of the test
   const n = st.changeLog.length;
   assert.ok(A.correctHighest(st, b.id, '29,40').ok);
   assert.equal(a.highest, '29.4'); assert.equal(b.highest, '29.4'); assert.equal(st.changeLog.length, n + 2);

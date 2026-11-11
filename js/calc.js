@@ -57,6 +57,15 @@ export function rCategory(R, settings) {
   for (const [lim, name] of settings.rCategories) if (R >= D.d(lim)) return name;
   return settings.rCategoryElse;
 }
+// Decision #13: the colour of a result label follows its POSITION in the list, never its name text — renaming a
+// label (e.g. "WINNER" -> something else) must not lose its colour, and this is the one place both Settings and
+// History read the colour from, so they can never disagree.
+export const R_TONES = ['green', 'green', 'green', 'grey', 'amber', 'red', 'red'];
+export function rCategoryTone(R, settings) {
+  if (R === null) return null;
+  const i = settings.rCategories.findIndex(([lim]) => R >= D.d(lim));
+  return i === -1 ? (R_TONES.at(-1) ?? 'blue') : (R_TONES[i] ?? 'blue');
+}
 export function stopDistancePct(t) { // buy -> initial stop, % of buy price
   const r = riskPerShare(t); if (r === null) return null;
   return D.pct(r, D.d(t.buyPrice));

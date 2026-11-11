@@ -18,7 +18,7 @@ export function render(ctx) {
 }
 
 function table(ctx, st, list, key) {
-  const usage = new Map(st[list].map((it) => [it.id, A.listUsage(st, list, it.id)]));
+  const usage = new Map(st[list].map((it) => [it.id, A.listUsageDetail(st, list, it.id)]));
   // filters
   let rows = st[list].filter((it) => V.status === 'all' ? true : V.status === 'archived' ? it.archived : V.status === 'missing' ? !it.archived && list === 'stocks' && missingInfo(it) : !it.archived);
   const q = V.q.trim().toLowerCase();
@@ -27,7 +27,7 @@ function table(ctx, st, list, key) {
   if (list === 'stocks' && V.exch) rows = rows.filter((it) => (it.exchange || '') === V.exch);
   // sort
   const [sk, sd] = V.sort[list];
-  const val = (it) => (sk === 'trades' ? usage.get(it.id) : (it[sk] || '').toLowerCase());
+  const val = (it) => (sk === 'trades' ? usage.get(it.id).trades : (it[sk] || '').toLowerCase());
   rows.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * sd || a[key].localeCompare(b[key]); });
   const pages = Math.max(1, Math.ceil(rows.length / PAGE)); if (V.page >= pages) V.page = pages - 1;
   const shown = rows.slice(V.page * PAGE, V.page * PAGE + PAGE);
@@ -53,7 +53,7 @@ function table(ctx, st, list, key) {
   const body = shown.map((it) => {
     const n = usage.get(it.id);
     const status = h('span', { class: 'lst ' + (it.archived ? 'arch' : 'act') }, it.archived ? 'Archived' : 'Active');
-    const trades = h('span', { class: 'ltr' + (n ? '' : ' zero') }, n === 1 ? '1 trade' : n + ' trades');
+    const trades = h('span', { class: 'ltr' + (n.trades ? '' : ' zero') }, (n.trades === 1 ? '1 trade' : n.trades + ' trades') + (n.dividends ? ` · ${n.dividends === 1 ? '1 dividend' : n.dividends + ' dividends'}` : ''));
     const menu = rowMenu(ctx, list, it, n);
     return list === 'stocks'
       ? h('tr', { class: it.archived ? 'arch' : '' }, h('td', null, h('b', { class: 'lsym' }, it.symbol)), h('td', null, cell(it.sector)), h('td', null, cell(it.industry)), h('td', null, cell(it.exchange)), h('td', null, trades), h('td', null, status), h('td', { class: 'r' }, menu))
@@ -70,13 +70,19 @@ function table(ctx, st, list, key) {
 // "…" menu per row: Edit, Archive / Restore, Delete (rules J2: archive instead of delete; delete only when unused)
 let openMenu = null;
 document.addEventListener('click', (e) => { if (openMenu && !openMenu.contains(e.target)) { openMenu.classList.remove('open'); openMenu = null; } });
-function rowMenu(ctx, list, it, used) {
+function rowMenu(ctx, list, it, usage) {
   const item = (label, fn, cls = '') => h('button', { type: 'button', class: cls, disabled: ctx.readOnly, onClick: (e) => { e.stopPropagation(); wrap.classList.remove('open'); openMenu = null; fn(); } }, label);
   const wrap = h('div', { class: 'lmenu' },
     h('button', { type: 'button', class: 'btn sm ldots', 'aria-label': 'Actions for ' + it[NAMES[list][1]], onClick: (e) => { e.stopPropagation(); const was = wrap.classList.contains('open'); if (openMenu) openMenu.classList.remove('open'); wrap.classList.toggle('open', !was); openMenu = was ? null : wrap; } }, '•••'),
-    h('div', { class: 'lpop' }, item('Edit…', () => edit(ctx, list, it)), item(it.archived ? 'Restore' : 'Archive', () => archive(ctx, list, it)), item('Delete…', () => del(ctx, list, it, used), 'dng')));
+    h('div', { class: 'lpop' }, item('Edit…', () => edit(ctx, list, it)), item(it.archived ? 'Restore' : 'Archive', () => archive(ctx, list, it)), item('Delete…', () => del(ctx, list, it, usage), 'dng')));
   return wrap;
 }
+// #14: "2 trades" / "1 trade and 2 dividends" / "3 dividends" - never one mixed number
+const usageText = (usage) => {
+  const parts = []; if (usage.trades) parts.push(usage.trades === 1 ? '1 trade' : usage.trades + ' trades');
+  if (usage.dividends) parts.push(usage.dividends === 1 ? '1 dividend' : usage.dividends + ' dividends');
+  return parts.length ? parts.join(' and ') : '0 trades';
+};
 // sector / industry / exchange suggestions from the 2nd letter (2026-11-09), from the values your stocks already use
 function suggestInfo(st, x) {
   const uniqOf = (k) => [...new Set(st.stocks.map((s) => (s[k] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -105,8 +111,8 @@ function edit(ctx, list, it) {
       if (name.value.trim().toUpperCase() !== it[key].toUpperCase() || (list !== 'stocks' && name.value.trim() !== it[key])) {
         const trial = structuredClone(ctx.store.state); const r = A.renameListItem(trial, list, it.id, name.value);
         if (!r.ok && r.exists) {
-          const n = A.listUsage(ctx.store.state, list, it.id);
-          const ok = await dialog({ title: `“${r.exists[key]}” already exists. Merge?`, ok: 'Merge', body: para(`${n} trade${n === 1 ? '' : 's'}${list === 'stocks' ? ' and dividends' : ''} of “${it[key]}” move to “${r.exists[key]}”, and “${it[key]}” is removed from the list. This cannot be split apart again (Undo works for the last change).`, '') });
+          const n = A.listUsageDetail(ctx.store.state, list, it.id);
+          const ok = await dialog({ title: `“${r.exists[key]}” already exists. Merge?`, ok: 'Merge', body: para(`${usageText(n)} of “${it[key]}” move to “${r.exists[key]}”, and “${it[key]}” is removed from the list. This cannot be split apart again (Undo works for the last change).`, '') });
           if (!ok) return false;
           const m = ctx.act((d) => A.renameListItem(d, list, it.id, name.value, { merge: true }), { label: 'merge', now: true }); return m.ok ? true : m.error;
         }
@@ -121,9 +127,9 @@ async function archive(ctx, list, it) {
   if (!it.archived) { const probe = A.archiveListItem(structuredClone(ctx.store.state), list, it.id, true); if (!probe.ok) return dialog({ title: `${it[key]} still has an open position`, body: para('Close it first, then archive. Nothing was changed.', ''), info: true }); }
   const r = ctx.act((d) => A.archiveListItem(d, list, it.id, !it.archived), { label: it.archived ? 'restore ' + it[key] : 'archive ' + it[key], now: true }); if (!r.ok) toast(r.error);
 }
-async function del(ctx, list, it, used) {
+async function del(ctx, list, it, usage) {
   const key = NAMES[list][1];
-  if (used) return dialog({ title: `${it[key]} is in use`, body: para(`${used} trade${used === 1 ? '' : 's'} use it. Archive it instead: archived items stay in old trades but disappear from the pick lists.`, ''), info: true });
+  if (usage.trades || usage.dividends) return dialog({ title: `${it[key]} is in use`, body: para(`${usageText(usage)} use it. Archive it instead: archived items stay in old trades but disappear from the pick lists.`, ''), info: true });
   const ok = await dialog({ title: `Delete ${it[key]}?`, danger: true, ok: 'Delete', body: para('It moves to the Trash for 15 days.', '') }); if (!ok) return;
   const r = ctx.act((d) => A.deleteListItem(d, list, it.id), { label: 'delete ' + it[key], now: true }); if (r.ok) toast(`${it[key]} moved to the Trash.`, 'Restore', () => ctx.store.undo()); else toast(r.error);
 }

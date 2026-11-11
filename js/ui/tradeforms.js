@@ -284,7 +284,10 @@ export function renderClose(ctx) {
       const r = A.closeSale(d, { date: iso, price: price.value, commission: comm.value, allocations }); if (!r.ok) return r;
       const errId = resolveNew(d, 'errors', errV), setId = resolveNew(d, 'setups', setV);
       const starV = starsSel.getValue();
-      for (const a of allocations) { const t = A.tradeById(d, a.tradeId); if (errId) t.errorId = errId;
+      for (const a of allocations) { const t = A.tradeById(d, a.tradeId);
+        // #12: picking "None" must clear an existing mistake. Only skip when the field was never touched and
+        // the trades being closed had different mistakes to start with (nothing chosen = leave each as it was).
+        if (mistakeTouched || errId) t.errorId = errId;
         if (setId) { const changed = t.setupId !== setId; A.setTradeSetup(t, setId); if ((changed || starsTouched) && A.canRate(d, setId)) A.setTradeStars(d, t, starV); } }
       return r;
     };

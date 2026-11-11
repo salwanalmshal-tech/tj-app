@@ -13,7 +13,10 @@ export async function askRecalc(ctx) {
   const ok = await dialog({ title: `Recalculate the capital at open of ${diffs.length} trade${diffs.length === 1 ? '' : 's'}?`, wide: true, ok: 'Recalculate', cancel: 'Keep old values',
     body: h('div', null, para('These trades were opened after the date of your change. Recalculating changes their position size %, risk % and result % of capital. Keeping the old values leaves them as they are.'),
       changeTable(diffs.map((x) => Object.assign([x.id + ' ' + x.symbol, money(D.d(x.before)), money(D.d(x.after))], { changed: true })), ['Trade', 'Capital at open now', 'Recalculated'])) });
-  if (ok) ctx.act((d) => A.recalcCapital(d), { label: 'capital at open', now: true });
+  // noUndo: this recalc is a side effect of whatever change triggered it (delete, add, import, restore).
+  // It must not take over the one-step Undo slot, or a "Restore"/"Undo" toast for that earlier change
+  // would end up undoing this recalc instead (#20).
+  if (ok) ctx.act((d) => A.recalcCapital(d), { label: 'capital at open', now: true, noUndo: true });
 }
 
 export function render(ctx) {

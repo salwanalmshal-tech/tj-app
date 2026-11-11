@@ -192,14 +192,19 @@ const SIZE_FULL = 15; // the size line is full at 15 % of the account
 // which value on the card a mark highlights
 const HL = { 'Missing: stop': 'stop', 'Raise stop': 'stop', 'Stop far below highest price': 'stop', 'Stop far below buy price': 'stop',
   'At or below stop': 'last', 'Close to stop': 'last', 'Missing: last price': 'last', 'Missing: highest price': 'hi',
-  'Below EMA10': 'ema', 'Near EMA10': 'ema', 'Missing: EMA10': 'ema', 'Missing: Initial stop': 'init', 'Position too big': 'size', 'Near size limit': 'size' };
+  'Below EMA10': 'ema', 'Near EMA10': 'ema', 'Missing: EMA10': 'ema', 'Missing: Initial stop': 'init',
+  'Position too big': 'size', 'Near size limit': 'size', 'Small position': 'size' };
 const hlKey = (text) => HL[text] ?? (text.startsWith('Report') ? 'rep' : text.startsWith('Risk above') ? 'risk' : null);
+const HL_RANK = { r: 2, o: 1, b: 0 };
 function highlights(marks) {
   const out = {};
   for (const m of marks) {
-    const k = hlKey(m.text); const c = m.level === 'crit' || m.level === 'neg' ? 'r' : m.level === 'warn' ? 'o' : null;
+    const k = hlKey(m.text); const c = m.level === 'crit' || m.level === 'neg' ? 'r' : m.level === 'warn' ? 'o' : m.level === 'info' ? 'b' : null;
     if (!k || !c) continue;
-    out[k] ??= { c, why: [] }; if (c === 'r') out[k].c = 'r'; out[k].why.push(m.say ?? m.text);
+    // #24: "Small position" (info level) must get its own colour (blue), matching Settings, instead of falling
+    // through to the default green used for "Normal" - that silent fallback was the original bug.
+    if (!out[k] || HL_RANK[c] > HL_RANK[out[k].c]) out[k] = { c, why: [] };
+    out[k].why.push(m.say ?? m.text);
   }
   return out;
 }

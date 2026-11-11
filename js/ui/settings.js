@@ -66,7 +66,7 @@ export function render(ctx) {
         zone({ tone: 'red', name: 'Red', body: h('span', { class: 'zt' }, 'above ', num('riskRed', 'num', '%', 'Risk at stop, red above')), note: 'Risk of Capital shown red.' }))),
     card('Position size', '% of estimated account',
       h('div', { class: 'zones' },
-        zone({ tone: 'blue', name: 'Small', body: h('span', { class: 'zt' }, num('posSmallFrom', 'num', '', 'Small position from'), '–', num('posSmallTo', 'num', '%', 'Small position up to')), note: 'Shown in the line panel only.' }),
+        zone({ tone: 'blue', name: 'Small', body: h('span', { class: 'zt' }, num('posSmallFrom', 'num', '', 'Small position from'), '–', num('posSmallTo', 'num', '%', 'Small position up to')), note: 'Position size shown blue.' }),
         zone({ tone: 'green', name: 'Normal', body: derived(() => 'below ' + val('posNear') + ' %'), note: 'Position size green.' }),
         zone({ tone: 'amber', name: 'Near limit', body: h('span', { class: 'zt' }, 'from ', num('posNear', 'num', '%', 'Position size, orange from')), note: 'Position size orange.' }),
         zone({ tone: 'red', name: 'Too big', body: h('span', { class: 'zt' }, 'above ', num('posTooBig', 'num', '%', 'Position size, red above')), note: 'Position size red.' }))),
@@ -94,7 +94,7 @@ export function render(ctx) {
   const results = [
     card('Trade result · R multiple', 'Outcome scale',
       h('p', { class: 'snote' }, 'A trade gets the first label whose R it reaches, from the top.'),
-      labelZones('rCategories', 'rCategoryElse', 'R', 'from', ['green', 'green', 'green', 'grey', 'amber', 'red', 'red'], 'Anything lower.')),
+      labelZones('rCategories', 'rCategoryElse', 'R', 'from', C.R_TONES, 'Anything lower.')),
     card('Stop distance', 'Buy price to Initial stop',
       h('p', { class: 'snote' }, 'Distance from the buy price down to the Initial stop. The first label it stays within is used.'),
       labelZones('stopDistance', 'stopDistanceElse', '%', 'up to', ['blue', 'green', 'amber', 'red'], 'Anything wider.')),
@@ -102,18 +102,14 @@ export function render(ctx) {
   ];
   const history = [
     card('Result per trade', '% of capital at open',
+      h('p', { class: 'snote' }, 'Shown in History\'s "% capital" column: ▼ red for a loss past the limit, ▲ green for a gain past the limit.'),
       row({ path: 'histLoss', label: 'Loss to highlight', sub: 'Closed trades that lost more than this of the capital.', chip: 'Loss above', tone: 'neg' }),
       row({ path: 'histGain', label: 'Gain to highlight', sub: 'Closed trades that gained more than this of the capital.', chip: 'Gain above', tone: 'pos' })),
-    card('Result per stock', 'Sum of its trades',
-      h('div', { class: 'zones' },
-        zone({ tone: 'amber', name: 'Loss', body: h('span', { class: 'zt' }, 'above ', num('stockLoss1', 'num', '%', 'Per stock, loss above')) }),
-        zone({ tone: 'red', name: 'Big loss', body: h('span', { class: 'zt' }, 'above ', num('stockLoss2', 'num', '%', 'Per stock, big loss above')) }),
-        zone({ tone: 'green', name: 'Gain', body: h('span', { class: 'zt' }, 'above ', num('stockGain1', 'num', '%', 'Per stock, gain above')) }),
-        zone({ tone: 'green', name: 'Big gain', body: h('span', { class: 'zt' }, 'above ', num('stockGain2', 'num', '%', 'Per stock, big gain above')) }))),
+    card('Result per stock', 'Coming with the Dashboard', h('p', { class: 'snote', style: { margin: 0 } }, 'Results grouped by stock will live on the Dashboard (not built yet). These limits are hidden here until then; nothing is lost.')),
   ];
   const saving = [
     card('Saving', 'Automatic',
-      row({ path: 'saveDelaySec', kind: 'int', unit: 'sec', label: 'Save after your last edit', sub: 'Avoids saving on every key while you type.', chip: 'Automatic save', tone: 'plain' }),
+      row({ path: 'saveDelaySec', kind: 'int', unit: 'sec', label: 'Save after your last edit', sub: 'Only for the Setup, Mistake and Stars edits in History\'s trade details, which save as you change them, with no Save button. Everywhere else, saving happens the moment you press Save.', chip: 'Automatic save', tone: 'plain' }),
       row({ path: 'bigJumpPct', label: 'Unusual last price jump', sub: 'Typed prices that jump more than this ask first.', chip: 'Save anyway?', tone: 'warn' })),
     card('Excel copy', 'Safety copy',
       row({ path: 'excelCopyDays', kind: 'int', unit: 'days', label: 'Make an Excel copy every', sub: 'Saved in the Backups folder in your Drive, for reading in Excel. Restoring always uses the JSON backups.', chip: 'Excel copy', tone: 'plain' }),

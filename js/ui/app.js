@@ -170,11 +170,16 @@ export async function backupIfDue(kind) {
   if (kind === 'auto') excelCopyIfDue();
   try {
     const list = await ctx.storage.listBackups(); const today = new Date().toISOString().slice(0, 10);
-    if (kind === 'auto' && list.some((b) => b.time.slice(0, 10) === today && b.kind === 'auto')) return;
+    const todays = list.filter((b) => b.time.slice(0, 10) === today);
+    if (kind === 'auto' && todays.some((b) => b.kind === 'auto')) {
+      // Decision #9: a backup for today can already exist from earlier (this session or another), even though this
+      // session has not written one itself. Say so correctly instead of leaving the status stuck on "not backed up".
+      ctx.lastBackup = new Date(Math.max(...todays.map((b) => Date.parse(b.time)))); ctx.lastBackupFailed = false; paintStatus(); return;
+    }
     await ctx.storage.writeBackup(kind, ctx.store.state);
     for (const id of backupsToDelete(await ctx.storage.listBackups())) await ctx.storage.deleteBackup(id);
-    ctx.lastBackup = new Date(); paintStatus();
-  } catch { /* backups are best effort; the main file is already saved */ }
+    ctx.lastBackup = new Date(); ctx.lastBackupFailed = false; paintStatus();
+  } catch { ctx.lastBackupFailed = true; paintStatus(); /* backups are best effort; the main file is already saved, but say the attempt failed */ }
 }
 // weekly Excel copy (settings excelCopyDays / excelCopyKeep); best effort, never blocks or slows the program
 async function excelCopyIfDue() {
@@ -186,7 +191,7 @@ async function excelCopyIfDue() {
 }
 export async function safetyBackup(kind) {
   if (ctx.demo) { await ctx.storage.writeBackup(kind, ctx.store.state); return true; }
-  try { await ctx.storage.writeBackup(kind, ctx.store.state); return true; } catch { return false; }
+  try { await ctx.storage.writeBackup(kind, ctx.store.state); ctx.lastBackup = new Date(); ctx.lastBackupFailed = false; paintStatus(); return true; } catch { return false; }
 }
 
 // ------------------------------------------------------------- shell
@@ -207,14 +212,20 @@ function paintStatus() {
   else if (s.status === 'saving') el = h('span', { class: 'pill' }, h('span', { class: 'dot', style: { background: 'transparent', border: '2px solid var(--muted)' } }), 'Saving…');
   else if (s.status === 'unsaved') el = h('span', { class: 'pill' }, h('span', { class: 'dot', style: { background: 'var(--warn)' } }), 'Not saved yet');
   else if (s.status === 'failed' || s.status === 'reconnect' || s.status === 'conflict') el = h('span', { class: 'pill crit' }, '■ Not saved yet');
-  else el = h('span', { class: 'pill' }, h('span', { class: 'dot' }), s.at || ctx.saver?.lastSaved ? 'Saved ' + hhmm(s.at || ctx.saver.lastSaved) : 'Saved', ctx.lastBackup ? ' · Backup today' : '');
+  else if (ctx.lastBackupFailed) el = h('span', { class: 'pill warn', title: 'The last backup attempt failed. Your data is still saved; only the extra safety copy did not get made.' }, '◆ Backup failed');
+  else el = h('span', { class: 'pill' }, h('span', { class: 'dot' }), s.at || ctx.saver?.lastSaved ? 'Saved ' + hhmm(s.at || ctx.saver.lastSaved) : 'Saved', ctx.lastBackup && ctx.lastBackup.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10) ? ' · Backup today' : '');
   statusEl.append(h('button', { class: 'btn ghost', style: { padding: 0, height: 'auto' }, 'aria-label': 'Save status', onClick: statusDetails }, el));
 }
+const hhmm2 = (d) => {
+  const today = new Date().toISOString().slice(0, 10), iso = d.toISOString().slice(0, 10);
+  const time = d.toTimeString().slice(0, 5);
+  return (iso === today ? 'today' : dmy(iso)) + ' ' + time;
+};
 function statusDetails() {
   const d = ctx.storage?.describe?.() || {};
   dialog({ title: 'Saving', info: true, ok: 'Close', body: h('div', null,
     h('dl', { class: 'kv' }, h('dt', null, 'Where'), h('dd', null, ctx.demo ? 'Nowhere (demo)' : `${d.file} in “${d.folder}”`), h('dt', null, 'Google account'), h('dd', null, d.account || '–'),
-      h('dt', null, 'Last backup'), h('dd', null, ctx.lastBackup ? 'today' : '–'), h('dt', null, 'Status'), h('dd', null, ctx.status?.message || ctx.status?.status || '')),
+      h('dt', null, 'Last backup'), h('dd', null, ctx.lastBackup ? hhmm2(ctx.lastBackup) : ctx.lastBackupFailed ? 'Failed just now' : '–'), h('dt', null, 'Status'), h('dd', null, ctx.status?.message || ctx.status?.status || '')),
     h('div', { class: 'row', style: { marginTop: '10px' } }, h('button', { class: 'btn sm', onClick: () => download('TradeJournal-copy.json', new Blob([JSON.stringify(ctx.store.state, null, 1)], { type: 'application/json' })) }, 'Download a copy'),
       h('button', { class: 'btn sm', onClick: () => ctx.saver?.flush() }, 'Save now'))) });
 }

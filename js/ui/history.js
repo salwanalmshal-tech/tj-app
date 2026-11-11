@@ -5,6 +5,7 @@ import { h, closeTopDialog, dialog, para, toast, money, signed, qtyTxt, field, c
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
+import { resultPctMark } from '../marks.js';
 import { parseDMY, todayISO } from '../dates.js';
 import { editTrade, withNew, resolveNew } from './tradeforms.js';
 // data.js is loaded only when exporting (keeps History importable in the tests)
@@ -62,8 +63,10 @@ function build(){
     t.netB=netB; t.net=BC(netB);
     t.days=C.holdingDays(src);
     t.avgSell=BN(D.div(src.sales.reduce((a,x)=>a+D.mul(D.d(x.price),D.d(x.qty)),0n),C.soldQty(src)));
-    t.capPct=capB&&capB!==0n?BN(D.pct(netB,capB)):null;
-    t.R=BN(RB); t.labelRaw=C.rCategory(RB,S)??'–'; t.label=esc(t.labelRaw);
+    const capPctRaw=capB&&capB!==0n?D.pct(netB,capB):null;
+    t.capPct=capPctRaw===null?null:BN(capPctRaw);
+    t.histMark=resultPctMark(capPctRaw,S); // G8: ▼ red loss / ▲ green gain, same rule as the Settings limits
+    t.R=BN(RB); t.labelRaw=C.rCategory(RB,S)??'–'; t.label=esc(t.labelRaw); t.labelTone=C.rCategoryTone(RB,S);
     t.sdPct=BN(sdB); t.sdRaw=C.stopDistanceLabel(sdB,S)??'No SL'; t.sd=esc(t.sdRaw);
     t.comm=BN((C.N(src.buyCommission)??0n)+src.sales.reduce((a,x)=>a+(C.N(x.commission)??0n),0n));
   }
@@ -438,7 +441,10 @@ function renderChecks(){
 
 // ---- trades table (program list table)
 const COLS4=[['sym','Symbol'],['sellDate','Sold'],['days','Days','r'],['net','Net result','r'],['capPct','% capital','r'],['R','R','r'],['label','Result'],['setup','Setup'],['stars','Stars'],['mistake','Mistake'],['c','']];
-const labC=(l)=>/WINNER|GAIN/.test(l)?'g':l==='CONTROLLED LOSS'?'o':/LOSS/.test(l)?'r':'';
+// #13: colour comes from the trade's own tone (same rule, same position, as Settings) - never from matching the
+// label's text, so a renamed label keeps its colour and never disagrees with what Settings shows for it.
+const TONE_CLS={green:'g',red:'r',amber:'o',blue:'b',grey:''};
+const labC=(tone)=>TONE_CLS[tone]??'';
 function renderTable(ts,inc=ts){
   const counted=new Set(inc.map(t=>t.id));
   const v=$('tview');
@@ -449,8 +455,8 @@ function renderTable(ts,inc=ts){
   const tn=(n)=>n>0?'pos':n<0?'neg':'';
   v.innerHTML=`<div class="tw fx"><table class="stk"><thead><tr>${COLS4.map(([k,l,c])=>`<th class="sortable ${c||''}${sort.k===k?' on':''}">${k==='c'?'':`<button data-k="${k}">${l}<span class="sa">${sort.k===k?(sort.d>0?'▲':'▼'):'↕'}</span></button>`}</th>`).join('')}</tr></thead><tbody>${
     shown.map(t=>{const nw=PREV?.trades?.ids&&!PREV.trades.ids.includes(t.id);return `<tr class="hrow${openRow===t.id?' open':''}${nw?' newrow':''}${counted.has(t.id)?'':' outrow'}" data-id="${t.id}" tabindex="0"><td><input type="checkbox" class="hcount" data-cnt="${t.id}"${counted.has(t.id)?' checked':''}${!counted.has(t.id)&&!F.skip.includes(t.id)?' disabled title="Left out by a filter"':' title="Untick to leave this trade out of the numbers"'} aria-label="Count ${t.symRaw} ${t.id}"><b class="lsym">${t.sym}</b>${nw?' <span class="chgtag">New</span>':''}<span class="htid">${t.id}</span></td><td>${dmy(t.sellDate)}</td><td class="r">${t.days}</td>
-     <td class="r ${tn(t.net)}"><b>${usd(t.net)}</b></td><td class="r ${tn(t.net)}">${sx(t.capPct,2)} %</td><td class="r">${t.R===null?'<span class="mut">–</span>':sx(t.R,2)}</td>
-     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.label)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Missing</span>'}</td><td>${t.stars!==null?starsHtml(t.stars):t.rateable?'<span class="mut">Not rated</span>':'<span class="mut">–</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
+     <td class="r ${tn(t.net)}"><b>${usd(t.net)}</b></td><td class="r ${tn(t.net)}">${sx(t.capPct,2)} %${t.histMark?` <span class="${t.histMark.level}" title="${t.histMark.text}">${t.histMark.icon}</span>`:''}</td><td class="r">${t.R===null?'<span class="mut">–</span>':sx(t.R,2)}</td>
+     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.labelTone)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Missing</span>'}</td><td>${t.stars!==null?starsHtml(t.stars):t.rateable?'<span class="mut">Not rated</span>':'<span class="mut">–</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
     <div class="lfoot"><span class="note">Showing ${shown.length} of ${rows.length} trades${rows.length>counted.size?` · <b>${rows.length-counted.size} left out</b> (grey)`:''} · untick a trade to leave it out · click a row for details</span><span style="display:flex;gap:8px;align-items:center">${pages>1?`<span class="lpager">${Array.from({length:pages},(_,i)=>`<button class="btn sm${i===page?' on':''}" data-p="${i}">${i+1}</button>`).join('')}</span>`:''}<button class="btn sm" id="hx-export">Export to Excel</button></span></div>`;
   $('hx-export').onclick=()=>exportExcel(rows.filter(t=>counted.has(t.id)));
   v.querySelectorAll('[data-cnt]').forEach(c=>{c.onclick=(e)=>e.stopPropagation();c.onchange=()=>{const id=c.dataset.cnt;F.skip=c.checked?F.skip.filter(x=>x!==id):[...F.skip,id];renderAll();};});
@@ -488,7 +494,7 @@ function detailRow4(t){
     <div class="dtag"><label class="fld">Setup<select data-tag="setupId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Unclassified</option>${so}</select></label>
     <div class="fld">Setup rating<span data-stars="${t.id}"></span></div>
     <label class="fld">Mistake<select data-tag="errorId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Not filled in</option><option value="${PLAN||'__plan'}"${PLAN&&(PLAN&&t.errorId===PLAN)?' selected':''}>Followed my plan</option>${eo}</select></label>
-    <button class="btn" data-symf="${t.sym}">All ${t.sym} trades</button><span class="note">Changes are saved at once</span></div></td></tr>`;
+    <button class="btn" data-symf="${t.sym}">All ${t.sym} trades</button><span class="note">Changes here wait for the save delay in Settings, like everywhere else</span></div></td></tr>`;
 }
 
 // ---- trades summary: six small cards, each with a hover explanation; follow the filters

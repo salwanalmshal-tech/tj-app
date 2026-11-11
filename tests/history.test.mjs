@@ -43,3 +43,29 @@ test('History checks: verdicts work on a small journal, and typed names are made
   const t = r.trades.find((x) => x.symRaw === '<b>X</b>'); assert.equal(t.sym, '&lt;b&gt;X&lt;/b&gt;');
   for (const c of r.checks) assert.ok(!/<b>X<\/b>/.test(c.body + c.head + c.detail), c.name + ' contains raw HTML from a symbol');
 });
+
+// Decision 1 (G8): History's "% capital" column must show the same loss/gain marks as Settings' limits
+test('History: a closed trade past the G8 limit gets a ▼/▲ mark, same rule as Settings', () => {
+  const st = emptyState(); assert.ok(A.setStartCapital(st, { amount: '24000', date: '2026-01-01' }).ok);
+  const a = A.openTrade(st, { symbol: 'AAA', buyDate: '2026-02-01', qty: '100', buyPrice: '50', initialStop: '47', buyCommission: '' }).data;
+  assert.ok(A.closeSale(st, { date: '2026-02-05', price: '48.5', commission: '', allocations: [{ tradeId: a.id, qty: '100' }] }).ok); // -150, 0,625 % of 24000
+  const b = A.openTrade(st, { symbol: 'BBB', buyDate: '2026-02-06', qty: '100', buyPrice: '50', initialStop: '47', buyCommission: '' }).data;
+  assert.ok(A.closeSale(st, { date: '2026-02-10', price: '53', commission: '', allocations: [{ tradeId: b.id, qty: '100' }] }).ok); // +300, ~1,26 % of 23850
+  const r = analyse(st);
+  const ta = r.trades.find((t) => t.symRaw === 'AAA'), tb = r.trades.find((t) => t.symRaw === 'BBB');
+  assert.equal(ta.histMark?.level, 'neg'); assert.equal(ta.histMark?.icon, '▼');
+  assert.equal(tb.histMark?.level, 'pos'); assert.equal(tb.histMark?.icon, '▲');
+});
+
+// #13: the colour of a result label follows C.R_TONES by position, never the label's name - so renaming a
+// label never loses its colour, and History can never show a different colour than Settings for the same label
+test('History: a result label\'s tone matches its position in Settings even after a rename', () => {
+  const st = emptyState(); assert.ok(A.setStartCapital(st, { amount: '6000', date: '2026-01-01' }).ok);
+  st.settings.rCategories[2][1] = 'RENAMED WINNER'; // was "WINNER" (position 2, tone "green")
+  const a = A.openTrade(st, { symbol: 'AAA', buyDate: '2026-02-01', qty: '10', buyPrice: '10', initialStop: '9', buyCommission: '' }).data;
+  assert.ok(A.closeSale(st, { date: '2026-02-05', price: '10.6', commission: '', allocations: [{ tradeId: a.id, qty: '10' }] }).ok); // R ~ 0,6 -> "RENAMED WINNER"
+  const r = analyse(st);
+  const t = r.trades.find((x) => x.symRaw === 'AAA');
+  assert.equal(t.labelRaw, 'RENAMED WINNER');
+  assert.equal(t.labelTone, 'green');
+});
