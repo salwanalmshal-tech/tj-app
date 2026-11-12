@@ -71,7 +71,7 @@ function overviewPane(ctx, pick) {
 // ------------------------------------------------------------- export
 async function downloadExcel(ctx) { try { const X = await loadXLSX(); download(`TradeJournal-${stampName()}.xlsx`, toXlsx(X, toSheets(ctx.store.state))); } catch (e) { toast(e.message); } }
 function downloadJson(ctx) { download(`TradeJournal-${stampName()}.json`, new Blob([JSON.stringify(ctx.store.state, null, 1)], { type: 'application/json' })); }
-function toXlsx(X, sheets) {
+export function toXlsx(X, sheets) {
   const wb = X.utils.book_new();
   for (const [name, rows] of Object.entries(sheets)) {
     const headers = rows.length ? Object.keys(rows[0]) : [];
