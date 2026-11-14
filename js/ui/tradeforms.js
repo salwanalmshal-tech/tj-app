@@ -364,7 +364,7 @@ export function renderClose(ctx) {
             of('Sell commission', box(comm, '$')))),
         card('Which lines', 'You choose the lines. The program never picks for you when it is unclear.', status, linesBox),
         card('Review', 'Optional. Saved on every trade closed in this sale.', null,
-          h('div', { class: 'fgrid cl-rev' }, of('Setup', box(setupSel), setupNew), h('div', { class: 'of' }, h('span', { class: 'l' }, 'Setup rating'), starsSel), of('Mistake (if any)', box(mistake), mistakeNew)))),
+          h('div', { class: 'fgrid cl-rev' }, of('Setup', box(setupSel), setupNew), of('Mistake (if any)', box(mistake), mistakeNew), h('div', { class: 'of' }, h('span', { class: 'l' }, 'Setup rating'), starsSel)))),
       h('aside', { class: 'card acc op-check', 'aria-label': 'Result check' }, h('div', { class: 'card-b' },
         h('div', null, h('div', { class: 'eyebrow' }, 'Result check'), cSym), cLine, prevBox, btn,
         h('p', { class: 'accept' }, 'The sale is saved when you click Close trade. Undo is in the top bar right after.')))));
