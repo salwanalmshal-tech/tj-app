@@ -263,6 +263,9 @@ export function editBuyData(st, id, patch) {
   const is = D.parse(nt.initialStop);
   if (is !== null && is >= D.d(nt.buyPrice)) return err('Initial stop must be below the buy price. Correct the Initial stop first.');
   if (st.capital.start && nt.buyDate < st.capital.start.date) return err('The buy date is before the start capital date.');
+  // 1.5.1 fix: a trade cannot be bought after it was sold
+  const early = t.sales.filter((x) => x.date < nt.buyDate).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+  if (early) return err(`${symbolOf(st, t)} ${t.id} has a sale on ${early.date.split('-').reverse().join('-')}. The buy date cannot be later than that. Nothing was changed.`);
   for (const k of ['qty', 'buyPrice', 'buyCommission', 'buyDate']) if (t[k] !== nt[k]) { log(st, { type: 'edit', tradeId: t.id, field: k, old: t[k], new: nt[k] }); t[k] = nt[k]; }
   t.capitalAtOpen = S(C.capitalBefore(st, t.buyDate, t.seq)); // this trade only (the dialog shows it); other trades are asked about (D2)
   return ok(t);
@@ -361,19 +364,23 @@ export function recalcCapital(st) { const at = C.capitalLookup(st); for (const t
 export function splitPreview(st, stockId, ratioNew, ratioOld, date) {
   const rn = D.parse(ratioNew), ro = D.parse(ratioOld); if (rn === null || ro === null || rn <= 0n || ro <= 0n) return err('Enter the ratio as two numbers above 0.');
   // review fix 2026-11-09: shares × new ÷ old and price × old ÷ new, each rounded once (a 1:3 reverse split of 300 gives exactly 100)
-  const f = D.div(rn, ro); const rows = []; const sq = (q) => D.div(D.mul(q, rn), ro), sp = (p) => D.div(D.mul(p, ro), rn);
+  const f = D.div(rn, ro); const rows = []; const skipped = []; const sq = (q) => D.div(D.mul(q, rn), ro), sp = (p) => D.div(D.mul(p, ro), rn);
   for (const t of st.trades.filter((x) => x.stockId === stockId)) {
     const open = C.openQty(t) > 0n; if (!open) continue; // trades fully closed before the split stay untouched
+    // 1.5.1 fix: a line bought on or after the split date was already bought at the new price, so it is never converted
+    if (date && t.buyDate >= date) { skipped.push(t); continue; }
     rows.push({ trade: t, qtyBefore: D.d(t.qty), qtyAfter: sq(D.d(t.qty)), priceBefore: D.d(t.buyPrice), priceAfter: sp(D.d(t.buyPrice)) });
   }
-  return ok({ factor: f, rows, sq, sp });
+  return ok({ factor: f, rows, skipped, sq, sp });
 }
 export function applySplit(st, stockId, ratioNew, ratioOld, date) {
   const p = splitPreview(st, stockId, ratioNew, ratioOld, date); if (!p.ok) return p;
   const { sq, sp } = p.data; const conv = (v) => (v === '' || v === null || v === undefined ? v : S(sp(D.d(v))));
   for (const { trade: t } of p.data.rows) {
     t.qty = S(sq(D.d(t.qty))); t.buyPrice = conv(t.buyPrice); t.initialStop = conv(t.initialStop); t.currentStop = conv(t.currentStop);
-    t.last = conv(t.last); t.highest = conv(t.highest); t.ema10 = conv(t.ema10);
+    // last price, highest and EMA10 are shared with every open line of the stock. When a line bought after the split is
+    // open too, these values are already at the new price (it was bought at it), so they stay as they are.
+    if (!p.data.skipped.length) { t.last = conv(t.last); t.highest = conv(t.highest); t.ema10 = conv(t.ema10); }
     for (const s of t.sales) { s.qty = S(sq(D.d(s.qty))); s.price = conv(s.price); } // sold parts of the same trade convert too, so totals add up
   }
   st.splits.push({ id: nextId(st, 'p'), stockId, date, ratio: `${S(D.d(ratioNew))}:${S(D.d(ratioOld))}`, trades: p.data.rows.map((r) => r.trade.id) }); log(st, { type: 'split', stockId });

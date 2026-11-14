@@ -178,10 +178,11 @@ async function splitDialog(ctx) {
   let p = null;
   const go = await dialog({ title: 'Stock split', ok: 'Preview split', body: h('div', null, para('Changes the quantity and prices of the open trades of this stock. Results and R do not change.', 'note'),
     h('div', { class: 'grid', style: { gridTemplateColumns: '1.2fr 1fr 1fr 1.4fr', marginTop: '8px' } }, field('Stock', sel), field('New shares', rn), field('for old shares', ro), field('Split date', date))),
-    onOk: () => { const iso = date.getISO(); if (!iso) return 'Enter a valid split date (dd-mm-yyyy).'; p = A.splitPreview(st, sel.value, rn.value, ro.value, iso); if (!p.ok) return p.error; if (!p.data.rows.length) return 'This stock has no open trades to convert.'; p.iso = iso; return true; } });
+    onOk: () => { const iso = date.getISO(); if (!iso) return 'Enter a valid split date (dd-mm-yyyy).'; p = A.splitPreview(st, sel.value, rn.value, ro.value, iso); if (!p.ok) return p.error; if (!p.data.rows.length) return p.data.skipped.length ? 'All open trades of this stock were bought on or after the split date, so they are already at the new price. Nothing to convert.' : 'This stock has no open trades to convert.'; p.iso = iso; return true; } });
   if (!go) return;
   const sym = A.stockById(st, sel.value).symbol;
   const ok = await dialog({ title: `Apply the ${rn.value}:${ro.value} split of ${sym}?`, wide: true, ok: 'Apply split', body: h('div', null, para('Open trades are converted, including the sold part of partly sold trades, so quantities and prices stay consistent. Results and R do not change.'),
-    changeTable(p.data.rows.flatMap((r) => [Object.assign([`${r.trade.id} quantity`, qtyTxt(r.qtyBefore), qtyTxt(r.qtyAfter)], { changed: true }), Object.assign([`${r.trade.id} buy price`, priceTxt(r.priceBefore), priceTxt(r.priceAfter)], { changed: true })]))) });
+    changeTable(p.data.rows.flatMap((r) => [Object.assign([`${r.trade.id} quantity`, qtyTxt(r.qtyBefore), qtyTxt(r.qtyAfter)], { changed: true }), Object.assign([`${r.trade.id} buy price`, priceTxt(r.priceBefore), priceTxt(r.priceAfter)], { changed: true })])),
+    p.data.skipped.length ? h('div', { class: 'msg info', style: { marginTop: '10px' } }, `● Not changed: ${p.data.skipped.map((t) => `${t.id} (bought ${dmy(t.buyDate)})`).join(', ')} — bought on or after the split date, so already at the new price. Last price, highest price and EMA10 of ${sym} also stay as they are, because they are shared with ${p.data.skipped.length === 1 ? 'that line' : 'those lines'}.`) : null) });
   if (ok) { const r = ctx.act((d) => A.applySplit(d, sel.value, rn.value, ro.value, p.iso), { label: 'split ' + sym, now: true }); toast(r.ok ? `${sym} split applied.` : r.error); }
 }

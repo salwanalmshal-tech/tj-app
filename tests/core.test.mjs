@@ -170,3 +170,42 @@ test('Q11 missing stops: no Current stop = Act now (red); no Initial stop = Revi
   A.correctInitialStop(st, t.id, '47'); mk = lineMarks(st, t, '2026-11-04', C.estimatedAccount(st));
   assert.ok(!mk.some((m) => m.text === 'Missing: stop' || m.text === 'Missing: Initial stop'));
 });
+
+// ---- 1.5.1 fixes from the whole-program review
+test('Split: a line bought on or after the split date is never converted; shared daily values then stay as they are', () => {
+  const st = emptyState(); assert.ok(A.setStartCapital(st, { amount: '10000', date: '2026-01-01' }).ok);
+  const a = A.openTrade(st, { symbol: 'AAA', buyDate: '2026-02-01', qty: '10', buyPrice: '100', initialStop: '90', buyCommission: '1' }).data;
+  const b = A.openTrade(st, { symbol: 'AAA', buyDate: '2026-06-10', qty: '20', buyPrice: '52', initialStop: '49', buyCommission: '1' }).data; // bought after the split, at the new price
+  const c = A.openTrade(st, { symbol: 'AAA', buyDate: '2026-06-01', qty: '4', buyPrice: '51', initialStop: '48', buyCommission: '' }).data; // bought ON the split date: new price too
+  const lastBefore = a.last; assert.equal(a.last, b.last); // shared, already at the new price
+  const p = A.splitPreview(st, a.stockId, '2', '1', '2026-06-01');
+  assert.deepEqual(p.data.rows.map((r) => r.trade.id), [a.id]); assert.deepEqual(p.data.skipped.map((t) => t.id), [b.id, c.id]);
+  assert.ok(A.applySplit(st, a.stockId, '2', '1', '2026-06-01').ok);
+  assert.equal(a.qty, '20'); assert.equal(a.buyPrice, '50'); assert.equal(a.initialStop, '45'); assert.equal(a.currentStop, '45');
+  assert.equal(b.qty, '20'); assert.equal(b.buyPrice, '52'); assert.equal(b.initialStop, '49');
+  assert.equal(c.qty, '4'); assert.equal(c.buyPrice, '51');
+  assert.equal(a.last, lastBefore); assert.equal(a.last, b.last); assert.equal(a.highest, b.highest); // still the same on every line
+  assert.deepEqual(st.splits.at(-1).trades, [a.id]);
+  // without a later line everything converts as before, daily values included
+  const st2 = emptyState(); A.setStartCapital(st2, { amount: '10000', date: '2026-01-01' });
+  const d = A.openTrade(st2, { symbol: 'BBB', buyDate: '2026-02-01', qty: '10', buyPrice: '100', initialStop: '90', buyCommission: '' }).data;
+  d.last = '120'; d.highest = '130'; d.ema10 = '110';
+  assert.ok(A.applySplit(st2, d.stockId, '2', '1', '2026-06-01').ok);
+  assert.deepEqual([d.qty, d.buyPrice, d.last, d.highest, d.ema10], ['20', '50', '60', '65', '55']);
+  // only later lines open: nothing to convert, nothing changes
+  const st3 = emptyState(); A.setStartCapital(st3, { amount: '10000', date: '2026-01-01' });
+  const e = A.openTrade(st3, { symbol: 'CCC', buyDate: '2026-07-01', qty: '10', buyPrice: '50', initialStop: '45', buyCommission: '' }).data;
+  assert.equal(A.splitPreview(st3, e.stockId, '2', '1', '2026-06-01').data.rows.length, 0);
+});
+
+test('Edit trade: the buy date cannot be moved to after a sale of that trade; an earlier or equal date still works', () => {
+  const st = emptyState(); assert.ok(A.setStartCapital(st, { amount: '10000', date: '2026-01-01' }).ok);
+  const t = A.openTrade(st, { symbol: 'AAA', buyDate: '2026-02-01', qty: '10', buyPrice: '100', initialStop: '90', buyCommission: '' }).data;
+  assert.ok(A.closeSale(st, { date: '2026-02-05', price: '110', commission: '', allocations: [{ tradeId: t.id, qty: '4' }] }).ok);
+  assert.ok(A.closeSale(st, { date: '2026-02-20', price: '120', commission: '', allocations: [{ tradeId: t.id, qty: '6' }] }).ok);
+  const r = A.editBuyData(st, t.id, { buyDate: '2026-02-06' });
+  assert.equal(r.ok, false); assert.match(r.error, /sale on 05-02-2026/); assert.equal(t.buyDate, '2026-02-01');
+  assert.ok(A.editBuyData(st, t.id, { buyDate: '2026-02-05' }).ok); // the same day as the first sale is fine (0 days)
+  assert.ok(A.editBuyData(st, t.id, { buyDate: '2026-01-15' }).ok);
+  assert.equal(C.holdingDays(t), 36);
+});
