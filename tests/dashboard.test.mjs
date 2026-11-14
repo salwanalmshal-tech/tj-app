@@ -91,3 +91,59 @@ test('Dashboard capital curve: highest, lowest and the deepest drop from a peak'
 test('Dashboard: months between two dates', () => {
   assert.deepEqual(C.monthsBetween('2025-11-15', '2026-02-01'), ['2025-11', '2025-12', '2026-01', '2026-02']);
 });
+
+// ---- 1.5.1: "On Open positions" ticks on the Dashboard number cards
+test('On Open positions: nothing saved = the four cards Open positions always had', () => {
+  const st = fresh();
+  assert.deepEqual(C.openCards(st), ['capital', 'openpl', 'loss', 'market']);
+  st.layouts = { dashboard: { mode: 'drag', cards: ['year'] } }; // an older file with a saved Dashboard order but no ticks
+  assert.deepEqual(C.openCards(st), ['capital', 'openpl', 'loss', 'market']);
+});
+
+test('On Open positions: at most 4 ticks; a fifth is refused and nothing changes; untick then tick puts the card last', () => {
+  const st = fresh();
+  const r5 = A.toggleOpenCard(st, 'month');
+  assert.equal(r5.ok, false); assert.match(r5.error, /Max 4/);
+  assert.equal(st.layouts.dashboard, undefined); // a refused tick saves nothing
+  assert.ok(A.toggleOpenCard(st, 'openpl').ok);
+  assert.deepEqual(C.openCards(st), ['capital', 'loss', 'market']);
+  assert.ok(A.toggleOpenCard(st, 'month').ok);
+  assert.deepEqual(C.openCards(st), ['capital', 'loss', 'market', 'month']);
+  assert.equal(A.toggleOpenCard(st, 'year').ok, false);
+  assert.equal(A.toggleOpenCard(st, 'nonsense').ok, false);
+  for (const k of ['capital', 'loss', 'market', 'month']) assert.ok(A.toggleOpenCard(st, k).ok);
+  assert.deepEqual(C.openCards(st), []); // all unticked is allowed: Open positions then shows no account numbers
+  assert.ok(A.toggleOpenCard(st, 'year').ok);
+  assert.deepEqual(C.openCards(st), ['year']);
+});
+
+test('On Open positions: his dragged order is saved; an order that adds, drops or repeats a card is refused', () => {
+  const st = fresh();
+  assert.ok(A.orderOpenCards(st, ['market', 'capital', 'loss', 'openpl']).ok);
+  assert.deepEqual(C.openCards(st), ['market', 'capital', 'loss', 'openpl']);
+  for (const bad of [['market', 'capital', 'loss'], ['market', 'capital', 'loss', 'year'], ['market', 'market', 'loss', 'openpl'], null])
+    assert.equal(A.orderOpenCards(st, bad).ok, false);
+  assert.deepEqual(C.openCards(st), ['market', 'capital', 'loss', 'openpl']);
+  // the ticks and the Dashboard's own card order live side by side and never touch each other
+  st.layouts.dashboard.cards = ['year', 'month']; st.layouts.dashboard.mode = 'drag';
+  assert.ok(A.toggleOpenCard(st, 'loss').ok);
+  assert.deepEqual(st.layouts.dashboard.cards, ['year', 'month']); assert.equal(st.layouts.dashboard.mode, 'drag');
+  assert.deepEqual(C.openCards(st), ['market', 'capital', 'openpl']);
+});
+
+test('On Open positions: a damaged saved list is cleaned when read (unknown names, repeats, more than 4)', () => {
+  const st = fresh();
+  st.layouts = { dashboard: { onOpen: ['year', 'bogus', 'year', 'capital', 'openpl', 'loss', 'market'] } };
+  assert.deepEqual(C.openCards(st), ['year', 'capital', 'openpl', 'loss']);
+});
+
+test('Period base capital (shared by Dashboard and Open positions): capital before the period, or the start capital when the journal began inside it', () => {
+  const st = fresh(); // start 10 000 on 2026-01-01
+  assert.equal(f2(C.periodBaseCapital(st, '2026-01-01', '2026-12-31')), '10000.00'); // began on the first day: start capital
+  const t = A.openTrade(st, { symbol: 'AAA', buyDate: '2026-02-02', qty: '10', buyPrice: '100', initialStop: '90', buyCommission: '' }).data;
+  assert.ok(A.closeSale(st, { date: '2026-02-10', price: '110', commission: '', allocations: [{ tradeId: t.id, qty: '10' }] }).ok);
+  assert.equal(f2(C.periodBaseCapital(st, '2026-03-01', '2026-03-31')), '10100.00');
+  assert.equal(f2(C.periodBaseCapital(st, '2025-01-01', '2025-12-31')), '0.00'); // before the journal: no base, the screen shows "–"
+  const empty = emptyState();
+  assert.equal(C.periodBaseCapital(empty, '2026-01-01', '2026-12-31'), 0n); // no start capital yet: never an error
+});

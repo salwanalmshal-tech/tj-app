@@ -253,3 +253,22 @@ export function capitalCurve(state) {
   }
   return { pts, high, low, drop };
 }
+
+// ---------- "On Open positions" (1.5.1): which Dashboard number cards also show on Open positions ----------
+// He ticks up to 4 on the Dashboard; their order is the order he drags them into on Open positions.
+// Saved in the data file as layouts.dashboard.onOpen. Nothing saved yet = the four cards Open positions always had.
+export const OPEN_CARD_KEYS = ['capital', 'openpl', 'loss', 'progress', 'month', 'year', 'market'];
+export const OPEN_CARD_DEFAULT = ['capital', 'openpl', 'loss', 'market'];
+export const OPEN_CARD_MAX = 4;
+export function openCards(state) {
+  const saved = state.layouts?.dashboard?.onOpen;
+  if (!Array.isArray(saved)) return [...OPEN_CARD_DEFAULT];
+  return [...new Set(saved.filter((k) => OPEN_CARD_KEYS.includes(k)))].slice(0, OPEN_CARD_MAX);
+}
+// the capital a period is measured against: the capital just before it starts, or the start capital when
+// the journal began later in that period (so a year that started in May still gets a %)
+export function periodBaseCapital(state, from, to) {
+  const s0 = state.capital.start; if (!s0) return 0n;
+  const c = capitalBefore(state, from, -Infinity); if (c > 0n) return c;
+  return s0.date <= to ? D.d(s0.amount) : 0n;
+}

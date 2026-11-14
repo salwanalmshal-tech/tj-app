@@ -2,9 +2,12 @@
 // Agreed: 7 number cards (never filtered), exposure, "your year month by month", capital over time, result by setup;
 // Auto | Drag and drop order saved in the data file (cards among cards, blocks among blocks). No filter bar: the month
 // and setup blocks share one Year / Custom period. Trade statistics stay in History. Numbers come from calc.js only.
+// 1.5.1: every number card has an "On Open positions" tick (max 4, saved in the data file); the ticked cards are the
+// account numbers on top of Open positions, where he arranges them by dragging.
 import { h, money, dmy, datePicker, infoBtn } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
+import * as A from '../actions.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 function s(tag, attrs, ...kids) {
@@ -35,7 +38,7 @@ export const BLOCKS = ['exposure', 'months', 'curve', 'setups'];
 export function ordered(saved, def) { const ok = (saved || []).filter((k) => def.includes(k)); return [...ok, ...def.filter((k) => !ok.includes(k))]; }
 
 // view choices (not saved in the data file): the period of the month/setup blocks and what is selected
-const V = { preset: null, from: null, to: null, sel: null, ex: -1, su: 0 };
+const V = { preset: null, from: null, to: null, sel: null, ex: -1, su: 0, pinMsg: false };
 
 export function render(ctx) {
   const st = ctx.store.state; const today = ctx.today(); const year = today.slice(0, 4);
@@ -59,13 +62,23 @@ export function render(ctx) {
   if (canDrag) wrap.append(h('div', { class: 'd-note' }, 'Drag mode — grab a card or a block and move it. Cards move among the cards, blocks among the blocks. Your order is saved.'));
 
   const ex = C.dashExposure(st);
-  const cards = h('div', { class: 'd-cards' + (canDrag ? ' d-dragmode' : '') }, cardOrder.map((k, i) => { const c = CARD[k](st, today, ex, grip); c.dataset.id = k; c.style.animationDelay = (i * 0.05) + 's'; return c; }));
+  // "On Open positions" ticks: up to 4 cards also show on top of Open positions (their order is set there, by dragging)
+  const pins = C.openCards(st); const pinMsg = V.pinMsg; V.pinMsg = false;
+  const pin = (k) => { const on = pins.includes(k);
+    return h('div', { class: 'd-pinrow' }, h('button', { class: 'd-pin' + (on ? ' on' : ''), type: 'button', 'aria-pressed': String(on), disabled: ctx.readOnly,
+      title: on ? 'Shown on Open positions. Click to take it away there.' : 'Click to show this card on Open positions too.',
+      onClick: () => { const r = ctx.act((d) => A.toggleOpenCard(d, k), { label: on ? 'card taken off Open positions' : 'card shown on Open positions', now: true }); if (r && !r.ok) { V.pinMsg = true; ctx.redraw(); } } },
+      on ? '✓ On Open positions' : '+ Open positions')); };
+  const cards = h('div', { class: 'd-cards' + (canDrag ? ' d-dragmode' : '') }, cardOrder.map((k, i) => { const c = CARD[k](st, today, ex, grip); c.dataset.id = k; c.style.animationDelay = (i * 0.05) + 's';
+    (k === 'capital' ? c.firstElementChild : c).append(pin(k)); return c; }));
+  const pinLine = h('div', { class: 'd-pinline' }, h('span', { class: 'd-q' }, `${pins.length} of ${C.OPEN_CARD_MAX} cards shown on Open positions · drag them into your order there · these cards are never filtered`),
+    pinMsg ? h('span', { class: 'd-pinmsg', role: 'status' }, `Max ${C.OPEN_CARD_MAX} — untick one first`) : null);
   const blocks = h('div', { class: 'd-blocks' + (canDrag ? ' d-dragmode' : '') }, blockOrder.map((k, i) => { const b = BLOCK[k](ctx, st, today, ex, grip); b.dataset.id = k; b.style.animationDelay = (0.1 + i * 0.05) + 's'; return b; }));
   if (canDrag) {
     dragItems(cards, '.d-card', (ids) => setLayout({ cards: ids }, 'dashboard card order'));
     dragItems(blocks, '.d-block', (ids) => setLayout({ blocks: ids }, 'dashboard block order'));
   }
-  wrap.append(cards, blocks);
+  wrap.append(cards, pinLine, blocks);
   return wrap;
 }
 
@@ -402,18 +415,14 @@ function smooth(P) {
   return d;
 }
 
-// the capital a period is measured against: the capital just before it starts, or the start capital when
-// the journal began later in that period (so a year that started in May still gets a %)
-function baseCapital(st, from, to) {
-  const c = C.capitalBefore(st, from, -Infinity); if (c > 0n) return c;
-  const s0 = st.capital.start; return s0 && s0.date <= to ? D.d(s0.amount) : 0n;
-}
+// the capital a period is measured against (shared with Open positions, so both screens always show the same %)
+const baseCapital = C.periodBaseCapital;
 
 // Drag and drop, the same feel as the Open positions cards (place decided by the middle of the dragged item).
 const DRAG_START_PX = 6, SLIDE_MS = 350, DROP_MS = 300, EASE = 'cubic-bezier(.22,.61,.36,1)', INNER = 0.22;
 let blockClick = false;
 window.addEventListener('click', (e) => { if (blockClick) { e.stopPropagation(); e.preventDefault(); blockClick = false; } }, true);
-function dragItems(grid, sel, onDone) {
+export function dragItems(grid, sel, onDone) {
   const ids = () => [...grid.children].map((x) => x.dataset.id ?? x.dataset.ph);
   const start = ids().join(); let d = null;
   const slide = (change) => {

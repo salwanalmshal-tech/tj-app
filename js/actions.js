@@ -382,3 +382,21 @@ export function applySplit(st, stockId, ratioNew, ratioOld, date) {
 
 // ---------- settings ----------
 export function setSetting(st, key, value) { st.settings[key] = value; return ok(); }
+
+// ---------- "On Open positions" ticks on the Dashboard number cards (max 4) ----------
+export function toggleOpenCard(st, key) {
+  if (!C.OPEN_CARD_KEYS.includes(key)) return { ok: false, error: 'Unknown card.' };
+  const cur = C.openCards(st);
+  let next;
+  if (cur.includes(key)) next = cur.filter((k) => k !== key);
+  else { if (cur.length >= C.OPEN_CARD_MAX) return { ok: false, error: `Max ${C.OPEN_CARD_MAX} — untick one first` }; next = [...cur, key]; } // a new card goes last
+  st.layouts ??= {}; st.layouts.dashboard = { ...(st.layouts.dashboard || {}), onOpen: next };
+  return ok(next);
+}
+// his own order on Open positions: only the ticked cards, each once; anything else is refused (nothing is added or lost by dragging)
+export function orderOpenCards(st, ids) {
+  const cur = C.openCards(st);
+  if (!Array.isArray(ids) || ids.length !== cur.length || new Set(ids).size !== ids.length || !ids.every((k) => cur.includes(k))) return { ok: false, error: 'The order does not match the cards shown.' };
+  st.layouts ??= {}; st.layouts.dashboard = { ...(st.layouts.dashboard || {}), onOpen: [...ids] };
+  return ok(ids);
+}

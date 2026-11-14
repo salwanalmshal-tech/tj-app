@@ -1,5 +1,5 @@
 // Open positions: the daily workspace. Look from the UX/UI specification; content, names and rules from the agreed decisions.
-// Hierarchy: page header + four account numbers, then "All open positions" as cards straight on the page (1.2.1) with
+// Hierarchy: page header + the account numbers he ticked on the Dashboard (1.5.1: up to 4, dragged into his own order here), then "All open positions" as cards straight on the page (1.2.1) with
 // filters and an Auto | Drag and drop order switch. A card opens the daily detail panel. All numbers come from calc.js / marks.js.
 import { h, dialog, para, toast, money, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, changeTable, infoBtn, pill, datePicker } from './dom.js';
 import * as D from '../decimal.js';
@@ -8,6 +8,7 @@ import * as M from '../marks.js';
 import * as A from '../actions.js';
 import { diffDays } from '../dates.js';
 import { editTrade } from './tradeforms.js';
+import { dragItems } from './dashboard.js';
 
 export const usd = (a) => (a === null || a === undefined ? '–' : (a < 0n ? '−$' : '$') + money(D.abs(a)));
 export const susd = (a) => (a === null || a === undefined ? '–' : (a > 0n ? '+$' : a < 0n ? '−$' : '$') + money(D.abs(a)));
@@ -57,12 +58,29 @@ export function render(ctx) {
 
   if (!st.capital.start) wrap.append(h('div', { class: 'msg warn' }, '◆ Capital is not set yet. ', h('a', { href: '#/capital', onClick: (e) => { e.preventDefault(); ctx.go('capital'); } }, 'Set the start capital first.')));
 
+  // The account numbers = the Dashboard number cards he ticked "On Open positions" (max 4), in the order he dragged them here.
   const metric = (label, why, v, cls, d) => h('div', { class: 'metric' }, h('span', { class: 'eyebrow' }, label, infoBtn(label, why)), h('span', { class: 'v ' + (cls || '') }, v), d ? h('span', { class: 'd' }, d) : null);
-  wrap.append(h('section', { class: 'metrics', 'aria-label': 'Account' },
-    metric('Capital (closed trades)', `Start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included. Now: ${usd(capital)}.`, usd(capital), '', 'Start capital, deposits, dividends and sales'),
-    metric('Open P&L', `(Last price − buy price) × open shares, summed over all open lines. Commissions count when you sell. Now: ${susd(openPL)} on ${all.length} lines.`, susd(openPL), numClass(openPL), `${all.length} open line${all.length === 1 ? '' : 's'}`),
-    metric('Loss if all stops hit', `From now: (Current stop − last price) × open shares, summed over all lines with a stop, as % of the estimated account (capital + open result = ${usd(account)}). Lines without a stop are not included.`, susd(loss.loss), loss.loss < 0n ? 'neg' : '', (loss.pctOfAccount === null ? '' : `${pctTxt(D.abs(loss.pctOfAccount))} of estimated account`) + (noStop ? ` · ${noStop} without stop` : '')),
-    marketCard(inMarket, value, account)));
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const ofCap = (v, cap) => (cap > 0n ? spct(D.pct(v, cap)) : '–');
+  const METRIC = {
+    capital: () => metric('Capital (closed trades)', `Start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included. Now: ${usd(capital)}.`, usd(capital), '', 'Start capital, deposits, dividends and sales'),
+    openpl: () => metric('Open P&L', `(Last price − buy price) × open shares, summed over all open lines. Commissions count when you sell. Now: ${susd(openPL)} on ${all.length} lines.`, susd(openPL), numClass(openPL), `${all.length} open line${all.length === 1 ? '' : 's'}`),
+    loss: () => metric('Loss if all stops hit', `From now: (Current stop − last price) × open shares, summed over all lines with a stop, as % of the estimated account (capital + open result = ${usd(account)}). Lines without a stop are not included.`, susd(loss.loss), loss.loss < 0n ? 'neg' : '', (loss.pctOfAccount === null ? '' : `${pctTxt(D.abs(loss.pctOfAccount))} of estimated account`) + (noStop ? ` · ${noStop} without stop` : '')),
+    market: () => marketCard(inMarket, value, account),
+    progress: () => { const pr = C.progress(st);
+      return metric('Progress vs original', `(Sale results + dividends) ÷ everything you put in (start capital + deposits). Withdrawals never count as a loss. Now: ${susd(pr.result)} on ${usd(pr.invested)}.`, pr.pct === null ? '–' : spct(pr.pct), pr.pct === null ? '' : numClass(pr.pct), `${susd(pr.result)} on ${usd(pr.invested)} put in`); },
+    month: () => { const k = today.slice(0, 7); const v = C.monthResult(st, k); const cap = C.periodBaseCapital(st, k + '-01', today);
+      return metric('This month', `Net result of the sales made this month (by sale date), as % of your capital on the 1st. Now: ${susd(v)}.`, susd(v), numClass(v), `${ofCap(v, cap)} of capital on 1 ${MON[Number(k.slice(5)) - 1]}`); },
+    year: () => { const y = today.slice(0, 4); const v = C.yearResult(st, y); const cap = C.periodBaseCapital(st, y + '-01-01', y + '-12-31'); const late = !!st.capital.start && st.capital.start.date > y + '-01-01';
+      return metric('This year', `Net result of the sales made this year (by sale date), as % of your capital on 1 January. Now: ${susd(v)}.`, susd(v), numClass(v), `${ofCap(v, cap)} of capital on ${late ? dmy(st.capital.start.date) + ' (start)' : '1 Jan'}`); },
+  };
+  const pins = C.openCards(st);
+  if (pins.length) {
+    const canMove = !ctx.readOnly && pins.length > 1;
+    const row = h('section', { class: `metrics n${pins.length}` + (canMove ? ' canmove' : ''), 'aria-label': 'Account' }, pins.map((k) => { const el = METRIC[k](); el.dataset.id = k; if (canMove) el.title = 'Drag to change the order'; return el; }));
+    if (canMove) dragItems(row, '.metric', (ids) => ctx.act((d) => A.orderOpenCards(d, ids), { label: 'account card order', now: true }));
+    wrap.append(row);
+  }
 
   if (!all.length) {
     wrap.append(h('section', { class: 'card' }, h('div', { class: 'card-b', style: { paddingTop: '22px' } }, h('div', { class: 'calm' }, '✓ You have no open positions.'))));
