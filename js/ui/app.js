@@ -18,6 +18,7 @@ import * as lists from './lists.js';
 import * as data from './data.js';
 import * as settings from './settings.js';
 import * as tax from './tax.js';
+import * as dashboard from './dashboard.js';
 
 // own: the screen draws its own page header (redesigned screens); otherwise the shell draws eyebrow + title.
 const ROUTES = {
@@ -29,11 +30,12 @@ const ROUTES = {
   lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and errors used by your trades.', mod: lists },
   data: { title: 'Import / Export', eyebrow: 'Safety centre', lead: 'Export, backups, restore and import of your journal.', mod: data },
   settings: { title: 'Settings', eyebrow: 'System', lead: 'Limits for marks, labels and saving. They only change what you see; they never block anything.', mod: settings },
+  dashboard: { title: 'Dashboard', mod: dashboard, own: true },
   tax: { title: 'Tax report', eyebrow: 'Learn', lead: 'Trades sold in a period (sell date), ready for your tax return.', mod: tax },
 };
 const MENU = [
   ['Trade', [['open', 'Open positions']]],
-  ['Learn', [['dashboard', 'Dashboard', 'Version 2'], ['history', 'History'], ['report', 'Reports', 'Version 3'], ['tax', 'Tax report']]],
+  ['Learn', [['dashboard', 'Dashboard'], ['history', 'History'], ['report', 'Reports', 'Version 3'], ['tax', 'Tax report']]],
   ['Records', [['capital', 'Capital'], ['lists', 'Lists']]],
   ['System', [['data', 'Import / Export'], ['settings', 'Settings']]],
 ];

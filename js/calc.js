@@ -172,3 +172,84 @@ export function quantityProblems(t) {
 // ---------- statistics for closed trades ----------
 export function closedTrades(state) { return state.trades.filter((t) => t.sales.length && openQty(t) === 0n); }
 export { weekStart, addDays };
+
+// ---------- Dashboard v2 (2026-11-14, agreed with him one point at a time) ----------
+// Open positions grouped by symbol. Value at last price; a line without a last price uses its buy price and is marked
+// (noLast) so it is never invisible. "If stop hit" = from NOW: (Current stop - last) x shares, buy price when no last;
+// null when the line has no stop. Percentages are of the estimated account (same base as Loss if all stops hit / In market).
+export function dashExposure(state) {
+  const account = estimatedAccount(state);
+  const by = new Map();
+  for (const t of openTrades(state)) {
+    const stock = state.stocks.find((s) => s.id === t.stockId);
+    const sym = stock?.symbol ?? '?';
+    const q = openQty(t), last = n(t.last), stop = n(t.currentStop), buy = D.d(t.buyPrice);
+    const price = last ?? buy;
+    const r = by.get(sym) ?? { sym, sector: (stock?.sector || '').trim() || 'No sector', value: 0n, loss: 0n, noStop: false, noLast: false, pl: 0n, plKnown: true };
+    r.value += D.mul(price, q);
+    if (last === null) { r.noLast = true; r.plKnown = false; } else r.pl += D.mul(D.sub(last, buy), q);
+    if (stop === null) r.noStop = true; else r.loss += D.mul(D.sub(stop, price), q);
+    by.set(sym, r);
+  }
+  const pctOf = (v) => (account > 0n ? D.pct(v, account) : null);
+  const rows = [...by.values()].map((r) => ({ ...r, loss: r.noStop ? null : r.loss, pl: r.plKnown ? r.pl : null, pct: pctOf(r.value) }))
+    .sort((a, b) => (b.value > a.value ? 1 : b.value < a.value ? -1 : 0));
+  const sec = new Map();
+  for (const r of rows) sec.set(r.sector, (sec.get(r.sector) ?? 0n) + r.value);
+  const sectors = [...sec.entries()].map(([key, value]) => ({ key, value, pct: pctOf(value) })).sort((a, b) => (b.value > a.value ? 1 : b.value < a.value ? -1 : 0));
+  const total = rows.reduce((a, r) => a + r.value, 0n);
+  return { account, total, totalPct: pctOf(total), rows, sectors };
+}
+
+// Months between two ISO dates (inclusive), as 'YYYY-MM'.
+export function monthsBetween(from, to) {
+  const out = []; let [y, m] = from.slice(0, 7).split('-').map(Number); const [ey, em] = to.slice(0, 7).split('-').map(Number);
+  while (y < ey || (y === ey && m <= em)) { out.push(`${y}-${String(m).padStart(2, '0')}`); m++; if (m > 12) { m = 1; y++; } }
+  return out;
+}
+// One entry per month: result by SALE date (C13), its % of the capital on the 1st, the trades CLOSED that month
+// (month of last sale, C4) with won/lost/at 0 and the best one, and the running total over the shown months.
+export function monthStats(state, from, to) {
+  const ev = capitalEvents(state); const capAt = capitalLookup(state, ev);
+  const net = new Map(), closedIn = new Map();
+  for (const t of state.trades) {
+    for (const x of salesDetail(t)) { if (x.sale.date < from || x.sale.date > to) continue; const k = x.sale.date.slice(0, 7); net.set(k, (net.get(k) ?? 0n) + x.net); }
+    if (t.sales.length && openQty(t) === 0n) { const l = lastSaleDate(t); if (l >= from && l <= to) { const k = l.slice(0, 7); (closedIn.get(k) ?? closedIn.set(k, []).get(k)).push(t); } }
+  }
+  let run = 0n;
+  return monthsBetween(from, to).map((k) => {
+    const has = net.has(k); const v = net.get(k) ?? 0n; if (has) run += v;
+    const cap = capAt(k + '-01', -Infinity);
+    const tr = closedIn.get(k) ?? [];
+    let won = 0, lost = 0, zero = 0, best = null;
+    for (const t of tr) { const r = realized(t); if (r > 0n) won++; else if (r < 0n) lost++; else zero++; if (!best || r > best.net) best = { net: r, sym: state.stocks.find((s) => s.id === t.stockId)?.symbol ?? '?' }; }
+    return { month: k, has, net: v, pct: has && cap > 0n ? D.pct(v, cap) : null, closed: tr.length, won, lost, zero, best, run: has ? run : null };
+  });
+}
+// Closed trades (month of last sale inside the period) grouped by setup. Win rate = wins / (wins + losses), as in History.
+export function setupStats(state, from, to) {
+  const by = new Map();
+  for (const t of closedTrades(state)) {
+    const l = lastSaleDate(t); if (l < from || l > to) continue;
+    const name = state.setups.find((s) => s.id === t.setupId)?.name ?? 'Unclassified';
+    const g = by.get(name) ?? { name, n: 0, net: 0n, won: 0, lost: 0, zero: 0, rSum: 0n, rN: 0 };
+    const r = realized(t); g.n++; g.net += r; if (r > 0n) g.won++; else if (r < 0n) g.lost++; else g.zero++;
+    const R = rMultiple(t); if (R !== null) { g.rSum += R; g.rN++; }
+    by.set(name, g);
+  }
+  return [...by.values()].map((g) => ({ ...g, winRate: g.won + g.lost ? D.pct(D.d(String(g.won)), D.d(String(g.won + g.lost))) : null, avgR: g.rN ? D.div(g.rSum, D.d(String(g.rN))) : null }))
+    .sort((a, b) => (b.net > a.net ? 1 : b.net < a.net ? -1 : 0));
+}
+// Capital after every event, plus highest, lowest and the deepest drop (peak to following low, in %).
+export function capitalCurve(state) {
+  const pts = capitalSeries(state).map((e) => ({ date: e.date, kind: e.kind, amount: e.amount, capital: e.capital }));
+  if (!pts.length) return { pts, high: null, low: null, drop: null };
+  let high = pts[0], low = pts[0], peak = pts[0], drop = null;
+  for (const p of pts) {
+    if (p.capital > high.capital) high = p;
+    if (p.capital < low.capital) low = p;
+    if (p.capital > peak.capital) peak = p;
+    if (peak.capital > 0n) { const dd = D.pct(p.capital - peak.capital, peak.capital); if (dd < 0n && (!drop || dd < drop.pct)) drop = { pct: dd, from: peak, to: p }; }
+  }
+  return { pts, high, low, drop };
+}
