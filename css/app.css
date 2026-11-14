@@ -862,3 +862,25 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .calc-out{display:flex;flex-direction:column;gap:2px}
 .calc-out b{font-size:18px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
 .calc-out .n{font-size:11.5px;color:var(--muted)}.calc-out .n.bad{color:var(--neg)}
+
+/* ---------- 1.5.3: Close trade in the Open trade layout, with the live Result check ---------- */
+.cl-status{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.cl-lines{display:flex;flex-direction:column;gap:10px}
+.cl-line{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,.8fr) 120px auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:12px 14px;transition:background .2s,border-color .2s}
+.cl-line.on{background:#F5F9FD;border-color:#BFD5EA}
+.cl-id{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cl-auto{font-size:11px;font-weight:650;color:var(--accent)}
+.cl-r{display:flex;flex-direction:column;gap:2px}
+.cl-r .l{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.cl-r b{font-weight:700;font-variant-numeric:tabular-nums}
+.cl-line .box{height:38px}
+.cl-line .btn{align-self:end;height:38px}
+.cl-prev{display:flex;flex-direction:column;gap:14px}
+.cl-block{display:flex;flex-direction:column;gap:6px;animation:d-rise .35s both}
+.cl-bh{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.cl-block .res-hero{margin:8px 0 10px;padding:16px 14px}
+.cl-block .res-money{font-size:32px}
+.cl-block .res-tiles b{font-size:16px}
+.cl-wait{font-size:12.5px;color:var(--muted);border:1px dashed var(--field);border-radius:12px;padding:18px 14px;text-align:center}
+.cl-rows span{color:var(--muted)}.cl-rows b{font-weight:700;color:var(--ink);text-align:right}
+@media (max-width:700px){.cl-line{grid-template-columns:1fr 1fr}}

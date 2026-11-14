@@ -5,6 +5,7 @@ import * as A from '../actions.js';
 import { parseDMY, weekdayName, isWeekend } from '../dates.js';
 import { askRecalc } from './capital.js';
 import { checkReminders } from './reminders.js';
+import { resultPctMark } from '../marks.js';
 
 // 2026-11-10: "Unclassified" = setup missing. The empty choice carries that name, so the list item with the same name is not offered again.
 export const isUncl = (x) => (x?.name || '').trim().toLowerCase() === 'unclassified';
@@ -219,8 +220,14 @@ export function renderClose(ctx) {
   const startTrade = ctx.params.tradeId ? A.tradeById(st, ctx.params.tradeId) : null;
   const symSel = h('select', { 'aria-label': 'Symbol' }, [...bySym.entries()].map(([sid, ts]) => h('option', { value: sid, selected: startTrade ? startTrade.stockId === sid : false }, `${A.stockById(st, sid).symbol} · ${ts.length} line${ts.length === 1 ? '' : 's'} · ${qtyTxt(ts.reduce((a, t) => a + C.openQty(t), 0n))} shares`)));
   const total = numInput(startTrade ? D.edit(C.openQty(startTrade)) : '', 'Total shares sold'), date = dateInput(today, 'Sell date'), price = numInput('', 'Sell price'), comm = numInput('', 'Sell commission');
-  const inputs = new Map(); const linesBox = h('div'); const status = h('div'); const prevBox = h('div'); const dnote = h('span', { class: 'note' });
-  const btn = h('button', { class: 'btn pri', disabled: true, onClick: submit }, 'Close trade…');
+  // 1.5.3: same layout as Open trade. Left: The sale / Which lines / Review. Right: the live "Result check" (one result block per
+  // trade), which replaces the result pop-ups that used to open before saving. Every rule is unchanged.
+  const box = (input, pre) => h('div', { class: 'box' }, pre ? h('span', { class: 'pre' }, pre) : null, input);
+  const of = (label, control, note) => h('label', { class: 'of' }, h('span', { class: 'l' }, label), control, note || null);
+  const inputs = new Map(); const linesBox = h('div', { class: 'cl-lines' }); const status = h('div', { class: 'cl-status' }); const prevBox = h('div', { class: 'cl-prev' }); const dnote = h('span', { class: 'note' });
+  const cSym = h('div', { class: 'op-sym' }, '—'), cLine = h('div', { class: 'op-line' });
+  const btn = h('button', { class: 'btn go', disabled: true, onClick: submit }, 'Close trade →');
+  let autoId = null;
   let touchedLines = false;
   // Q6: the mistake is chosen when closing; it is saved on every trade closed in this sale (empty = keep what the trade has)
   const mistake = h('select', { 'aria-label': 'Mistake' }, h('option', { value: '' }, 'None'), st.errors.filter((x) => !x.archived).map((x) => h('option', { value: x.id }, x.name)));
@@ -239,20 +246,27 @@ export function renderClose(ctx) {
   function buildLines(auto) {
     inputs.clear(); const ls = lines(); const tot = D.parse(total.value);
     const matches = tot === null ? [] : ls.filter((t) => C.openQty(t) === tot);
+    autoId = null;
     const rows = ls.map((t) => {
-      const i = h('input', { class: 'cell', value: '0', 'aria-label': 'Shares to close, ' + t.id }); inputs.set(t.id, i);
-      i.addEventListener('input', () => { touchedLines = true; refresh(); });
-      return h('tr', { 'data-id': t.id }, h('td', { class: 'mono' }, t.id), h('td', null, dmy(t.buyDate)), h('td', { class: 'r' }, qtyTxt(C.openQty(t))), h('td', { class: 'r' }, priceTxt(D.d(t.buyPrice))), h('td', { class: 'r' }, i),
-        h('td', null, h('button', { class: 'btn sm', onClick: () => { i.value = D.edit(C.openQty(t)); touchedLines = true; if (!total.value) total.value = ''; refresh(); } }, 'Sell all')), h('td', { class: 'r', 'data-res': t.id }, '–'));
+      const i = h('input', { value: '0', inputmode: 'decimal', style: { textAlign: 'right' }, 'aria-label': 'Shares to close, ' + t.id }); inputs.set(t.id, i);
+      i.addEventListener('input', () => { touchedLines = true; autoId = null; refresh(); });
+      return h('div', { class: 'cl-line', 'data-id': t.id },
+        h('div', { class: 'cl-id' }, h('span', null, h('b', null, t.id), ` · bought ${dmy(t.buyDate)}`), h('span', { class: 'note' }, `${qtyTxt(C.openQty(t))} shares open · buy price ${priceTxt(D.d(t.buyPrice))}`), h('span', { class: 'cl-auto', hidden: true }, 'auto-selected — you can change it')),
+        h('div', { class: 'cl-r' }, h('span', { class: 'l' }, 'Result'), h('b', { 'data-res': t.id }, '–')),
+        h('label', { class: 'of' }, h('span', { class: 'l' }, 'Shares to close'), box(i)),
+        h('button', { class: 'btn sm', type: 'button', onClick: () => { i.value = D.edit(C.openQty(t)); touchedLines = true; autoId = null; if (!total.value) total.value = ''; refresh(); } }, 'Sell all'));
     });
-    linesBox.replaceChildren(h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Trade ID', 'Buy date', 'Open qty', 'Buy price', 'Shares to close', '', 'Result'].map((x, k) => h('th', { class: [2, 3, 4, 6].includes(k) ? 'r' : '' }, x)))), h('tbody', null, rows))));
-    if (auto && matches.length === 1 && ls.length > 1 || (auto && ls.length === 1 && tot !== null)) { const m = matches[0] || ls[0]; if (matches.length === 1 || ls.length === 1) inputs.get(m.id).value = D.edit(tot ?? C.openQty(m)); }
+    linesBox.replaceChildren(...rows);
+    if (auto && matches.length === 1 && ls.length > 1 || (auto && ls.length === 1 && tot !== null)) { const m = matches[0] || ls[0]; if (matches.length === 1 || ls.length === 1) { inputs.get(m.id).value = D.edit(tot ?? C.openQty(m)); if (ls.length > 1) autoId = m.id; } }
     refresh(matches.length > 1 && !touchedLines ? matches : null);
   }
   function refresh(multi) {
     const iso = parseDMY(date.value); dnote.textContent = iso ? weekdayName(iso) : (date.value ? 'Not a valid date' : '');
     const tot = D.parse(total.value); let assigned = 0n; const allocations = [];
-    for (const [id, i] of inputs) { const q = D.parse(i.value); if (q !== null && q > 0n) { assigned += q; allocations.push({ tradeId: id, qty: D.toStr(q) }); } else if (i.value.trim() && q === null) { i.classList.add('bad'); continue; } i.classList.remove('bad'); }
+    for (const [id, i] of inputs) { const q = D.parse(i.value); if (q !== null && q > 0n) { assigned += q; allocations.push({ tradeId: id, qty: D.toStr(q) }); } else if (i.value.trim() && q === null) { i.closest('.box').classList.add('bad'); continue; } i.closest('.box').classList.remove('bad'); }
+    for (const row of linesBox.children) { const id = row.dataset.id; row.classList.toggle('on', allocations.some((a) => a.tradeId === id)); row.querySelector('.cl-auto').hidden = id !== autoId; const c = row.querySelector('[data-res]'); c.textContent = '–'; c.className = ''; }
+    const symNow = A.stockById(st, symSel.value)?.symbol ?? ''; cSym.textContent = symNow || '–';
+    cLine.textContent = tot !== null && tot > 0n && D.parse(price.value) !== null && D.parse(price.value) > 0n ? `${qtyTxt(tot)} share${tot === D.SCALE ? '' : 's'} at $${priceTxt(D.parse(price.value))}${iso ? ' on ' + dmy(iso) : ''}` : 'Fill in the sale to see the result.';
     const ok = tot !== null && tot > 0n && assigned === tot;
     status.replaceChildren(...[
       tot === null || tot <= 0n ? h('span', { class: 'pill warn' }, 'Enter the total shares sold') : h('span', { class: 'pill ' + (ok ? 'pos' : 'warn') }, ok ? `✓ ${qtyTxt(tot)} of ${qtyTxt(tot)} assigned` : `${qtyTxt(assigned)} of ${qtyTxt(tot)} assigned`),
@@ -266,14 +280,26 @@ export function renderClose(ctx) {
       else {
         const rows = res.data.map(({ tradeId, sale }) => { const t = A.tradeById(draft, tradeId); const det = C.salesDetail(t).find((x) => x.sale.id === sale.id); const closed = C.openQty(t) === 0n; const R = closed ? C.rMultiple(t) : C.rMultiple(t, D.d(sale.qty), det.net);
           return { t, sale, det, R, closed, gross: D.mul(D.sub(D.d(sale.price), D.d(t.buyPrice)), D.d(sale.qty)) }; });
-        for (const r of rows) { const c = linesBox.querySelector(`[data-res="${r.t.id}"]`); if (c) { c.textContent = signed(r.det.net); c.className = 'r ' + numClass(r.det.net); } }
-        const sum = (f) => rows.reduce((a, r) => a + f(r), 0n);
-        prevBox.append(h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Trade ID', 'Shares', 'Gross', 'Buy comm.', 'Sell comm.', 'Net', 'R', 'Days'].map((x, k) => h('th', { class: k ? 'r' : '' }, x)))),
-          h('tbody', null, rows.map((r) => h('tr', null, h('td', { class: 'mono' }, r.t.id), h('td', { class: 'r' }, qtyTxt(D.d(r.sale.qty))), h('td', { class: 'r' }, signed(r.gross)), h('td', { class: 'r' }, r.det.buyShare === 0n ? '–' : '−' + money(r.det.buyShare)), h('td', { class: 'r' }, r.sale.commission ? '−' + money(D.d(r.sale.commission)) : '–'), h('td', { class: 'r ' + numClass(r.det.net) }, signed(r.det.net)), h('td', { class: 'r' }, r.R === null ? '–' : D.fmt(r.R, 2)), h('td', { class: 'r' }, String(C.saleDays(r.t, r.sale)))))),
-          h('tfoot', null, h('tr', null, h('td', null, h('b', null, 'Total')), h('td', { class: 'r' }, h('b', null, qtyTxt(sum((r) => D.d(r.sale.qty))))), h('td', { class: 'r' }, h('b', null, signed(sum((r) => r.gross)))), h('td', { class: 'r' }, sum((r) => r.det.buyShare) === 0n ? '–' : '−' + money(sum((r) => r.det.buyShare))), h('td', { class: 'r' }, sum((r) => D.d(r.sale.commission || '0')) === 0n ? '–' : '−' + money(sum((r) => D.d(r.sale.commission || '0')))), h('td', { class: 'r ' + numClass(sum((r) => r.det.net)) }, h('b', null, signed(sum((r) => r.det.net)))), h('td'), h('td'))))),
-          h('p', { class: 'note', style: { marginTop: '8px' } }, 'Buy commission is split by shares sold. Sell commission is split across lines by shares sold. A trade is counted when its last share is sold.'));
+        for (const r of rows) { const c = linesBox.querySelector(`[data-res="${r.t.id}"]`); if (c) { c.textContent = signed(r.det.net); c.className = numClass(r.det.net); } }
+        // one result block per trade (money, % of the trade, % of capital, days held): the same card the pop-up used to show
+        const S = st.settings; const marks = [];
+        for (const r of rows) {
+          const cost = D.mul(D.d(r.t.buyPrice), D.d(r.sale.qty)); const cap = C.N(r.t.capitalAtOpen); const left = C.openQty(r.t);
+          const capPct = cap && cap > 0n ? D.pct(r.det.net, cap) : null;
+          prevBox.append(h('div', { class: 'cl-block' }, h('div', { class: 'cl-bh' }, h('b', null, r.t.id), left > 0n ? ' · partly sold' : ' · closed'),
+            resultCard({ t: r.t, sale: r.sale, net: r.det.net, tradePct: cost > 0n ? D.pct(r.det.net, cost) : null, capPct, days: C.saleDays(r.t, r.sale), left }, { k: 0, n: 1, first: false, price: price.value, notes: null })));
+          if (left === 0n) { const tot = C.tradeNet(r.t); const m = cap && cap > 0n ? resultPctMark(D.pct(tot, cap), S) : null; if (m) marks.push([m.level === 'neg' ? 'rev' : 'ok', `${m.icon} ${r.t.id}: ${m.text} of capital`]); }
+        }
+        const stay = lines().map((t) => A.tradeById(draft, t.id)).filter((t) => t && C.openQty(t) > 0n);
+        const row = (k, v) => h('div', null, h('span', null, k), h('b', null, v));
+        prevBox.append(h('div', { class: 'ck cl-rows' },
+          row('Result in R', rows.map((r) => (rows.length > 1 ? r.t.id + ' ' : '') + (r.R === null ? '–' : (r.R > 0n ? '+' : r.R < 0n ? '−' : '') + D.fmt(D.abs(r.R), 2) + ' R')).join(' · ')),
+          row('Still open after', stay.length ? stay.map((t) => `${t.id} · ${qtyTxt(C.openQty(t))}`).join(', ') : 'Nothing in ' + symNow),
+          row('Capital (closed trades) after', usd(C.capitalNow(draft)))));
+        if (marks.length) prevBox.append(h('div', { class: 'conds' }, marks.map(([lv, m]) => h('div', { class: 'cond ' + lv }, m))));
       }
     }
+    if (!valid && !prevBox.children.length && reason) prevBox.append(h('div', { class: 'cl-wait' }, reason));
     btn.disabled = ctx.readOnly || !valid; btn.title = valid ? '' : reason;
     prevBox.dataset.reason = reason;
     ctx._closeAlloc = allocations;
@@ -310,25 +336,13 @@ export function renderClose(ctx) {
     };
     const draft = structuredClone(st); const res0 = apply(draft); if (!res0.ok) return toast(res0.error);
     const sym = A.symbolOf(st, A.tradeById(st, res0.data[0].tradeId));
-    // Result pop-ups (2026-11-06): one per trade. The first confirms the whole sale (Cancel / Close trade), the next ones only have OK.
-    const results = res0.data.map(({ tradeId, sale }) => {
-      const t = A.tradeById(draft, tradeId); const net = C.salesDetail(t).find((x) => x.sale.id === sale.id).net;
-      const cost = D.mul(D.d(t.buyPrice), D.d(sale.qty)); const cap = C.N(t.capitalAtOpen);
-      return { t, sale, net, tradePct: cost > 0n ? D.pct(net, cost) : null, capPct: cap && cap > 0n ? D.pct(net, cap) : null, days: C.saleDays(t, sale), left: C.openQty(t) };
-    });
+    // 1.5.3 (his choice 2026-11-14): no result pop-up before saving; the Result check panel already showed the result of every trade.
     const notes = Object.keys(buyFix).length ? `Buy commission saved for ${Object.keys(buyFix).join(', ')}.` : null;
     // A sale with an earlier date changes the capital of trades opened after it (2026-11-09): ask right away, not only on the Capital page.
     const diffKey = (x) => x.id + ':' + x.after; const diffsBefore = new Set(A.capitalDiffs(st).map(diffKey));
-    let saved = false;
-    for (let k = 0; k < results.length; k++) {
-      const first = k === 0; const ok = await dialog({ title: `${sym} · ${results[k].t.id}`, cls: 'resdlg', info: !first, ok: first ? 'Close trade' : 'OK', body: resultCard(results[k], { k, n: results.length, first, price: price.value, notes: first ? notes : null }) });
-      if (first) {
-        if (!ok) return;
-        const res = ctx.act((d) => apply(d), { label: 'sale ' + sym, now: true });
-        if (!res.ok) return toast(res.error);
-        saved = true;
-      }
-    }
+    const res = ctx.act((d) => apply(d), { label: 'sale ' + sym, now: true });
+    if (!res.ok) return toast(res.error);
+    const saved = true; if (notes) toast(notes);
     back(ctx);
     const needRecalc = saved && A.capitalDiffs(ctx.store.state).some((x) => !diffsBefore.has(diffKey(x)));
     if (saved) setTimeout(async () => { if (needRecalc) await askRecalc(ctx); await checkReminders(ctx); }, 0);
@@ -337,13 +351,23 @@ export function renderClose(ctx) {
   total.addEventListener('input', () => { touchedLines = false; buildLines(true); });
   for (const x of [date, price, comm]) x.addEventListener('input', () => refresh());
   buildLines(!!startTrade); setTimeout(() => (startTrade ? price : total).focus(), 0);
-  return h('div', { class: 'cols' }, h('section', { class: 'panel', style: { flex: '1 1 100%' } },
-    h('div', { class: 'ph' }, '1. The sale', h('span', { class: 'sub' }, 'one sale, one price')),
-    h('div', { class: 'pb' }, h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', alignItems: 'start' } }, field('Symbol', symSel), field('Total shares sold', total), field('Sell date', date, dnote), field('Sell price (USD)', price), field('Sell commission (USD)', comm)),
-      h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', alignItems: 'start', marginTop: '14px', maxWidth: '640px' } }, field('Setup', h('div', { class: 'selnew' }, setupSel, setupNew)), h('div', { class: 'fld' }, 'Setup rating', starsSel), field('Mistake (if any)', h('div', { class: 'selnew' }, mistake, mistakeNew)))),
-    h('div', { class: 'ph', style: { borderTop: '1px solid var(--line)' } }, '2. Choose the lines', status), linesBox,
-    h('div', { class: 'pb', style: { display: 'grid', gap: '8px' } }, h('div', { class: 'row' }, btn, h('button', { class: 'btn', onClick: () => back(ctx) }, 'Cancel')), h('span', { class: 'note' }, 'The button stays off until every share is assigned and the price is filled in. It opens a confirmation first.'))),
-    h('aside', { class: 'panel', style: { flex: '1 1 100%' }, 'aria-label': 'Preview' }, h('div', { class: 'ph' }, 'Preview before saving'), h('div', { class: 'pb' }, prevBox)));
+  const card = (title, lead, right, ...kids) => h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, title), h('p', { class: 'lead' }, lead)), right), h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, kids));
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '20px' } },
+    h('header', { class: 'pg-head' },
+      h('div', null, h('div', { class: 'eyebrow' }, 'Exit'), h('h1', null, 'Close trade'), h('p', { class: 'lead' }, 'Enter the sale, then take a moment to look at the result.')),
+      h('div', { class: 'acts' }, h('span', { class: 'hpill' }, 'Capital (closed trades)', h('b', null, usd(C.capitalNow(st)))), h('button', { class: 'btn ghost', onClick: () => back(ctx) }, 'Cancel'))),
+    h('div', { class: 'op-grid' },
+      h('div', { class: 'op-left' },
+        card('The sale', 'What you sold, and at what price.', null,
+          h('div', { class: 'fgrid' }, of('Symbol', box(symSel)), of('Shares sold', box(total)), of('Sell price', box(price, '$')),
+            of('Sell date', h('div', { class: 'datebox' }, box(date), h('button', { class: 'btn today', type: 'button', onClick: () => { date.setISO(today); refresh(); } }, 'Today')), dnote),
+            of('Sell commission', box(comm, '$')))),
+        card('Which lines', 'You choose the lines. The program never picks for you when it is unclear.', status, linesBox),
+        card('Review', 'Optional. Saved on every trade closed in this sale.', null,
+          h('div', { class: 'fgrid cl-rev' }, of('Setup', box(setupSel), setupNew), h('div', { class: 'of' }, h('span', { class: 'l' }, 'Setup rating'), starsSel), of('Mistake (if any)', box(mistake), mistakeNew)))),
+      h('aside', { class: 'card acc op-check', 'aria-label': 'Result check' }, h('div', { class: 'card-b' },
+        h('div', null, h('div', { class: 'eyebrow' }, 'Result check'), cSym), cLine, prevBox, btn,
+        h('p', { class: 'accept' }, 'The sale is saved when you click Close trade. Undo is in the top bar right after.')))));
 }
 
 // One trade's result when closing: money, % of the trade, % of capital, days held. Colour follows the result.

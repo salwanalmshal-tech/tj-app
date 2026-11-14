@@ -24,7 +24,7 @@ import * as dashboard from './dashboard.js';
 const ROUTES = {
   open: { title: 'Open positions', mod: openPos, own: true },
   'open-trade': { title: 'Open trade', mod: tradeForms, fn: 'renderOpen', parent: 'open', own: true },
-  'close-trade': { title: 'Close trade', eyebrow: 'Exit', lead: 'Sell shares and see the result before anything is saved.', mod: tradeForms, fn: 'renderClose', parent: 'open' },
+  'close-trade': { title: 'Close trade', eyebrow: 'Exit', lead: 'Sell shares and see the result before anything is saved.', mod: tradeForms, fn: 'renderClose', parent: 'open', own: true },
   history: { title: 'History', eyebrow: 'Learn', lead: 'What your closed trades say about how you trade, and where to look next.', mod: history },
   capital: { title: 'Capital', eyebrow: 'Money', lead: 'What changed your capital and why.', mod: capital },
   lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and errors used by your trades.', mod: lists },
