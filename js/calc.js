@@ -272,3 +272,26 @@ export function periodBaseCapital(state, from, to) {
   const c = capitalBefore(state, from, -Infinity); if (c > 0n) return c;
   return s0.date <= to ? D.d(s0.amount) : 0n;
 }
+
+// ---------- 1.5.2: plain price line on the position cards ----------
+// Stop, Buy, Last, EMA10 and Highest as points on one line, placed by price (pos 0 = lowest, 1 = highest).
+// null when one of the five prices is missing (then the card shows no line). Pure picture data: no rule, no colour.
+export function priceLine(t) {
+  const pts = [['stop', 'Stop', n(t.currentStop)], ['buy', 'Buy', D.d(t.buyPrice)], ['last', 'Last', n(t.last)], ['ema', 'EMA', n(t.ema10)], ['high', 'High', n(t.highest)]];
+  if (pts.some((p) => p[2] === null)) return null;
+  let lo = pts[0][2], hi = pts[0][2]; for (const p of pts) { if (p[2] < lo) lo = p[2]; if (p[2] > hi) hi = p[2]; }
+  const span = hi - lo;
+  return pts.map(([key, label, value]) => ({ key, label, value, pos: span === 0n ? 0.5 : Number(((value - lo) * 10000n) / span) / 10000 }));
+}
+
+// ---------- 1.5.2: share calculator in Open trade ----------
+// Whole shares whose loss at the Initial stop stays within riskPct % of the capital: floor(capital × % ÷ (buy − stop)).
+// It only suggests; null when a value is missing or the stop is not below the buy price.
+export function sharesForRisk(capital, riskPct, buy, stop) {
+  if ([capital, riskPct, buy, stop].some((x) => x === null || x === undefined)) return null;
+  if (capital <= 0n || riskPct <= 0n || buy <= 0n || stop >= buy) return null;
+  const budget = D.div(D.mul(capital, riskPct), D.d('100')); const per = D.sub(buy, stop);
+  const shares = budget / per; // both are scaled the same way, so this is the whole number of shares (rounded down)
+  const qty = shares * D.SCALE;
+  return { shares: qty, budget, risk: D.mul(per, qty), cost: D.mul(buy, qty) };
+}

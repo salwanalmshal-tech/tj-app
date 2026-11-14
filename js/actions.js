@@ -54,6 +54,12 @@ export function addFlow(st, { date, type, amount }) {
   if (!['deposit', 'withdrawal'].includes(type)) return err('Choose deposit or withdrawal.');
   if (!st.capital.start) return err('Set the start capital first.');
   if (date < st.capital.start.date) return err('The date is before the start capital date.');
+  // 1.5.2 (his choice: block): a withdrawal can never be more than the capital, on its own date or today
+  if (type === 'withdrawal') {
+    const dm = (x) => D.fmt(x, 2); const on = C.capitalBefore(st, date, Infinity), now = C.capitalNow(st);
+    if (a > on) return err(`This withdrawal (${dm(a)}) is more than your capital on ${date.split('-').reverse().join('-')} (${dm(on)}). Nothing was saved.`, { overCapital: true });
+    if (a > now) return err(`This withdrawal (${dm(a)}) is more than your capital today (${dm(now)}). Nothing was saved.`, { overCapital: true });
+  }
   const f = { id: nextId(st, 'f'), date, type, amount: S(a), seq: nextSeq(st) }; st.capital.flows.push(f); return ok(f);
 }
 export function deleteFlow(st, id) {
@@ -389,6 +395,8 @@ export function applySplit(st, stockId, ratioNew, ratioOld, date) {
 
 // ---------- settings ----------
 export function setSetting(st, key, value) { st.settings[key] = value; return ok(); }
+// the risk % typed in the share calculator is remembered for the next trade (a number above 0, at most 100)
+export function rememberCalcRisk(st, raw) { const p = D.parse(raw); if (p === null || p <= 0n || p > D.d('100')) return err('Not a valid risk %.'); st.settings.calcRiskPct = S(p); return ok(); }
 
 // ---------- "On Open positions" ticks on the Dashboard number cards (max 4) ----------
 export function toggleOpenCard(st, key) {

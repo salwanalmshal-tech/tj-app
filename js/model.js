@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.5.1';
+export const APP_VERSION = '1.5.2';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -28,6 +28,8 @@ export function defaultSettings() {
     excelCopyDays: 7, excelCopyKeep: 4,
     // price jump check on typed prices. NOT yet decided by the owner: value below is a starting value, shown in Settings.
     bigJumpPct: '20',
+    // share calculator in Open trade: the risk % he accepts per trade. Empty = start from his own "orange above" risk limit (riskWarn).
+    calcRiskPct: '',
   };
 }
 

@@ -209,3 +209,45 @@ test('Edit trade: the buy date cannot be moved to after a sale of that trade; an
   assert.ok(A.editBuyData(st, t.id, { buyDate: '2026-01-15' }).ok);
   assert.equal(C.holdingDays(t), 36);
 });
+
+// ---- 1.5.2
+test('Withdrawal: blocked when it is more than the capital on its date or today; a normal one still works', () => {
+  const st = emptyState(); assert.ok(A.setStartCapital(st, { amount: '1000', date: '2026-01-01' }).ok);
+  const r = A.addFlow(st, { date: '2026-02-01', type: 'withdrawal', amount: '1000,01' });
+  assert.equal(r.ok, false); assert.equal(r.overCapital, true); assert.match(r.error, /more than your capital on 01-02-2026 \(1.000,00\)/); assert.equal(st.capital.flows.length, 0);
+  assert.ok(A.addFlow(st, { date: '2026-02-01', type: 'withdrawal', amount: '1000' }).ok); // exactly all of it is allowed
+  assert.equal(C.capitalNow(st), 0n);
+  assert.ok(A.addFlow(st, { date: '2026-03-01', type: 'deposit', amount: '500' }).ok);
+  // back-dated: 400 on 15-02 is more than the capital on that date (0), although there is 500 today
+  assert.equal(A.addFlow(st, { date: '2026-02-15', type: 'withdrawal', amount: '400' }).ok, false);
+  // back-dated the other way: capital on that early date was enough, but today it is not
+  const st2 = emptyState(); A.setStartCapital(st2, { amount: '1000', date: '2026-01-01' });
+  A.addFlow(st2, { date: '2026-03-01', type: 'withdrawal', amount: '900' });
+  const r2 = A.addFlow(st2, { date: '2026-02-01', type: 'withdrawal', amount: '200' });
+  assert.equal(r2.ok, false); assert.match(r2.error, /more than your capital today \(100,00\)/);
+  assert.ok(A.addFlow(st2, { date: '2026-02-01', type: 'deposit', amount: '99999' }).ok); // deposits are never blocked
+});
+
+test('Price line: five points placed by price, lowest 0 and highest 1; no line when a price is missing', () => {
+  const t = { buyPrice: '53', currentStop: '50.88', last: '55.12', ema10: '56.22', highest: '56.77', qty: '9', sales: [] };
+  const pts = C.priceLine(t); const by = Object.fromEntries(pts.map((p) => [p.key, p]));
+  assert.deepEqual(pts.map((p) => p.key), ['stop', 'buy', 'last', 'ema', 'high']);
+  assert.equal(by.stop.pos, 0); assert.equal(by.high.pos, 1);
+  assert.ok(Math.abs(by.buy.pos - (53 - 50.88) / (56.77 - 50.88)) < 0.0002); assert.ok(by.buy.pos < by.last.pos && by.last.pos < by.ema.pos);
+  for (const k of ['currentStop', 'last', 'ema10', 'highest']) assert.equal(C.priceLine({ ...t, [k]: '' }), null);
+  // stop above buy (profit locked) and all prices equal still work
+  assert.equal(C.priceLine({ ...t, currentStop: '54' }).find((p) => p.key === 'buy').pos, 0);
+  assert.ok(C.priceLine({ ...t, currentStop: '53', last: '53', ema10: '53', highest: '53' }).every((p) => p.pos === 0.5));
+});
+
+test('Share calculator: whole shares rounded down so the risk never passes the limit; null when values are missing or wrong', () => {
+  const r = C.sharesForRisk(D.d('6187.93'), D.d('0.2'), D.d('53'), D.d('50.88')); // limit 12,37586; 2,12 per share -> 5 shares
+  assert.equal(D.toStr(r.shares), '5'); assert.equal(D.toStr(r.risk), '10.6'); assert.equal(D.toStr(r.cost), '265'); assert.ok(r.risk <= r.budget);
+  assert.equal(D.toStr(C.sharesForRisk(D.d('10000'), D.d('0.5'), D.d('100'), D.d('95')).shares), '10'); // exactly on the limit is allowed
+  assert.equal(C.sharesForRisk(D.d('1000'), D.d('0.2'), D.d('100'), D.d('90')).shares, 0n); // not even one share fits
+  for (const a of [[null, D.d('1'), D.d('10'), D.d('9')], [D.d('0'), D.d('1'), D.d('10'), D.d('9')], [D.d('1000'), D.d('0'), D.d('10'), D.d('9')], [D.d('1000'), D.d('1'), D.d('10'), D.d('10')], [D.d('1000'), D.d('1'), D.d('10'), null]]) assert.equal(C.sharesForRisk(...a), null);
+  const st = emptyState();
+  assert.equal(A.rememberCalcRisk(st, '0,25').ok, true); assert.equal(st.settings.calcRiskPct, '0.25');
+  for (const bad of ['', 'abc', '0', '-1', '101']) assert.equal(A.rememberCalcRisk(st, bad).ok, false);
+  assert.equal(st.settings.calcRiskPct, '0.25');
+});

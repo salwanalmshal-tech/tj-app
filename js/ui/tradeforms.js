@@ -57,6 +57,7 @@ export function resolveNew(d, list, v) {
 // =====================================================================  OPEN A POSITION (locked reference, specification screen 2)
 // I found a trade -> I define it -> I see the risk -> I accept it -> Open position. Validation and saving are A.validateOpen / A.openTrade.
 const usd = (a) => (a === null || a === undefined ? '–' : (a < 0n ? '−$' : '$') + money(D.abs(a)));
+let calcRisk = null; // the risk % typed in the share calculator, kept while the program is open (saved with the next opened trade)
 export function renderOpen(ctx) {
   const st = ctx.store.state; const today = ctx.today(); const S = st.settings;
   const box = (input, pre) => h('div', { class: 'box' }, pre ? h('span', { class: 'pre' }, pre) : null, input);
@@ -107,6 +108,11 @@ export function renderOpen(ctx) {
   const rbox = h('div', { class: 'riskbox none' }), ck = h('dl', { class: 'ck', style: { margin: 0 } }), conds = h('div', { class: 'conds', 'aria-live': 'polite' });
   const accept = h('p', { class: 'accept' });
   let touched = false;
+  // share calculator (1.5.2): the risk he accepts -> how many shares that is. It only suggests; he types the shares himself.
+  const rk = inp('Risk I accept, % of capital', { inputmode: 'decimal', value: calcRisk ?? D.edit(D.d(S.calcRiskPct || S.riskWarn)) });
+  const calcOut = h('div', { class: 'calc-out' });
+  const calc = h('div', { class: 'calc' }, h('div', { class: 'calc-h' }, h('span', { class: 'k' }, 'Share calculator', infoBtn('Share calculator', 'Shares = capital on the buy date × the risk you accept ÷ (buy price − Initial stop), rounded down to whole shares. A suggestion only: you type the shares yourself.')),
+    h('label', { class: 'calc-in' }, 'Risk I accept', h('span', { class: 'box sm' }, rk, h('span', { class: 'pre' }, '%')))), calcOut);
 
   const loss = C.lossIfAllStopsHit(st); const account = C.estimatedAccount(st);
   const nowRisk = account > 0n ? D.pct(D.abs(loss.loss), account) : null;
@@ -148,6 +154,16 @@ export function renderOpen(ctx) {
     if (f.buyDate && f.buyDate > today) list.push(['rev', 'The buy date is in the future.']);
     if (touched || okQP) for (const w of v.warnings) list.push(['rev', w]);
     const level = list.some((x) => x[0] === 'act') ? 'act' : list.length ? 'rev' : 'ok';
+    // share calculator
+    calcRisk = rk.value;
+    const rkv = D.parse(rk.value); const rkBad = rk.value.trim() !== '' && (rkv === null || rkv <= 0n || rkv > D.d('100'));
+    rk.closest('.box').classList.toggle('bad', rkBad);
+    const sug = rkBad || rkv === null ? null : C.sharesForRisk(cap, rkv, p, badStop ? null : stop);
+    if (rkBad) calcOut.replaceChildren(h('span', { class: 'n bad' }, 'Type a risk % above 0.'));
+    else if (!sug) calcOut.replaceChildren(h('span', { class: 'n' }, !cap || cap <= 0n ? 'Needs your capital on the buy date.' : 'Add buy price and Initial stop.'));
+    else if (sug.shares === 0n) calcOut.replaceChildren(h('span', { class: 'n' }, `Not even 1 share fits: one share risks ${usd(D.sub(p, stop))}, your limit is ${usd(sug.budget)}.`));
+    else calcOut.replaceChildren(h('b', null, `${qtyTxt(sug.shares)} share${sug.shares === D.SCALE ? '' : 's'}`),
+      h('span', { class: 'n' }, `risk ${usd(sug.risk)} of ${usd(sug.budget)} · cost ${usd(sug.cost)}` + (account > 0n ? ` · position size ${pctTxt(D.pct(sug.cost, account), 1)}` : '')));
     // planned risk box
     rbox.className = 'riskbox ' + (risk === null ? 'none' : riskPct !== null && riskPct > D.d(S.riskRed) ? 'act' : riskPct !== null && riskPct > D.d(S.riskWarn) ? 'rev' : 'ok');
     rbox.replaceChildren(h('span', { class: 'k' }, 'Risk at Initial stop', infoBtn('Risk at Initial stop', '(Buy price − Initial stop) × shares. As % of the capital on the buy date. Within plan up to ' + S.riskWarn.replace('.', ',') + ' %, review up to ' + S.riskRed.replace('.', ',') + ' %, above that it is above plan.')), h('span', { class: 'v' }, risk === null ? '—' : usd(risk)),
@@ -162,13 +178,14 @@ export function renderOpen(ctx) {
   async function submit(again) {
     touched = true; const { f, errors } = check();
     if (errors.length) { (bpBox.classList.contains('bad') ? bp : qtyBox.classList.contains('bad') ? qty : symBox.classList.contains('bad') ? sym : isBox.classList.contains('bad') ? is : sym).focus(); return; }
-    const res = ctx.act((d) => A.openTrade(d, { ...f, setupId: resolveNew(d, 'setups', f.setupId) }), { label: 'open ' + f.symbol.toUpperCase(), now: true });
+    const res = ctx.act((d) => { const r = A.openTrade(d, { ...f, setupId: resolveNew(d, 'setups', f.setupId) }); if (r.ok) A.rememberCalcRisk(d, rk.value); return r; }, { label: 'open ' + f.symbol.toUpperCase(), now: true });
+    if (res.ok) calcRisk = null;
     if (!res.ok) return toast(res.error);
     toast(`${f.symbol.toUpperCase()} opened as ${res.data.id}.`, 'Undo', () => ctx.store.undo());
     if (again) { ctx.go('open-trade'); } else back(ctx);
   }
   bd.input.addEventListener('input', () => check()); nr.input.addEventListener('input', () => check());
-  for (const x of [sym, qty, bp, bc, is, cs, last, hi, ema, setup, com, sector, industry, exch]) x.addEventListener('input', () => check());
+  for (const x of [sym, qty, bp, bc, is, cs, last, hi, ema, setup, com, sector, industry, exch, rk]) x.addEventListener('input', () => check());
   setTimeout(() => { check(); sym.focus(); }, 0);
 
   const more = h('details', { class: 'more' }, h('summary', null, 'More: current stop, last price, highest, EMA10, next report'),
@@ -189,7 +206,7 @@ export function renderOpen(ctx) {
         h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Note'), h('p', { class: 'lead' }, 'Optional. Keep only what is worth remembering.'))),
           h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, of('Trade thesis', com)))),
       h('aside', { class: 'card acc op-check', 'aria-label': 'Decision check' }, h('div', { class: 'card-b' },
-        h('div', null, h('div', { class: 'eyebrow' }, 'Decision check'), cSym), cLine, rbox, ck, conds,
+        h('div', null, h('div', { class: 'eyebrow' }, 'Decision check'), cSym), cLine, rbox, calc, ck, conds,
         h('button', { class: 'btn go', disabled: ctx.readOnly, onClick: () => submit(false) }, 'Open position →'), accept,
         h('button', { class: 'btn ghost', disabled: ctx.readOnly, onClick: () => submit(true), style: { alignSelf: 'center' } }, 'Open and add another')))));
 }
