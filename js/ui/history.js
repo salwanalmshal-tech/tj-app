@@ -491,6 +491,7 @@ function renderTable(ts,inc=ts){
   v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{page=+b.dataset.p;renderTable(ts,inc);});
   v.querySelectorAll('[data-symf]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();F={...newF(),syms:[b.dataset.symf]};openRow=null;renderAll();});
   v.querySelectorAll('[data-esale]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();editSale(CTX,b.dataset.trade,b.dataset.esale);});
+  v.querySelectorAll('[data-facts]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();factsOpen=factsOpen===b.dataset.facts?null:b.dataset.facts;renderTable(ts,inc);});
   // highest price of a closed trade, typed here so "move kept" can be shown (checked: not below the buy price or a sale price)
   v.querySelectorAll('[data-hi]').forEach(i=>{i.onclick=(e)=>e.stopPropagation();i.onkeydown=(e)=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();v.querySelector(`[data-hisave="${i.dataset.hi}"]`).click();}};});
   v.querySelectorAll('[data-hisave]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();const id=b.dataset.hisave,i=v.querySelector(`[data-hi="${id}"]`);
@@ -519,13 +520,15 @@ function factsHtml(t){const k=keptText(t),s=stopText(t);const ro=CTX.readOnly?' 
   const hiBox=`<span class="tfact-hi"><label>Highest price $ <input data-hi="${t.id}" inputmode="decimal" value="${t.mk.hi===null?'':esc(D.edit(D.d(t.src.highest)))}" aria-label="Highest price while you held ${t.sym}"${ro}></label><button class="btn sm" type="button" data-hisave="${t.id}"${ro}>Save</button></span>`;
   const one=(title,x,why,extra='')=>`<div class="tfact"><span class="tfact-t">${title}</span><b class="${x.tone}">${x.head}</b><span class="tfact-n">${x.nums}</span>${extra}<span class="tfact-w">${why}</span></div>`;
   return `<div class="tfacts">${one('How much of the move did I keep?',k,KEPT_WHY,hiBox)}${one('Did I move a stop down?',s,STOP_WHY)}</div>`;}
+let factsOpen=null; // 1.5.6 (his wish): the two facts show only after a click on "More"; closed again when another trade is opened
 function detailRow4(t){
   const so=RAW.setups.filter(s=>s.name!=='Unclassified'&&(!s.archived||t.setupId===s.id)).map(s=>`<option value="${s.id}"${t.setupId===s.id?' selected':''}>${esc(s.name)}</option>`).join(''),eo=realErrors().filter(s=>!s.archived||t.errorId===s.id).map(s=>`<option value="${s.id}"${t.errorId===s.id?' selected':''}>${esc(s.name)}</option>`).join('');
   return `<tr class="dt"><td colspan="${COLS4.length}"><div class="dgrid">
     <div><span>Bought</span><b>${dmy(t.buyDate)} · ${fx(t.qty,0)} × $${fx(t.buy,2)}</b></div><div><span>Average sell price</span><b>$${fx(t.avgSell,2)}</b></div>
     <div><span>Initial stop</span><b>${t.init===null?'No stop':`$${fx(t.init,2)} · ${fx(t.sdPct,1)} % · ${t.sd}`}</b></div><div><span>How you bought</span><b>${t.how}</b></div>
     <div><span>Commissions</span><b>$${fx(t.comm,2)}</b></div><div><span>Capital at open</span><b>$${fx(t.capAtOpen,2)}</b></div></div>
-    ${factsHtml(t)}
+    <button class="tfmore" type="button" data-facts="${t.id}" aria-expanded="${factsOpen===t.id}"><span class="tri" aria-hidden="true">${factsOpen===t.id?'▾':'▸'}</span> More: how much of the move did I keep · did I move a stop down</button>
+    ${factsOpen===t.id?factsHtml(t):''}
     ${t.comment?`<p style="margin:12px 0 0;max-width:80ch">💬 ${esc(t.comment)}</p>`:''}
     <table class="dsales"><tbody>${t.sales.map(s=>`<tr><td class="note">Sale ${dmy(s.date)}</td><td>${fx(s.q,0)} × $${fx(+s.price,2)}</td><td class="${s.net>=0?'pos':'neg'}">${usd(s.net)}</td><td><button class="btn sm" data-esale="${s.id}" data-trade="${t.id}"${CTX.readOnly?' disabled':''}>Edit sale…</button></td></tr>`).join('')}</tbody></table>
     <div class="dtag"><label class="fld">Setup<select data-tag="setupId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Unclassified</option>${so}</select></label>
