@@ -251,3 +251,60 @@ test('Share calculator: whole shares rounded down so the risk never passes the l
   for (const bad of ['', 'abc', '0', '-1', '101']) assert.equal(A.rememberCalcRisk(st, bad).ok, false);
   assert.equal(st.settings.calcRiskPct, '0.25');
 });
+
+// ---- 1.5.5: the two History facts
+function closedTrade(st, { buy, sales, highest, stop = null }) {
+  const t = A.openTrade(st, { symbol: 'T' + (st.trades.length + 1), buyDate: '2026-02-02', qty: String(sales.reduce((a, s) => a + s[0], 0)), buyPrice: String(buy), initialStop: stop === null ? String(buy * 0.95) : String(stop), buyCommission: '' }).data;
+  sales.forEach(([q, p], i) => assert.ok(A.closeSale(st, { date: `2026-02-${String(10 + i).padStart(2, '0')}`, price: String(p), commission: '', allocations: [{ tradeId: t.id, qty: String(q) }] }).ok));
+  t.highest = highest === null ? '' : String(highest); return t;
+}
+test('Move kept: one answer per closed trade, average sell price for a trade sold in parts, nothing guessed', () => {
+  const st = emptyState(); A.setStartCapital(st, { amount: '100000', date: '2026-01-01' });
+  const a = C.moveKept(closedTrade(st, { buy: 100, sales: [[10, 112]], highest: 120 }));
+  assert.equal(a.kind, 'kept'); assert.equal(D.toStr(a.pct), '60');
+  const b = C.moveKept(closedTrade(st, { buy: 100, sales: [[5, 110], [5, 116]], highest: 120 })); // average 113
+  assert.equal(b.kind, 'kept'); assert.equal(D.toStr(b.avgSell), '113'); assert.equal(D.toStr(b.pct), '65');
+  const c = C.moveKept(closedTrade(st, { buy: 100, sales: [[10, 96]], highest: 108 }));
+  assert.equal(c.kind, 'gaveback'); assert.equal(D.toStr(c.upPct), '8'); assert.equal(D.toStr(c.endPct), '-4');
+  assert.equal(C.moveKept(closedTrade(st, { buy: 100, sales: [[10, 97]], highest: 100 })).kind, 'never');
+  assert.equal(C.moveKept(closedTrade(st, { buy: 100, sales: [[10, 120]], highest: 120 })).pct, D.d('100')); // sold at the top
+  const u1 = C.moveKept(closedTrade(st, { buy: 100, sales: [[10, 112]], highest: null })); assert.deepEqual([u1.kind, u1.why], ['unknown', 'missing']);
+  const u2 = C.moveKept(closedTrade(st, { buy: 100, sales: [[10, 112]], highest: 111 })); assert.deepEqual([u2.kind, u2.why], ['unknown', 'low']); // below the sale price
+  const u3 = C.moveKept(closedTrade(st, { buy: 100, sales: [[5, 104], [5, 118]], highest: 115 })); assert.equal(u3.kind, 'unknown'); // below ONE of the sale prices, although above the average
+  assert.equal(C.moveKept(closedTrade(st, { buy: 100, sales: [[10, 96]], highest: 99 })).kind, 'unknown'); // below the buy price
+  const open = A.openTrade(st, { symbol: 'OPEN', buyDate: '2026-02-02', qty: '10', buyPrice: '50', initialStop: '48', buyCommission: '' }).data;
+  assert.equal(C.moveKept(open), null); // only closed trades
+});
+
+test('Stop moved down: counts a day whose last stop is lower than the stop of the day before; same-day fixes, first stops and removals do not count', () => {
+  const at = (day, hour) => new Date(2026, 10, day, hour, 0, 0).toISOString(); // local time, like the program
+  const e = (day, hour, o, n) => ({ ts: at(day, hour), tradeId: 'T-0001', old: o, new: n });
+  assert.deepEqual(C.stopMovesDown([]), { changes: 0, downs: [] });
+  const one = C.stopMovesDown([e(3, 10, '95', '92')]);
+  assert.equal(one.changes, 1); assert.equal(one.downs.length, 1); assert.equal(one.downs[0].date, '2026-11-03'); assert.equal(D.toStr(one.downs[0].from), '95'); assert.equal(D.toStr(one.downs[0].to), '92');
+  assert.equal(C.stopMovesDown([e(3, 10, '95', '92'), e(3, 11, '92', '95')]).downs.length, 0); // typing mistake fixed the same day
+  assert.equal(C.stopMovesDown([e(3, 10, '95', '97'), e(3, 15, '97', '96')]).downs.length, 0); // raised overall that day
+  assert.equal(C.stopMovesDown([e(3, 10, '95', '97'), e(4, 10, '97', '99'), e(5, 10, '99', '101')]).downs.length, 0); // only raised
+  const two = C.stopMovesDown([e(5, 9, '99', '96'), e(3, 10, '95', '99'), e(7, 9, '96', '94')]); // also when the lines are not in time order
+  assert.deepEqual(two.downs.map((d) => d.date), ['2026-11-05', '2026-11-07']);
+  assert.equal(C.stopMovesDown([e(3, 10, '', '95')]).downs.length, 0); // a first stop
+  assert.equal(C.stopMovesDown([e(3, 10, '95', '')]).downs.length, 0); // stop removed (History check 3 covers trades without a stop)
+  assert.equal(C.stopMovesDown([e(3, 23, '95', '96'), e(4, 1, '96', '95.5')]).downs.length, 1); // lowered the next day, even only a little
+});
+
+test('Highest price of a closed trade: typed later in History, checked against the buy price and the sale prices, logged', () => {
+  const st = emptyState(); A.setStartCapital(st, { amount: '100000', date: '2026-01-01' });
+  const t = closedTrade(st, { buy: 100, sales: [[5, 104], [5, 118]], highest: null });
+  assert.match(A.setClosedHighest(st, t.id, '99').error, /below your buy price/);
+  assert.match(A.setClosedHighest(st, t.id, '117,99').error, /below a price you sold at/);
+  for (const bad of ['abc', '0', '-5']) assert.equal(A.setClosedHighest(st, t.id, bad).ok, false);
+  assert.equal(t.highest, '');
+  const logBefore = st.changeLog.length;
+  assert.ok(A.setClosedHighest(st, t.id, '125,5').ok); assert.equal(t.highest, '125.5'); assert.equal(st.changeLog.length, logBefore + 1);
+  assert.equal(C.moveKept(t).kind, 'kept');
+  assert.ok(A.setClosedHighest(st, t.id, '118').ok); // exactly the highest sale price is fine
+  assert.ok(A.setClosedHighest(st, t.id, '').ok); assert.equal(t.highest, ''); // emptying is allowed
+  const open = A.openTrade(st, { symbol: 'OPEN', buyDate: '2026-02-02', qty: '10', buyPrice: '50', initialStop: '48', buyCommission: '' }).data;
+  assert.match(A.setClosedHighest(st, open.id, '60').error, /still open/);
+  assert.equal(A.setClosedHighest(st, 'T-9999', '60').ok, false);
+});

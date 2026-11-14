@@ -884,3 +884,15 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .cl-wait{font-size:12.5px;color:var(--muted);border:1px dashed var(--field);border-radius:12px;padding:18px 14px;text-align:center}
 .cl-rows span{color:var(--muted)}.cl-rows b{font-weight:700;color:var(--ink);text-align:right}
 @media (max-width:700px){.cl-line{grid-template-columns:1fr 1fr}}
+
+/* ---------- 1.5.5: the two History facts in the trade details ---------- */
+.tfacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:14px}
+.tfact{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
+.tfact-t{font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.tfact b{font-size:15px;font-weight:700;color:var(--ink)}
+.tfact b.pos{color:var(--pos)}.tfact b.neg{color:var(--neg)}.tfact b.warn{color:var(--warn)}
+.tfact-n{font-size:12.5px;color:var(--ink)}
+.tfact-w{font-size:11.5px;color:var(--muted);margin-top:2px}
+.tfact-hi{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;font-size:12px;color:var(--muted)}
+.tfact-hi input{width:96px;height:30px;text-align:right;border:1px solid var(--field);border-radius:8px;padding:0 8px;font:600 12.5px 'Inter',system-ui,sans-serif;color:var(--ink);background:var(--panel)}
+.tfact-hi input:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(50,107,158,.12)}

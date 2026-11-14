@@ -48,7 +48,13 @@ const times=(x)=>x===null?'–':(x>=1.95&&x<2.05?'2':x>=2.4&&x<2.6?'2½':x>=1.4&
 // never differ from Close trade, Capital or the cards. Plain numbers are made only afterwards, for averages and display.
 const BN=(b)=>b===null||b===undefined?null:Number(b)/1e8;            // exact value → number (8 decimals)
 const BC=(b)=>{if(b===null||b===undefined)return null;const neg=b<0n,v=neg?-b:b,q=v/1000000n+((v%1000000n)*2n>=1000000n?1n:0n);return (neg?-1:1)*Number(q)/100;}; // money: rounded to cents like the rest of the program
+// 1.5.5: the two facts in plain words. KEPT_WHY / STOP_WHY are shown beside the fact, so the reason never has to be remembered.
+const KEPT_G=['Kept half or more','Kept less than half','Was up, ended in a loss','Never above buy price','Not known'];
+const STOP_G=['Stop moved down','Stop changed, never down','No stop changes saved'];
+const KEPT_WHY='Why it matters: it shows whether you tend to sell too early or give back too much of a move before you sell.';
+const STOP_WHY='Why it matters: a stop that is moved down gives a losing trade more room than you planned when you bought.';
 function build(){
+  const stopBy={};for(const e of RAW.stopHistory||[])(stopBy[e.tradeId]??=[]).push(e);
   const all=RAW.trades.map(t=>{
     const qty=BN(D.d(t.qty)), buy=BN(D.d(t.buyPrice)), bc=BN(C.N(t.buyCommission)??0n), soldB=C.soldQty(t), closed=t.sales.length>0&&C.openQty(t)===0n;
     const det=C.salesDetail(t), sales=det.map(x=>({...x.sale,q:BN(D.d(x.sale.qty)),net:BC(x.net)}));
@@ -69,6 +75,12 @@ function build(){
     t.R=BN(RB); t.labelRaw=C.rCategory(RB,S)??'–'; t.label=esc(t.labelRaw); t.labelTone=C.rCategoryTone(RB,S);
     t.sdPct=BN(sdB); t.sdRaw=C.stopDistanceLabel(sdB,S)??'No SL'; t.sd=esc(t.sdRaw);
     t.comm=BN((C.N(src.buyCommission)??0n)+src.sales.reduce((a,x)=>a+(C.N(x.commission)??0n),0n));
+    const mk=C.moveKept(src);
+    t.mk={kind:mk.kind,why:mk.why??null,pct:BN(mk.pct??null),upPct:BN(mk.upPct??null),endPct:BN(mk.endPct??null),hi:BN(mk.highest),maxSale:BN(mk.maxSale)};
+    t.keptG=mk.kind==='kept'?(t.mk.pct>=50?KEPT_G[0]:KEPT_G[1]):mk.kind==='gaveback'?KEPT_G[2]:mk.kind==='never'?KEPT_G[3]:KEPT_G[4];
+    const sm=C.stopMovesDown(stopBy[t.id]||[]);
+    t.sm={changes:sm.changes,downs:sm.downs.map(d=>({date:d.date,from:BN(d.from),to:BN(d.to)}))};
+    t.stopG=sm.downs.length?STOP_G[0]:sm.changes?STOP_G[1]:STOP_G[2];
   }
   // how you bought (agreed: first / added higher / added lower / bought again after a loss or win within 15 days)
   const byBuy=[...all].sort((a,b)=>a.buyDate<b.buyDate?-1:a.buyDate>b.buyDate?1:a.seq-b.seq);
@@ -268,7 +280,7 @@ let openCheck=0;
 
 // ---------------------------------------------------------------- filters
 const DAYS={'0–1':[0,1],'2–5':[2,5],'6–20':[6,20],'21+':[21,99999]};
-const newF=()=>({period:'all',from:'',to:'',syms:[],result:'all',labels:[],setups:[],mistakes:[],days:[],sds:[],how:[],q:'',ids:null,idsLabel:'',not:[],skip:[],starsFrom:'',starsTo:''});
+const newF=()=>({period:'all',from:'',to:'',syms:[],result:'all',labels:[],setups:[],mistakes:[],days:[],sds:[],how:[],kept:[],stopdn:[],q:'',ids:null,idsLabel:'',not:[],skip:[],starsFrom:'',starsTo:''});
 let F=newF();
 function applyF(f,ts=TR){
   let r=ts;
@@ -289,6 +301,8 @@ function applyF(f,ts=TR){
   keep('days',t=>f.days.some(d=>t.days>=DAYS[d][0]&&t.days<=DAYS[d][1]));
   keep('sds',t=>f.sds.includes(t.sdRaw));
   keep('how',t=>f.how.includes(t.how));
+  keep('kept',t=>f.kept.includes(t.keptG));
+  keep('stopdn',t=>f.stopdn.includes(t.stopG));
   // stars: "from … to" (both ends counted); "none" = a real setup that is not rated yet
   if(f.starsFrom==='none')r=r.filter(t=>t.rateable&&t.stars===null);
   else if(f.starsFrom!==''&&f.starsFrom!==undefined||f.starsTo!==''&&f.starsTo!==undefined)r=r.filter(t=>t.stars!==null&&(f.starsFrom===''||f.starsFrom===undefined||t.stars>=+f.starsFrom)&&(f.starsTo===''||f.starsTo===undefined||t.stars<=+f.starsTo));
@@ -309,8 +323,10 @@ const OPTS={
   days:()=>Object.keys(DAYS).map(d=>[d,d==='0–1'?'0–1 days (failed right away)':d+' days']),
   sds:()=>[...S.stopDistance.map(s=>s[1]),S.stopDistanceElse,'No SL'].map(s=>[s,s]),
   how:()=>HOW.map(h=>[h,h]),
+  kept:()=>KEPT_G.map(h=>[h,h]),
+  stopdn:()=>STOP_G.map(h=>[h,h]),
 };
-const FNAME={syms:'Symbol',labels:'Result label',setups:'Setup',mistakes:'Mistake',days:'Days held',sds:'Stop distance',how:'How you bought'};
+const FNAME={syms:'Symbol',labels:'Result label',setups:'Setup',mistakes:'Mistake',days:'Days held',sds:'Stop distance',how:'How you bought',kept:'Move kept',stopdn:'Stop moved down'};
 const PERIODS=[['all','All trades'],['last20','Last 20 trades'],['month','This month'],['3m','Last 3 months'],['year','This year'],['custom','Own dates…']];
 let openMs=null;
 if(typeof document!=='undefined')document.addEventListener('click',e=>{if(openMs&&!openMs.contains(e.target)){openMs.querySelector('.pop')?.remove();openMs=null;}});
@@ -344,7 +360,7 @@ let showMore=false;
 let view='report',sort={k:'sellDate',d:-1},page=0,openRow=null;const PAGE=25;
 
 // ---------------------------------------------------------------- compare
-const CMPF=['syms','days','how','mistakes','setups','labels'];
+const CMPF=['syms','days','how','mistakes','setups','labels','kept','stopdn'];
 let G={a:{...newF(),name:'Group A'},b:{...newF(),name:'Group B'}};let gInit=false;
 const PRESETS={
   recent:()=>{const ids=TR.slice(-RECENT).map(t=>t.id);return [{...newF(),ids,idsLabel:'last 20',name:`Last ${RECENT} trades`},{...newF(),ids:TR.slice(0,-RECENT).map(t=>t.id),idsLabel:'before',name:'The trades before'}];},
@@ -353,9 +369,11 @@ const PRESETS={
   top3:()=>{const top=[...TR].filter(t=>t.net>0).sort((a,b)=>b.net-a.net).slice(0,3).map(t=>t.id);return [{...newF(),ids:top,idsLabel:'3 biggest wins',name:'3 biggest wins'},{...newF(),ids:TR.filter(t=>!top.includes(t.id)).map(t=>t.id),idsLabel:'all others',name:'All other trades'}];},
   plan:()=>[{...newF(),mistakes:['Followed my plan'],name:'Followed my plan'},{...newF(),mistakes:realErrors().map(e=>e.name),name:'With a mistake'}],
   stars:()=>[{...newF(),starsFrom:'4',starsTo:'5',name:'4 to 5 stars'},{...newF(),starsFrom:'1',starsTo:'2',name:'1 to 2 stars'}],
+  stopdn:()=>[{...newF(),stopdn:[STOP_G[0]],name:'Stop moved down'},{...newF(),stopdn:[STOP_G[1],STOP_G[2]],name:'Stop not moved down'}],
+  kept:()=>[{...newF(),kept:[KEPT_G[0]],name:'Kept half or more'},{...newF(),kept:[KEPT_G[1]],name:'Kept less than half'}],
   stock:()=>{const top=Object.entries(TR.reduce((m,t)=>(m[t.symRaw]=(m[t.symRaw]||0)+1,m),{})).sort((a,b)=>b[1]-a[1])[0][0];return [{...newF(),syms:[top],name:top},{...newF(),syms:[...new Set(TR.map(t=>t.symRaw))].filter(s=>s!==top),name:'All other stocks'}];},
 };
-const PNAMES=[['recent',`Last ${RECENT} vs before`],['lower','First trades vs added lower'],['fast','Failed right away vs held 6+ days'],['top3','3 biggest wins vs the rest'],['plan','Followed my plan vs mistakes'],['stars','4–5 stars vs 1–2 stars'],['stock','One stock vs all others']];
+const PNAMES=[['recent',`Last ${RECENT} vs before`],['lower','First trades vs added lower'],['fast','Failed right away vs held 6+ days'],['top3','3 biggest wins vs the rest'],['plan','Followed my plan vs mistakes'],['stars','4–5 stars vs 1–2 stars'],['stopdn','Stop moved down vs not moved down'],['kept','Kept half or more vs less than half'],['stock','One stock vs all others']];
 function openCompare(k){gInit=true;[G.a,G.b]=PRESETS[k]();view='compare';renderAll();scrollToTable();}
 function openCompareIds(a,b,na,nb){gInit=true;G.a={...newF(),ids:a,idsLabel:na.toLowerCase(),name:na};G.b={...newF(),ids:b,idsLabel:nb.toLowerCase(),name:nb};view='compare';renderAll();scrollToTable();}
 function openIds(ids,label){F={...newF(),ids,idsLabel:label};view='trades';renderAll();scrollToTable();}
@@ -473,6 +491,10 @@ function renderTable(ts,inc=ts){
   v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{page=+b.dataset.p;renderTable(ts,inc);});
   v.querySelectorAll('[data-symf]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();F={...newF(),syms:[b.dataset.symf]};openRow=null;renderAll();});
   v.querySelectorAll('[data-esale]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();editSale(CTX,b.dataset.trade,b.dataset.esale);});
+  // highest price of a closed trade, typed here so "move kept" can be shown (checked: not below the buy price or a sale price)
+  v.querySelectorAll('[data-hi]').forEach(i=>{i.onclick=(e)=>e.stopPropagation();i.onkeydown=(e)=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();v.querySelector(`[data-hisave="${i.dataset.hi}"]`).click();}};});
+  v.querySelectorAll('[data-hisave]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();const id=b.dataset.hisave,i=v.querySelector(`[data-hi="${id}"]`);
+    const r=CTX.act((d)=>A.setClosedHighest(d,id,i.value),{label:'highest price '+id});if(!r.ok)toast(r.error);});
   v.querySelectorAll('select[data-tag]').forEach(s=>{s.onclick=(e)=>e.stopPropagation();
     // "+ New…" like in Edit trade (2026-11-09): type a new setup or mistake right here; it is added to the list and saved on the trade in one step
     const row=withNew(s,s.dataset.tag==='setupId'?'Setup':'Mistake');s.closest('.dtag').append(row);
@@ -483,12 +505,27 @@ function renderTable(ts,inc=ts){
     if(!t.rateable||CTX.readOnly)w.setLocked(true,!t.rateable&&A.isNoSetupName(setupNameRaw(t))?'No setup':'');
     else w.setValue(t.stars);el.replaceWith(w);});
 }
+// 1.5.5: the two facts of one trade, each as: plain answer, the numbers behind it, and why it matters.
+function keptText(t){const m=t.mk;
+  if(m.kind==='kept')return {tone:m.pct>=50?'pos':'warn',head:`You kept ${fx(m.pct,0)} % of the move`,nums:`Bought at $${fx(t.buy,2)}, highest price $${fx(m.hi,2)}, sold at $${fx(t.avgSell,2)}${t.sales.length>1?' on average':''}.`};
+  if(m.kind==='gaveback')return {tone:'neg',head:`Was up ${sx(m.upPct,1)} %, ended ${sx(m.endPct,1)} %`,nums:`Bought at $${fx(t.buy,2)}, highest price $${fx(m.hi,2)}, sold at $${fx(t.avgSell,2)}${t.sales.length>1?' on average':''}.`};
+  if(m.kind==='never')return {tone:'',head:'Never went above your buy price',nums:`Bought at $${fx(t.buy,2)}, sold at $${fx(t.avgSell,2)}${t.sales.length>1?' on average':''}. There was no move up to keep.`};
+  return {tone:'',head:m.why==='missing'?'Not known — highest price missing':'Not known — the saved highest price cannot be right',nums:m.why==='missing'?'Type the highest price the stock reached while you held it.':`Saved highest price $${fx(m.hi,2)} is below your buy price or a price you sold at. Type the right one.`};}
+function stopText(t){const s=t.sm;
+  if(s.downs.length)return {tone:'neg',head:`Yes — moved down ${s.downs.length===1?'once':s.downs.length+' times'}`,nums:s.downs.map(d=>`${dmy(d.date)}: from $${fx(d.from,2)} to $${fx(d.to,2)}`).join(' · ')+'.'};
+  if(s.changes)return {tone:'pos',head:'No — never moved down',nums:`The stop was changed ${s.changes===1?'once':s.changes+' times'}, never to a lower level.`};
+  return {tone:'',head:'No stop changes saved for this trade',nums:'Either the stop was never changed, or the trade was imported (imports carry no stop changes).'};}
+function factsHtml(t){const k=keptText(t),s=stopText(t);const ro=CTX.readOnly?' disabled':'';
+  const hiBox=`<span class="tfact-hi"><label>Highest price $ <input data-hi="${t.id}" inputmode="decimal" value="${t.mk.hi===null?'':esc(D.edit(D.d(t.src.highest)))}" aria-label="Highest price while you held ${t.sym}"${ro}></label><button class="btn sm" type="button" data-hisave="${t.id}"${ro}>Save</button></span>`;
+  const one=(title,x,why,extra='')=>`<div class="tfact"><span class="tfact-t">${title}</span><b class="${x.tone}">${x.head}</b><span class="tfact-n">${x.nums}</span>${extra}<span class="tfact-w">${why}</span></div>`;
+  return `<div class="tfacts">${one('How much of the move did I keep?',k,KEPT_WHY,hiBox)}${one('Did I move a stop down?',s,STOP_WHY)}</div>`;}
 function detailRow4(t){
   const so=RAW.setups.filter(s=>s.name!=='Unclassified'&&(!s.archived||t.setupId===s.id)).map(s=>`<option value="${s.id}"${t.setupId===s.id?' selected':''}>${esc(s.name)}</option>`).join(''),eo=realErrors().filter(s=>!s.archived||t.errorId===s.id).map(s=>`<option value="${s.id}"${t.errorId===s.id?' selected':''}>${esc(s.name)}</option>`).join('');
   return `<tr class="dt"><td colspan="${COLS4.length}"><div class="dgrid">
     <div><span>Bought</span><b>${dmy(t.buyDate)} · ${fx(t.qty,0)} × $${fx(t.buy,2)}</b></div><div><span>Average sell price</span><b>$${fx(t.avgSell,2)}</b></div>
     <div><span>Initial stop</span><b>${t.init===null?'No stop':`$${fx(t.init,2)} · ${fx(t.sdPct,1)} % · ${t.sd}`}</b></div><div><span>How you bought</span><b>${t.how}</b></div>
     <div><span>Commissions</span><b>$${fx(t.comm,2)}</b></div><div><span>Capital at open</span><b>$${fx(t.capAtOpen,2)}</b></div></div>
+    ${factsHtml(t)}
     ${t.comment?`<p style="margin:12px 0 0;max-width:80ch">💬 ${esc(t.comment)}</p>`:''}
     <table class="dsales"><tbody>${t.sales.map(s=>`<tr><td class="note">Sale ${dmy(s.date)}</td><td>${fx(s.q,0)} × $${fx(+s.price,2)}</td><td class="${s.net>=0?'pos':'neg'}">${usd(s.net)}</td><td><button class="btn sm" data-esale="${s.id}" data-trade="${t.id}"${CTX.readOnly?' disabled':''}>Edit sale…</button></td></tr>`).join('')}</tbody></table>
     <div class="dtag"><label class="fld">Setup<select data-tag="setupId" data-id="${t.id}"${CTX.readOnly?' disabled':''}><option value="">Unclassified</option>${so}</select></label>
@@ -535,7 +572,7 @@ function renderFilters(){
   const res=document.createElement('select');res.setAttribute('aria-label','Result');[['all','Winners and losers'],['winners','Winners'],['losers','Losers']].forEach(([v,l])=>{const o=new Option(l,v);o.selected=F.result===v;res.add(o);});res.onchange=()=>{F.result=res.value;renderAll();};
   const q=document.createElement('input');q.type='search';q.placeholder='Search in comments';q.value=F.q;q.setAttribute('aria-label','Search in comments');q.oninput=()=>{F.q=q.value;renderAll(false,true);};
   r1.append(per,dates,ms('syms',F,()=>renderAll()),res,q);
-  if(showMore){for(const k of ['labels','setups','mistakes','days','sds','how'])r1.append(ms(k,F,()=>renderAll()));r1.append(starsF(F,()=>renderAll()));}
+  if(showMore){for(const k of ['labels','setups','mistakes','days','sds','how','kept','stopdn'])r1.append(ms(k,F,()=>renderAll()));r1.append(starsF(F,()=>renderAll()));}
   const more=document.createElement('button');more.className='linkbtn';more.type='button';more.textContent=showMore?'Fewer filters':'More filters';more.onclick=()=>{showMore=!showMore;renderFilters();};
   const rs=document.createElement('button');rs.className='linkbtn';rs.type='button';rs.textContent='Reset';rs.onclick=()=>{F=newF();renderAll();};
   r1.append(more,rs);el.append(r1);
@@ -647,7 +684,7 @@ function saveTag(id,field,value){
 async function exportExcel(rows){
   try{const X=await (await import('./data.js')).loadXLSX();
     const data=rows.map((t)=>({'Trade ID':t.id,Symbol:t.symRaw,'Buy date':dmy(t.buyDate),'Sell date':dmy(t.sellDate),Days:t.days,Shares:t.qty,'Buy price':t.buy,'Average sell price':+t.avgSell.toFixed(4),
-      'Net result':+t.net.toFixed(2),'% of capital':t.capPct===null?'':+t.capPct.toFixed(2),R:t.R===null?'':+t.R.toFixed(2),Result:t.labelRaw,'Stop distance':t.sdRaw,Setup:setupNameRaw(t)||'',Stars:t.stars??'',Mistake:mistakeNameRaw(t)||'','How you bought':t.how,Comment:t.comment}));
+      'Net result':+t.net.toFixed(2),'% of capital':t.capPct===null?'':+t.capPct.toFixed(2),R:t.R===null?'':+t.R.toFixed(2),Result:t.labelRaw,'Stop distance':t.sdRaw,Setup:setupNameRaw(t)||'',Stars:t.stars??'',Mistake:mistakeNameRaw(t)||'','How you bought':t.how,'Highest price':t.mk.hi??'','Move kept':t.mk.kind==='kept'?`${fx(t.mk.pct,0)} %`:t.keptG,'Stop moved down':t.stopG,Comment:t.comment}));
     const wb=X.utils.book_new();X.utils.book_append_sheet(wb,X.utils.json_to_sheet(data),'Closed trades');
     download(`TradeJournal-History-${todayISO()}.xlsx`,new Blob([X.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
   }catch(e){toast(e.message);}

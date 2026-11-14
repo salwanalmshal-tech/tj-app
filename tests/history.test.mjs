@@ -5,7 +5,7 @@ import * as A from '../js/actions.js';
 import * as C from '../js/calc.js';
 import * as D from '../js/decimal.js';
 import { emptyState } from '../js/model.js';
-import { analyse } from '../js/ui/history.js';
+import { analyse, filtered } from '../js/ui/history.js';
 
 function journal() {
   const st = emptyState(); assert.ok(A.setStartCapital(st, { amount: '6000', date: '2026-01-01' }).ok);
@@ -68,4 +68,23 @@ test('History: a result label\'s tone matches its position in Settings even afte
   const t = r.trades.find((x) => x.symRaw === 'AAA');
   assert.equal(t.labelRaw, 'RENAMED WINNER');
   assert.equal(t.labelTone, 'green');
+});
+
+// ---- 1.5.5: the two facts as History groups, filters and comparisons
+test('History facts: every closed trade falls in exactly one "move kept" group and one "stop" group; the filters use them', () => {
+  const st = emptyState(); A.setStartCapital(st, { amount: '100000', date: '2026-01-01' });
+  const mk = (buy, sell, highest) => { const t = A.openTrade(st, { symbol: 'S' + st.trades.length, buyDate: '2026-02-02', qty: '10', buyPrice: String(buy), initialStop: String(buy - 5), buyCommission: '' }).data;
+    assert.ok(A.closeSale(st, { date: '2026-02-10', price: String(sell), commission: '', allocations: [{ tradeId: t.id, qty: '10' }] }).ok); t.highest = highest === null ? '' : String(highest); return t; };
+  const a = mk(100, 112, 120), b = mk(100, 104, 120), c = mk(100, 96, 108), d = mk(100, 97, 100), e = mk(100, 112, null);
+  st.stopHistory.push({ ts: new Date(2026, 1, 3, 10).toISOString(), tradeId: a.id, old: '95', new: '92' }, { ts: new Date(2026, 1, 3, 10).toISOString(), tradeId: b.id, old: '95', new: '99' });
+  const all = filtered(st, {}); const g = Object.fromEntries(all.map((t) => [t.id, [t.keptG, t.stopG]]));
+  assert.deepEqual(g[a.id], ['Kept half or more', 'Stop moved down']);
+  assert.deepEqual(g[b.id], ['Kept less than half', 'Stop changed, never down']);
+  assert.deepEqual(g[c.id], ['Was up, ended in a loss', 'No stop changes saved']);
+  assert.equal(g[d.id][0], 'Never above buy price'); assert.equal(g[e.id][0], 'Not known');
+  assert.deepEqual(filtered(st, { kept: ['Kept half or more'] }).map((t) => t.id), [a.id]);
+  assert.deepEqual(filtered(st, { stopdn: ['Stop moved down'] }).map((t) => t.id), [a.id]);
+  assert.equal(filtered(st, { stopdn: ['Stop changed, never down', 'No stop changes saved'] }).length, 4);
+  assert.equal(filtered(st, { kept: ['Not known'], not: ['kept'] }).length, 4); // "leave out" works like for the other filters
+  assert.equal(filtered(st, { kept: ['Kept half or more'], stopdn: ['No stop changes saved'] }).length, 0);
 });

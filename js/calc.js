@@ -295,3 +295,34 @@ export function sharesForRisk(capital, riskPct, buy, stop) {
   const qty = shares * D.SCALE;
   return { shares: qty, budget, risk: D.mul(per, qty), cost: D.mul(buy, qty) };
 }
+
+// ---------- 1.5.5: two History facts (agreed 2026-11-14) ----------
+// "How much of the move did I keep?" for a CLOSED trade. One answer per trade; a trade sold in parts uses the average sell price.
+//   kept     : sold above the buy price -> pct = (average sell − buy) ÷ (highest − buy) × 100
+//   gaveback : was above the buy price, sold at or below it -> upPct (highest vs buy) and endPct (average sell vs buy)
+//   never    : never went above the buy price
+//   unknown  : highest price empty ('missing'), or below the buy price or below a price he sold at ('low'). Nothing is guessed.
+export function moveKept(t) {
+  if (!t.sales.length || openQty(t) !== 0n) return null;
+  const buy = D.d(t.buyPrice); let maxSale = 0n, value = 0n;
+  for (const x of t.sales) { const p = D.d(x.price); if (p > maxSale) maxSale = p; value += D.mul(p, D.d(x.qty)); }
+  const avgSell = D.div(value, soldQty(t)); const highest = n(t.highest); const base = { buy, avgSell, highest, maxSale };
+  if (highest === null) return { ...base, kind: 'unknown', why: 'missing' };
+  if (highest < buy || highest < maxSale) return { ...base, kind: 'unknown', why: 'low' };
+  if (avgSell > buy) return { ...base, kind: 'kept', pct: D.pct(D.sub(avgSell, buy), D.sub(highest, buy)) };
+  const endPct = D.pct(D.sub(avgSell, buy), buy);
+  if (highest > buy) return { ...base, kind: 'gaveback', upPct: D.pct(D.sub(highest, buy), buy), endPct };
+  return { ...base, kind: 'never', endPct };
+}
+// "Did I move a stop down?" from the saved stop changes of ONE trade (state.stopHistory lines of that trade).
+// A day counts when the stop at the end of that day is lower than the stop at the end of the day before
+// (so a typing mistake fixed the same day does not count). Setting a first stop or removing the stop is not "lower".
+// Stock splits change stops without a stop-history line, so they never count.
+export function stopMovesDown(entries) {
+  const pad = (x) => String(x).padStart(2, '0'); const day = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const sorted = [...entries].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0)); const days = new Map();
+  for (const e of sorted) { const k = day(e.ts); if (!days.has(k)) days.set(k, { date: k, first: e.old, last: e.new }); else days.get(k).last = e.new; }
+  const downs = [];
+  for (const d of days.values()) { const from = n(d.first), to = n(d.last); if (from !== null && to !== null && to < from) downs.push({ date: d.date, from, to }); }
+  return { changes: sorted.length, downs };
+}

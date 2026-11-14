@@ -398,6 +398,23 @@ export function setSetting(st, key, value) { st.settings[key] = value; return ok
 // the risk % typed in the share calculator is remembered for the next trade (a number above 0, at most 100)
 export function rememberCalcRisk(st, raw) { const p = D.parse(raw); if (p === null || p <= 0n || p > D.d('100')) return err('Not a valid risk %.'); st.settings.calcRiskPct = S(p); return ok(); }
 
+// 1.5.5: the highest price of a CLOSED trade, typed later in History so "how much of the move did I keep" can be shown.
+// It must make sense: not below the buy price and not below a price he sold at. Empty clears it. Logged like other corrections.
+export function setClosedHighest(st, id, raw) {
+  const t = tradeById(st, id); if (!t) return err('Trade not found.');
+  if (C.openQty(t) > 0n) return err('This trade is still open: change its highest price on Open positions.');
+  let val = '';
+  if (need(raw)) {
+    const p = D.parse(raw); if (p === null || p <= 0n) return err('Enter a number above 0.');
+    const buy = D.d(t.buyPrice); let maxSale = 0n; for (const x of t.sales) { const q = D.d(x.price); if (q > maxSale) maxSale = q; }
+    if (p < buy) return err(`The highest price cannot be below your buy price (${D.fmt(buy, 2)}).`);
+    if (p < maxSale) return err(`The highest price cannot be below a price you sold at (${D.fmt(maxSale, 2)}).`);
+    val = S(p);
+  }
+  if (t.highest !== val) log(st, { type: 'highest', tradeId: t.id, old: t.highest, new: val });
+  t.highest = val; return ok(t);
+}
+
 // ---------- "On Open positions" ticks on the Dashboard number cards (max 4) ----------
 export function toggleOpenCard(st, key) {
   if (!C.OPEN_CARD_KEYS.includes(key)) return { ok: false, error: 'Unknown card.' };
