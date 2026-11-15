@@ -1026,3 +1026,24 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .r-blist{display:flex;flex-direction:column;gap:9px}
 .r-brow.drag{cursor:grab}.r-grip{color:#AEB8C4;font-size:12px;letter-spacing:-2px;margin-right:2px}
 .r-brow.drag{grid-template-columns:12px minmax(0,1fr) auto;gap:10px}.r-grip{align-self:center;margin:0}
+/* 1.7.1 (his choice, "look only"): Dashboard, History summary and Reports use the same calm style as the rest of the program.
+   Same cards, corners, padding, title and number sizes as Open positions / Capital; no hover lift, no growing, sliding,
+   drawing or pulsing animations, no tinted gradient boxes. Numbers, charts, scales and blocks are unchanged. */
+.d-card{border-radius:14px;padding:16px 18px;gap:6px;animation:none;transition:none}
+.d-card:hover{box-shadow:none;transform:none}
+.d-card.wide{box-shadow:none}
+.d-card.risk{background:var(--panel);border-color:var(--line)}
+.d-card .v{font-size:23px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.d-card .v.big{font-size:28px}
+.d-block{animation:none}
+.d-soft,.vtext,.pfsoft{background:var(--raised);border:1px solid var(--line)}
+.d-fill,.d-bar,.hbar i,.hbar3 i,.hbarc i,.hlim i,.r-bar{animation:none}
+.d-bar.up,.d-bar.dn{box-shadow:none}
+.d-draw{animation:none;stroke-dasharray:none;stroke-dashoffset:0}
+.d-ring{animation:none}
+.d-live{animation:none}
+.d-glow{animation:none;display:none}
+.d-mt{transition:background .15s}.d-mt:hover{transform:none}
+.d-mt.on{box-shadow:inset 0 0 0 1.5px #9FC0DE}
+.metric.hm{transition:none}.metric.hm:hover{box-shadow:none;transform:none}
+.vknob{transition:none}
