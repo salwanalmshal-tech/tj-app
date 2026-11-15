@@ -36,17 +36,18 @@ export function swapButton(ctx, screen, id) {
     const p = C.placement(st, screen); const here = new Set([...p.cards, ...p.blocks]);
     const item = (newId) => h('button', { type: 'button', role: 'menuitem', class: 'pl-it' + (newId === id ? ' cur' : ''), disabled: newId === id,
       onClick: () => { closeMenu(); const r = ctx.act((d) => A.swapShown(d, screen, id, newId), { label: 'swap on ' + C.SCREEN_NAME[screen], now: true }); if (r && !r.ok) toast(r.error); } },
-      nameOf(st, newId), newId === id ? ' · shown here' : here.has(newId) ? ' · also here (they change places)' : '');
+      nameOf(st, newId));
     const groups = [];
     // 1.7.1 (his choice): a number card's list shows only the cards NOT on this screen (order = drag, as before)
     if (kind === 'card') { const free = C.BUILTIN.filter((x) => x.kind === 'card' && !here.has(x.id)).map((x) => x.id); if (free.length) groups.push(['Number cards not shown here', free]); }
     else {
-      if ((st.reports || []).length) groups.push(['My reports', st.reports.map((r) => 'r:' + r.id)]);
-      for (const s of ['dashboard', 'history']) groups.push(['Built-in · ' + C.SCREEN_NAME[s], C.BUILTIN.filter((x) => x.kind === 'block' && x.home === s).map((x) => x.id)]);
+      // 1.7.1 (his choice): blocks and reports follow the same rule — only those NOT on this screen
+      const mine = (st.reports || []).map((r) => 'r:' + r.id).filter((x) => !here.has(x)); if (mine.length) groups.push(['My reports', mine]);
+      for (const s of ['dashboard', 'history']) { const ids = C.BUILTIN.filter((x) => x.kind === 'block' && x.home === s && !here.has(x.id)).map((x) => x.id); if (ids.length) groups.push(['Built-in · ' + C.SCREEN_NAME[s], ids]); }
     }
     const menu = h('div', { class: 'pl-menu', role: 'menu', 'aria-label': 'Swap ' + nameOf(st, id) },
       groups.map(([g, ids]) => [h('div', { class: 'pl-gh' }, g), ids.map(item)]),
-      kind === 'card' && !groups.length ? h('div', { class: 'pl-note' }, 'All number cards are already shown here. Drag a card to change the order.') : null,
+      !groups.length ? h('div', { class: 'pl-note' }, kind === 'card' ? 'All number cards are already shown here. Drag a card to change the order.' : 'Everything is already shown here. Drag a block to change the order.') : null,
       h('div', { class: 'pl-sep' }),
       h('button', { type: 'button', role: 'menuitem', class: 'pl-it out', onClick: () => { closeMenu(); const r = ctx.act((d) => A.setShown(d, screen, id, false), { label: 'off ' + C.SCREEN_NAME[screen], now: true });
         if (r && r.ok) toast(`“${nameOf(st, id)}” is off ${C.SCREEN_NAME[screen]}. It stays in Reports.`, 'Undo', () => ctx.store.undo()); } }, 'Take it off this screen'),
