@@ -119,17 +119,17 @@ const CARD = {
     const tot = parts.reduce((a, [, v]) => a + num(v), 0);
     const shades = ['var(--neg)', '#C66A60', '#E3A49B', '#EFC6C0'];
     return h('div', { class: 'd-card risk' },
-      head(grip, 'Loss if all stops hit', 'From today: (Current stop − last price) × shares for every open line, as % of the estimated account (capital + open result).'),
+      head(grip, 'Loss if all stops hit', 'What you lose from today\'s prices if every open trade sells at its Current stop, next to your whole account. Trades without a stop are not counted.'),
       h('span', { class: 'v neg' }, susd(L.loss)),
       parts.length ? h('div', { style: { display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', gap: '2px' } },
         parts.map(([, v], i) => h('span', { class: 'd-fill', style: { width: (num(v) / tot) * 100 + '%', background: shades[Math.min(i, 3)], animationDelay: i * 0.1 + 's' } }))) : null,
-      h('span', { class: 'q' }, spct(L.pctOfAccount) + ' of estimated account' + (parts.length ? ' · ' + parts.slice(0, 3).map(([sym, v]) => `${sym} ${Math.round((num(v) / tot) * 100)} %`).join(' · ') : '') + (L.missing ? ` · ${L.missing} line${L.missing === 1 ? '' : 's'} without stop or last price not included` : '')));
+      h('span', { class: 'q' }, spct(L.pctOfAccount) + ' of account estimate' + (parts.length ? ' · ' + parts.slice(0, 3).map(([sym, v]) => `${sym} ${Math.round((num(v) / tot) * 100)} %`).join(' · ') : '') + (L.missing ? ` · ${L.missing} trade${L.missing === 1 ? '' : 's'} without stop or last price not counted` : '')));
   },
   progress(st, today, ex, grip) {
     const pr = C.progress(st); const cur = C.capitalCurve(st);
     let inv = 0n; const invested = cur.pts.map((p) => { if (p.kind === 'start' || p.kind === 'deposit') inv += p.amount; return num(inv); });
     return h('div', { class: 'd-card' },
-      head(grip, 'Progress vs original', '(Sale results + dividends) ÷ everything you put in (start capital + deposits). Withdrawals never count as a loss.'),
+      head(grip, 'Result vs money put in', 'Your sale results and dividends, next to everything you put in (start capital and deposits). Withdrawals never count as a loss.'),
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } }, h('span', { class: 'v ' + tone(pr.pct) }, spct(pr.pct)),
         spark(cur.pts.map((p) => num(p.capital)), pr.result < 0n ? 'var(--neg)' : 'var(--pos)', 'Capital against what you put in', { w: 90, hgt: 34, base: invested, area: false })),
       h('span', { class: 'q' }, `${susd(pr.result)} on ${usd(pr.invested)} put in (dashed line)`));
@@ -139,7 +139,7 @@ const CARD = {
     const p = cap > 0n ? D.pct(v, cap) : null;
     const day = Number(today.slice(8, 10)); const days = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
     return h('div', { class: 'd-card' },
-      head(grip, 'This month', 'Net result of the sales made this month (by sale date), as % of your capital on the 1st.'),
+      head(grip, 'This month', 'The result of the sales made this month, next to your capital on the 1st.'),
       h('span', { class: 'v ' + tone(v) }, susd(v)),
       h('span', { class: 'd-track', style: { height: '6px' } }, fill((day / days) * 100, 'var(--accent)')),
       h('span', { class: 'q' }, `${spct(p)} of capital on 1 ${MON[Number(k.slice(5)) - 1]} · day ${day} of ${days}`));
@@ -150,7 +150,7 @@ const CARD = {
     const ms = C.monthStats(st, y + '-01-01', y + '-12-31'); const nowK = today.slice(0, 7);
     const green = ms.filter((m) => m.has && m.net > 0n).length, done = ms.filter((m) => m.has).length;
     return h('div', { class: 'd-card' },
-      head(grip, 'This year', 'Net result of the sales made this year (by sale date), as % of your capital on 1 January.'),
+      head(grip, 'This year', 'The result of the sales made this year, next to your capital on 1 January.'),
       h('span', { class: 'v ' + tone(v) }, susd(v)),
       h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: '3px' }, 'aria-label': `${green} of ${done} months green` }, ms.map((m, i) =>
         h('span', { title: monName(m.month, true) + (m.has ? ': ' + susd(m.net) : ''), style: { height: '14px', borderRadius: '3px', boxSizing: 'border-box',
@@ -162,7 +162,7 @@ const CARD = {
     const p = ex.totalPct === null ? 0 : Math.max(0, Math.min(100, num(ex.totalPct)));
     const C2 = 2 * Math.PI * 26;
     return h('div', { class: 'd-card' },
-      head(grip, 'In market / Cash', 'Open positions at last price (buy price when there is no last price) ÷ estimated account. Cash is the rest.'),
+      head(grip, 'In market / Cash', 'How much of your account is in open trades at the last price (buy price when there is no last price). Cash = the rest.'),
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '14px' } },
         s('svg', { viewBox: '0 0 64 64', role: 'img', 'aria-label': `${Math.round(p)} percent in market`, style: { width: '64px', height: '64px', transform: 'rotate(-90deg)', flex: '0 0 auto' } },
           s('circle', { cx: 32, cy: 32, r: 26, fill: 'none', stroke: '#E6EBF1', 'stroke-width': 8 }),

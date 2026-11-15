@@ -110,7 +110,7 @@ test('marks: at or below stop; report tomorrow without profit locked', () => {
   A.editDaily(st, t.id, 'last', '46,50');
   const m = lineMarks(st, t, '2026-11-02', C.estimatedAccount(st));
   assert.ok(m.some((x) => x.text === 'At or below stop' && x.level === 'crit'));
-  assert.ok(m.some((x) => x.text.startsWith('Report tomorrow: stop not more than 15 % above buy price') && x.level === 'neg'));
+  assert.ok(m.some((x) => x.code === 'report-tomorrow' && x.text === 'Earnings tomorrow, no profit locked' && x.level === 'neg'));
 });
 test('reopen puts shares back; undo-safe trash', () => {
   const st = fresh(); const t = open(st).data;
@@ -131,14 +131,14 @@ test('report near (2026-11-06): red only without profit locked (stop more than 1
   for (const [f, v] of [['last', '60'], ['highest', '60'], ['ema10', '55'], ['currentStop', '56']]) A.editDaily(st, t.id, f, v);
   A.editDaily(st, t.id, 'nextReport', '2026-11-04'); // tomorrow; stop 56 is 12 % above buy 50 -> not locked -> red
   let mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
-  assert.ok(mk.some((m) => m.text.startsWith('Report tomorrow') && m.level === 'neg')); assert.equal(cardStatus(mk), 'red');
+  assert.ok(mk.some((m) => m.code === 'report-tomorrow' && m.level === 'neg')); assert.equal(cardStatus(mk), 'red');
   A.editDaily(st, t.id, 'currentStop', '60'); A.editDaily(st, t.id, 'last', '65'); A.editDaily(st, t.id, 'highest', '65'); // 20 % above buy -> locked -> orange
   mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
-  assert.ok(mk.some((m) => m.text === 'Report tomorrow' && m.level === 'warn')); assert.ok(mk.some((m) => m.text === 'Profit locked in'));
+  assert.ok(mk.some((m) => m.code === 'report-tomorrow' && m.text === 'Earnings tomorrow' && m.level === 'warn')); assert.ok(mk.some((m) => m.code === 'profit-locked'));
   assert.equal(cardStatus(mk), 'orange'); assert.equal(lineStatus(mk), 'rev');
   A.editDaily(st, t.id, 'nextReport', '2026-11-12'); // next week -> orange, also with profit locked
   mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
-  assert.ok(mk.some((m) => m.text === 'Report next week' && isException(m)));
+  assert.ok(mk.some((m) => m.code === 'report-nextweek' && isException(m)));
   A.editDaily(st, t.id, 'nextReport', ''); mk = lineMarks(st, t, '2026-11-03', C.estimatedAccount(st));
   assert.equal(cardStatus(mk), 'green'); assert.equal(lineStatus(mk), 'ok');
 });
@@ -155,9 +155,9 @@ test('2026-11-06 rule changes: raise stop / far below highest / near EMA10 are o
   for (const [f, v] of [['last', '50'], ['highest', '50'], ['ema10', '49']]) A.editDaily(st, t2.id, f, v);
   mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st)); assert.equal(lv('Stop far below buy price'), 'warn');
   A.editDaily(st, t2.id, 'nextReport', '2026-10-20'); mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st));
-  assert.ok(!mk.some((m) => m.text.startsWith('Reported'))); // 14 days ago: no mark (the card still counts the days)
+  assert.ok(!mk.some((m) => m.code === 'reported' || m.code === 'report-stale')); // 14 days ago: no mark (the card still counts the days)
   A.editDaily(st, t2.id, 'nextReport', '2026-10-04'); mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st));
-  assert.equal(lv('Reported 30 days ago'), 'warn');
+  assert.equal(mk.find((m) => m.code === 'report-stale')?.level, 'warn'); assert.equal(mk.find((m) => m.code === 'report-stale').text, 'Earnings were 30 days ago');
   A.editDaily(st, t2.id, 'ema10', ''); mk = lineMarks(st, t2, '2026-11-03', C.estimatedAccount(st)); assert.equal(lv('Missing: EMA10'), 'warn');
 });
 test('Q11 missing stops: no Current stop = Act now (red); no Initial stop = Review; both always in Needs your attention', async () => {

@@ -73,11 +73,11 @@ export function renderOpen(ctx) {
   const bp = inp('Buy price', { inputmode: 'decimal', placeholder: '0,00' }), qty = inp('Shares', { inputmode: 'decimal', placeholder: '0' });
   const bd = datePicker({ iso: today, label: 'Buy date' }), bc = inp('Buy commission', { inputmode: 'decimal', placeholder: '0,00' });
   const is = inp('Initial stop', { inputmode: 'decimal', placeholder: '0,00' });
-  const setup = pick(st.setups.filter((x) => !x.archived && !isUncl(x)), 'Setup', 'Unclassified'); const setupNew = withNew(setup, 'Setup');
+  const setup = pick(st.setups.filter((x) => !x.archived && !isUncl(x)), 'Setup', 'Not filled in'); const setupNew = withNew(setup, 'Setup');
   const stars = starsFor(st, setup);
   const com = h('textarea', { 'aria-label': 'Trade thesis', rows: 3, placeholder: 'Why is this trade worth taking?' });
   const cs = inp('Current stop', { inputmode: 'decimal', placeholder: 'Same as Initial stop' }), last = inp('Last price', { inputmode: 'decimal', placeholder: 'Same as buy price' });
-  const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = datePicker({ label: 'Next report' });
+  const hi = inp('Highest price', { inputmode: 'decimal', placeholder: 'Same as buy price' }), ema = inp('EMA10', { inputmode: 'decimal', placeholder: 'Empty' }), nr = datePicker({ label: 'Earnings date' });
   const sector = inp('Sector'), industry = inp('Industry'), exch = inp('Exchange');
   suggest(sector, () => uniqOf('sector').map((v) => ({ value: v })));
   // industries of the sector you typed come first
@@ -112,7 +112,7 @@ export function renderOpen(ctx) {
   // share calculator (1.5.2): the risk he accepts -> how many shares that is. It only suggests; he types the shares himself.
   const rk = inp('Risk I accept, % of capital', { inputmode: 'decimal', value: calcRisk ?? D.edit(D.d(S.calcRiskPct || S.riskWarn)) });
   const calcOut = h('div', { class: 'calc-out' });
-  const calc = h('div', { class: 'calc' }, h('div', { class: 'calc-h' }, h('span', { class: 'k' }, 'Share calculator', infoBtn('Share calculator', 'Shares = capital on the buy date × the risk you accept ÷ (buy price − Initial stop), rounded down to whole shares. A suggestion only: you type the shares yourself.')),
+  const calc = h('div', { class: 'calc' }, h('div', { class: 'calc-h' }, h('span', { class: 'k' }, 'Share calculator', infoBtn('Share calculator', 'How many shares you can buy so that a hit Initial stop loses no more than the risk you accept. Rounded down to whole shares. Only a suggestion: you type the shares yourself.')),
     h('label', { class: 'calc-in' }, 'Risk I accept', h('span', { class: 'box sm' }, rk, h('span', { class: 'pre' }, '%')))), calcOut);
 
   const loss = C.lossIfAllStopsHit(st); const account = C.estimatedAccount(st);
@@ -125,7 +125,7 @@ export function renderOpen(ctx) {
     const f = values(); const v = A.validateOpen(st, f);
     const extra = [];
     for (const [x, name] of [[hi, 'Highest price'], [ema, 'EMA10'], [cs, 'Current stop'], [last, 'Last price']]) if (x.value.trim() && D.parse(x.value) === null) extra.push(name + ' must be a number.');
-    if (nr.getISO() === null) extra.push('Next report is not a valid date (dd-mm-yyyy).');
+    if (nr.getISO() === null) extra.push('The earnings date is not a valid date. Use dd-mm-yyyy.');
     const errors = [...v.errors, ...extra];
     syncInfo();
     dnote.textContent = f.buyDate ? weekdayName(f.buyDate) + (isWeekend(f.buyDate) ? ' · weekend' : '') + (f.buyDate > today ? ' · in the future' : '') : '';
@@ -146,7 +146,7 @@ export function renderOpen(ctx) {
     const list = [];
     if (touched) for (const e of errors) list.push(['act', e]);
     if (riskPct !== null && riskPct > D.d(S.riskRed)) list.push(['act', `Risk ${pctTxt(riskPct)} of capital is above your ${S.riskRed.replace('.', ',')} % limit.`]);
-    else if (riskPct !== null && riskPct > D.d(S.riskWarn)) list.push(['rev', `Risk ${pctTxt(riskPct)} of capital is above ${S.riskWarn.replace('.', ',')} %.`]);
+    else if (riskPct !== null && riskPct > D.d(S.riskWarn)) list.push(['rev', `Risk ${pctTxt(riskPct)} of capital is above your ${S.riskWarn.replace('.', ',')} % limit.`]);
     if (size !== null && size > D.d(S.posTooBig)) list.push(['act', `Position size ${pctTxt(size, 1)} is above your ${S.posTooBig.replace('.', ',')} % limit.`]);
     else if (size !== null && size >= D.d(S.posNear)) list.push(['rev', `Position size ${pctTxt(size, 1)} is near your size limit.`]);
     if (distLabel && distLabel === S.stopDistanceElse) list.push(['rev', `Stop distance ${pctTxt(dist, 1)} is ${distLabel.toLowerCase()}.`]);
@@ -167,11 +167,11 @@ export function renderOpen(ctx) {
       h('span', { class: 'n' }, `risk ${usd(sug.risk)} of ${usd(sug.budget)} · cost ${usd(sug.cost)}` + (account > 0n ? ` · position size ${pctTxt(D.pct(sug.cost, account), 1)}` : '')));
     // planned risk box
     rbox.className = 'riskbox ' + (risk === null ? 'none' : riskPct !== null && riskPct > D.d(S.riskRed) ? 'act' : riskPct !== null && riskPct > D.d(S.riskWarn) ? 'rev' : 'ok');
-    rbox.replaceChildren(h('span', { class: 'k' }, 'Risk at Initial stop', infoBtn('Risk at Initial stop', '(Buy price − Initial stop) × shares. As % of the capital on the buy date. Within plan up to ' + S.riskWarn.replace('.', ',') + ' %, review up to ' + S.riskRed.replace('.', ',') + ' %, above that it is above plan.')), h('span', { class: 'v' }, risk === null ? '—' : usd(risk)),
-      h('span', { class: 'k' }, risk === null ? (badStop ? 'Stop must be below the buy price' : 'Add shares, buy price and initial stop') : `${pctTxt(riskPct)} · ${rbox.classList.contains('ok') ? 'within plan' : rbox.classList.contains('rev') ? 'review' : 'above plan'}`));
+    rbox.replaceChildren(h('span', { class: 'k' }, 'Risk at Initial stop', infoBtn('Risk at Initial stop', 'What you lose if the Initial stop is hit, next to your capital on the buy date. Within plan up to ' + S.riskWarn.replace('.', ',') + ' %, review up to ' + S.riskRed.replace('.', ',') + ' %, above that: above plan.')), h('span', { class: 'v' }, risk === null ? '—' : usd(risk)),
+      h('span', { class: 'k' }, risk === null ? (badStop ? 'Stop must be below the buy price' : 'Add shares, buy price and Initial stop') : `${pctTxt(riskPct)} · ${rbox.classList.contains('ok') ? 'within plan' : rbox.classList.contains('rev') ? 'review' : 'above plan'}`));
     const row = (k, val, why) => h('div', null, h('dt', null, k, infoBtn(k, why)), h('dd', null, val));
-    ck.replaceChildren(row('Position size', pctTxt(size), 'Shares × buy price as % of your estimated account today (the same as on the cards).'), row('Stop distance', dist === null ? '–' : `${pctTxt(dist)} · ${distLabel}`, '(Buy price − Initial stop) ÷ buy price. Labels: Tight, Good, Wide, High Risk (limits in Settings).'),
-      row('Loss if all stops hit, now', pctTxt(nowRisk), 'Loss if all stops hit from now, as % of the estimated account, before this trade.'), row('Loss if all stops hit, after', pctTxt(after), 'The same, after adding the risk of this trade at its Initial stop.'));
+    ck.replaceChildren(row('Position size', pctTxt(size), 'How big this trade is next to your whole account today. Example: $600 in a $6 000 account = 10 %.'), row('Stop distance', dist === null ? '–' : `${pctTxt(dist)} · ${distLabel}`, 'How far below your buy price you put the Initial stop. Example: buy $100, stop $95 = 5 % below. Labels: Tight, Good, Wide, High Risk (limits in Settings).'),
+      row('Loss if all stops hit, now', pctTxt(nowRisk), 'What you lose from today\'s prices if every open trade hits its Current stop, next to your whole account. Without this new trade.'), row('Loss if all stops hit, after', pctTxt(after), 'The same, with this new trade added at its Initial stop.'));
     conds.replaceChildren(...(list.length ? list : [['ok', '✓ No condition needs attention']]).map(([l, t]) => h('div', { class: 'cond ' + l }, t)));
     accept.textContent = risk !== null ? `By opening, you accept a planned loss of ${usd(risk)} if ${f.symbol ? f.symbol.toUpperCase() : 'the stock'} reaches ${priceTxt(stop)}.` : '';
     return { f, errors, level };
@@ -189,21 +189,21 @@ export function renderOpen(ctx) {
   for (const x of [sym, qty, bp, bc, is, cs, last, hi, ema, setup, com, sector, industry, exch, rk]) x.addEventListener('input', () => check());
   setTimeout(() => { check(); sym.focus(); }, 0);
 
-  const more = h('details', { class: 'more' }, h('summary', null, 'More: current stop, last price, highest, EMA10, next report'),
-    h('div', { class: 'fgrid', style: { marginTop: '14px' } }, of('Current stop', box(cs, '$')), of('Last price', box(last, '$')), of('Highest price', box(hi, '$')), of('EMA10', box(ema, '$')), of('Next report', box(nr))));
+  const more = h('details', { class: 'more' }, h('summary', null, 'More: current stop, last price, highest price, EMA10, earnings date'),
+    h('div', { class: 'fgrid', style: { marginTop: '14px' } }, of('Current stop', box(cs, '$')), of('Last price', box(last, '$')), of('Highest price', box(hi, '$')), of('EMA10', box(ema, '$')), of('Earnings date', box(nr))));
   const card = (title, lead, ...kids) => h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, title), h('p', { class: 'lead' }, lead))), h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, kids));
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '20px' } },
     h('header', { class: 'pg-head' },
-      h('div', null, h('div', { class: 'eyebrow' }, 'Pre-trade'), h('h1', null, 'Open trade'), h('p', { class: 'lead' }, 'A clear decision before capital is committed.')),
+      h('div', null, h('div', { class: 'eyebrow' }, 'Pre-trade'), h('h1', null, 'Open trade'), h('p', { class: 'lead' }, 'Decide clearly before you put money in.')),
       h('div', { class: 'acts' }, h('span', { class: 'hpill' }, 'Capital (closed trades)', h('b', null, usd(C.capitalNow(st)))), h('span', { class: 'hpill' }, 'Loss if all stops hit', h('b', null, pctTxt(nowRisk))), h('button', { class: 'btn ghost', onClick: () => back(ctx) }, 'Cancel'))),
     st.capital.start ? null : h('div', { class: 'msg warn' }, '◆ Capital is not set yet. Set the start capital on the Capital screen first.'),
     h('div', { class: 'op-grid' },
       h('div', { class: 'op-left' },
-        card('Opportunity', 'Capture the trade.',
+        card('Opportunity', 'What you are buying.',
           h('div', { class: 'fgrid' }, of('Symbol', symBox), of('Buy price', bpBox), of('Shares', qtyBox),
             of('Buy date', h('div', { class: 'datebox' }, bdBox, h('button', { class: 'btn today', type: 'button', onClick: () => { bd.setISO(today); } }, 'Today')), dnote),
             of('Buy commission', box(bc, '$'))), newNote, newStock),
-        card('Plan', 'Define the protection.', h('div', { class: 'fgrid' }, of('Initial stop', isBox), of('Setup', box(setup), setupNew), h('div', { class: 'of' }, h('span', { class: 'l' }, 'Setup rating'), stars)), more),
+        card('Plan', 'Your stop and your setup.', h('div', { class: 'fgrid' }, of('Initial stop', isBox), of('Setup', box(setup), setupNew), h('div', { class: 'of' }, h('span', { class: 'l' }, 'Setup rating'), stars)), more),
         h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Note'), h('p', { class: 'lead' }, 'Optional. Keep only what is worth remembering.'))),
           h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, of('Trade thesis', com)))),
       h('aside', { class: 'card acc op-check', 'aria-label': 'Decision check' }, h('div', { class: 'card-b' },

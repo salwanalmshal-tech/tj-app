@@ -28,7 +28,7 @@ export function lines(st, today) {
 }
 // In market / Cash as one bar (Q4): blue = in market, light grey = cash; the bigger value gets the bigger part.
 function marketCard(inMarket, value, account) {
-  const why = `In market = value of all open lines at the last price (${usd(value)}) as % of the estimated account (${usd(account)} = Capital (closed trades) + open result). Cash = the rest.`;
+  const why = `How much of your account (${usd(account)}) is in open trades at the last price (${usd(value)}). Cash = the rest.`;
   const head = h('span', { class: 'eyebrow' }, 'In market / Cash', infoBtn('In market / Cash', why));
   if (inMarket === null) return h('div', { class: 'metric' }, head, h('span', { class: 'v' }, '–'));
   const p = Math.max(0, Math.min(100, Number(inMarket) / Number(D.SCALE)));
@@ -53,7 +53,7 @@ export function render(ctx) {
 
   const wrap = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px' } });
   wrap.append(h('header', { class: 'pg-head' },
-    h('div', null, h('div', { class: 'eyebrow' }, 'Daily workspace'), h('h1', null, 'Open positions'), h('p', { class: 'lead' }, 'Focus on exceptions first. Do not encourage unnecessary action.')),
+    h('div', null, h('div', { class: 'eyebrow' }, 'Daily workspace'), h('h1', null, 'Open positions'), h('p', { class: 'lead' }, 'Start with the trades that need attention.')),
     h('div', { class: 'acts' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly || !st.capital.start, onClick: () => ctx.go('open-trade') }, '+ Open trade'))));
 
   if (!st.capital.start) wrap.append(h('div', { class: 'msg warn' }, '◆ Capital is not set yet. ', h('a', { href: '#/capital', onClick: (e) => { e.preventDefault(); ctx.go('capital'); } }, 'Set the start capital first.')));
@@ -63,16 +63,16 @@ export function render(ctx) {
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const ofCap = (v, cap) => (cap > 0n ? spct(D.pct(v, cap)) : '–');
   const METRIC = {
-    capital: () => metric('Capital (closed trades)', `Start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included. Now: ${usd(capital)}.`, usd(capital), '', 'Start capital, deposits, dividends and sales'),
-    openpl: () => metric('Open P&L', `(Last price − buy price) × open shares, summed over all open lines. Commissions count when you sell. Now: ${susd(openPL)} on ${all.length} lines.`, susd(openPL), numClass(openPL), `${all.length} open line${all.length === 1 ? '' : 's'}`),
-    loss: () => metric('Loss if all stops hit', `From now: (Current stop − last price) × open shares, summed over all lines with a stop, as % of the estimated account (capital + open result = ${usd(account)}). Lines without a stop are not included.`, susd(loss.loss), loss.loss < 0n ? 'neg' : '', (loss.pctOfAccount === null ? '' : `${pctTxt(D.abs(loss.pctOfAccount))} of estimated account`) + (noStop ? ` · ${noStop} without stop` : '')),
+    capital: () => metric('Capital (closed trades)', `Start capital, plus deposits and dividends, minus withdrawals, plus the result of every sale. Open trades are not in it. Now: ${usd(capital)}.`, usd(capital), '', 'Start capital, deposits, dividends and sales'),
+    openpl: () => metric('Open P&L', `What all open trades would win or lose if sold at the last price. Commissions are counted when you sell. Now: ${susd(openPL)} on ${all.length} trade${all.length === 1 ? '' : 's'}.`, susd(openPL), numClass(openPL), `${all.length} open trade${all.length === 1 ? '' : 's'}`),
+    loss: () => metric('Loss if all stops hit', `What you lose from today's prices if every open trade sells at its Current stop, next to your whole account (${usd(account)}). Trades without a stop are not counted.`, susd(loss.loss), loss.loss < 0n ? 'neg' : '', (loss.pctOfAccount === null ? '' : `${pctTxt(D.abs(loss.pctOfAccount))} of account estimate`) + (noStop ? ` · ${noStop} without stop` : '')),
     market: () => marketCard(inMarket, value, account),
     progress: () => { const pr = C.progress(st);
-      return metric('Progress vs original', `(Sale results + dividends) ÷ everything you put in (start capital + deposits). Withdrawals never count as a loss. Now: ${susd(pr.result)} on ${usd(pr.invested)}.`, pr.pct === null ? '–' : spct(pr.pct), pr.pct === null ? '' : numClass(pr.pct), `${susd(pr.result)} on ${usd(pr.invested)} put in`); },
+      return metric('Result vs money put in', `Your sale results and dividends, next to everything you put in (start capital and deposits). Withdrawals never count as a loss. Now: ${susd(pr.result)} on ${usd(pr.invested)}.`, pr.pct === null ? '–' : spct(pr.pct), pr.pct === null ? '' : numClass(pr.pct), `${susd(pr.result)} on ${usd(pr.invested)} put in`); },
     month: () => { const k = today.slice(0, 7); const v = C.monthResult(st, k); const cap = C.periodBaseCapital(st, k + '-01', today);
-      return metric('This month', `Net result of the sales made this month (by sale date), as % of your capital on the 1st. Now: ${susd(v)}.`, susd(v), numClass(v), `${ofCap(v, cap)} of capital on 1 ${MON[Number(k.slice(5)) - 1]}`); },
+      return metric('This month', `The result of the sales made this month, next to your capital on the 1st. Now: ${susd(v)}.`, susd(v), numClass(v), `${ofCap(v, cap)} of capital on 1 ${MON[Number(k.slice(5)) - 1]}`); },
     year: () => { const y = today.slice(0, 4); const v = C.yearResult(st, y); const cap = C.periodBaseCapital(st, y + '-01-01', y + '-12-31'); const late = !!st.capital.start && st.capital.start.date > y + '-01-01';
-      return metric('This year', `Net result of the sales made this year (by sale date), as % of your capital on 1 January. Now: ${susd(v)}.`, susd(v), numClass(v), `${ofCap(v, cap)} of capital on ${late ? dmy(st.capital.start.date) + ' (start)' : '1 Jan'}`); },
+      return metric('This year', `The result of the sales made this year, next to your capital on 1 January. Now: ${susd(v)}.`, susd(v), numClass(v), `${ofCap(v, cap)} of capital on ${late ? dmy(st.capital.start.date) + ' (start)' : '1 Jan'}`); },
   };
   const pins = C.openCards(st);
   if (pins.length) {
@@ -83,7 +83,7 @@ export function render(ctx) {
   }
 
   if (!all.length) {
-    wrap.append(h('section', { class: 'card' }, h('div', { class: 'card-b', style: { paddingTop: '22px' } }, h('div', { class: 'calm' }, '✓ You have no open positions.'))));
+    wrap.append(h('section', { class: 'card' }, h('div', { class: 'card-b', style: { paddingTop: '22px' } }, h('div', { class: 'calm' }, '✓ You have no open trades.'))));
     return wrap;
   }
 
@@ -110,7 +110,7 @@ export function render(ctx) {
         h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => updatePrices(ctx, all.map((l) => l.t)) }, 'Update prices'))),
     mode === 'drag' && filter !== 'all' ? h('div', { class: 'note' }, 'Your own order. Select “All” to move cards.') : null,
     grid,
-    h('div', { class: 'cards-foot' }, h('span', null, `${shown.length} line${shown.length === 1 ? '' : 's'}${filter === 'all' ? '' : ' (filtered)'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} without stop not included` : ''),
+    h('div', { class: 'cards-foot' }, h('span', null, `${shown.length} trade${shown.length === 1 ? '' : 's'}${filter === 'all' ? '' : ' (filtered)'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} trade${noStop === 1 ? '' : 's'} without a stop ${noStop === 1 ? 'is' : 'are'} not counted` : ''),
       h('span', null, `In market ${pctTxt(inMarket, 1)}`))));
   return wrap;
 }
@@ -230,7 +230,7 @@ function highlights(marks) {
 function reportText(iso, today) {
   if (!iso) return '–';
   const d = diffDays(today, iso);
-  if (d === 0) return 'today'; if (d === 1) return '1 day'; if (d > 1) return d + ' days';
+  if (d === 0) return 'today'; if (d === 1) return 'in 1 day'; if (d > 1) return 'in ' + d + ' days';
   return -d === 1 ? '1 day ago' : -d + ' days ago';
 }
 function posCard(ctx, l, today) {
@@ -239,7 +239,7 @@ function posCard(ctx, l, today) {
   const buy = D.d(t.buyPrice), last = num(t.last), stop = num(t.currentStop), init = num(t.initialStop);
   const val = (k, text, cls = '') => h('b', { class: `cv ${cls}${hl[k] ? ' hl-' + hl[k].c : ''}${text === '–' ? ' none' : ''}`, title: hl[k] ? hl[k].why.join(' · ') : null }, text);
   const lab = (text) => h('span', { class: 'cl' }, text);
-  const risk = stop === null ? '–' : stop >= buy ? 'None' : pctTxt(m.riskAtStopPct, 2);
+  const risk = stop === null ? '–' : stop >= buy ? 'No risk' : pctTxt(m.riskAtStopPct, 2);
   const result = last === null || buy === 0n ? null : D.pct(D.sub(last, buy), buy);
   const buyToStop = stop === null || buy === 0n ? null : D.pct(D.sub(stop, buy), buy);
   const locked = buyToStop !== null && buyToStop > D.d(S.profitLocked);
@@ -248,24 +248,24 @@ function posCard(ctx, l, today) {
   const sizeCls = hl.size ? hl.size.c : 'g';
   // 2026-11-09: what is still missing for this trade, in its own raspberry red; each word goes away once it is filled in
   const st = ctx.store.state; const stock = A.stockById(st, t.stockId) || {}; const setupName = st.setups.find((x) => x.id === t.setupId)?.name;
-  const missing = [['sector', !(stock.sector || '').trim()], ['industry', !(stock.industry || '').trim()], ['exchange', !(stock.exchange || '').trim()], ['setup', !setupName || setupName === 'Unclassified'], ['rating', A.canRate(st, t.setupId) && (t.stars ?? null) === null], ['next report', !t.nextReport]].filter((x) => x[1]).map((x) => x[0]);
+  const missing = [['sector', !(stock.sector || '').trim()], ['industry', !(stock.industry || '').trim()], ['exchange', !(stock.exchange || '').trim()], ['setup', !setupName || setupName === 'Unclassified'], ['rating', A.canRate(st, t.setupId) && (t.stars ?? null) === null], ['earnings date', !t.nextReport]].filter((x) => x[1]).map((x) => x[0]);
   const open = () => detail(ctx, t.id);
   return h('article', { class: 'pcard ' + cs, 'data-id': t.id, tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${CS_WORD[cs]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
     h('div', { class: 'pc-top' }, h('span', { class: 'pc-sym', title: t.id + (t.sales.length ? ' · partly sold' : '') }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null)), // status label removed 2026-11-06 (Auto order and the filters still use the status)
     h('div', { class: 'pc-main' },
       h('div', { class: 'pc-left' },
-        h('div', { class: 'pc-stop' }, lab('Stop loss'), val('stop', stop === null ? 'None' : priceTxt(stop), 'big')),
+        h('div', { class: 'pc-stop' }, lab('Current stop'), val('stop', stop === null ? 'No stop' : priceTxt(stop), 'big')),
         h('div', { class: 'pc-vals' },
           h('div', null, lab('Buy price'), val('buy', priceTxt(buy))),
           h('div', null, lab('Last price'), val('last', priceTxt(last))),
           h('div', null, lab('Highest price'), val('hi', priceTxt(num(t.highest)))),
           h('div', null, lab('EMA10'), val('ema', priceTxt(num(t.ema10))))),
-        h('div', { class: 'pc-small' }, h('span', null, 'Report: ', val('rep', reportText(t.nextReport, today))), h('span', null, 'Initial stop: ', val('init', init === null ? 'None' : priceTxt(init))))),
+        h('div', { class: 'pc-small' }, h('span', null, 'Earnings: ', val('rep', reportText(t.nextReport, today))), h('span', null, 'Initial stop: ', val('init', init === null ? 'missing' : priceTxt(init))))),
       h('div', { class: 'pc-right' },
-        h('div', null, lab('Risk of Capital'), val('risk', risk, 'mid')),
-        h('div', null, lab('Performance'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'From buy price to last price' }, result === null ? '–' : spct(result, 2))))),
-    h('div', { class: 'pc-size', title: 'Position size: last price × open shares as % of the estimated account' },
-      missing.length ? h('span', { class: 'pc-miss', title: 'Sector, industry and exchange: add them in Lists → Stocks. Setup and rating: Edit trade. Next report: Update today.' }, 'Missing: ' + missing.join(', ')) : priceLineEl(t),
+        h('div', null, lab('Risk, share of capital'), Object.assign(val('risk', risk, 'mid'), stop !== null && stop >= buy ? { title: 'Stop is above the buy price: no risk left' } : {})),
+        h('div', null, lab('Performance'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'Change from your buy price to the last price' }, result === null ? '–' : spct(result, 2))))),
+    h('div', { class: 'pc-size', title: 'Position size: how big this trade is next to your whole account, at the last price' },
+      missing.length ? h('span', { class: 'pc-miss', title: 'Sector, industry and exchange: add them in Lists → Stocks. Setup and rating: Edit trade. Earnings date: Update today.' }, 'Missing: ' + missing.join(', ')) : priceLineEl(t),
       // 2026-11-06: the size line is removed; its colours now go to the size text (green / orange / red, same limits)
       h('span', { class: 'sz c-' + sizeCls, title: hl.size ? hl.size.why.join(' · ') : null }, 'Position size ' + pctTxt(size, 1))));
 }
@@ -313,8 +313,8 @@ function detail(ctx, id) {
     inputs[f] = { get: () => inp.value.trim(), el: inp, kind: 'num', label, before: inp.value.trim() };
     return h('label', { class: 'of' }, h('span', { class: 'l' }, label), h('div', { class: 'box' }, h('span', { class: 'pre' }, '$'), inp));
   };
-  const rep = datePicker({ iso: t.nextReport || '', label: 'Next report' });
-  inputs.nextReport = { get: () => rep.getISO(), el: rep.input, kind: 'date', label: 'Next report', before: t.nextReport || '' };
+  const rep = datePicker({ iso: t.nextReport || '', label: 'Earnings date' });
+  inputs.nextReport = { get: () => rep.getISO(), el: rep.input, kind: 'date', label: 'Earnings date', before: t.nextReport || '' };
   const com = h('textarea', { 'aria-label': 'Comment', rows: 2 }); com.value = t.comment || '';
   inputs.comment = { get: () => com.value, el: com, kind: 'text', label: 'Comment', before: com.value };
   const msg = h('div', { class: 'msg bad', role: 'alert', hidden: true });
@@ -324,7 +324,7 @@ function detail(ctx, id) {
     for (const [f, x] of Object.entries(inputs)) {
       const v = x.get(); if (v === x.before) continue;
       if (x.kind === 'num' && v !== '' && (D.parse(v) === null || D.parse(v) <= 0n)) { msg.textContent = `■ ${x.label} must be a number above 0, or empty.`; msg.hidden = false; x.el.focus(); return; }
-      if (x.kind === 'date' && v === null) { msg.textContent = '■ Next report is not a valid date. Use dd-mm-yyyy or the calendar.'; msg.hidden = false; x.el.focus(); return; }
+      if (x.kind === 'date' && v === null) { msg.textContent = '■ The earnings date is not a valid date. Use dd-mm-yyyy or the calendar.'; msg.hidden = false; x.el.focus(); return; }
       changes.push([f, v]);
     }
     if (!changes.length) return close();
@@ -350,7 +350,7 @@ function detail(ctx, id) {
   const locked = m.lockedAtStop !== null && m.lockedAtStop > 0n;
   const R = (() => { const rps = C.riskPerShare(t), last = num(t.last); return rps === null || rps <= 0n || last === null ? null : D.div(D.sub(last, D.d(t.buyPrice)), rps); })();
   const others = A.sameStockOpen(st, t).filter((x) => x.id !== t.id).map((x) => x.id);
-  const sharedNote = others.length ? h('div', { class: 'note' }, `Last price, highest price, EMA10 and next report are shared with your other ${sym} line${others.length > 1 ? 's' : ''} (${others.join(', ')}). The highest price can only go up.`) : null;
+  const sharedNote = others.length ? h('div', { class: 'note' }, `Last price, highest price, EMA10 and earnings date are shared with your other ${sym} trade${others.length > 1 ? 's' : ''} (${others.join(', ')}). The highest price can only go up.`) : null;
   const correctHi = () => {
     const cur = t.highest ?? '';
     const inp = h('input', { inputmode: 'decimal', 'aria-label': 'New highest price', autocomplete: 'off', value: cur === '' ? '' : D.edit(D.d(cur)) });
@@ -372,21 +372,21 @@ function detail(ctx, id) {
     h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Update today'), h('p', { class: 'lead' }, 'Your daily values. Leave a field empty to clear it.'))),
       h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
         h('div', { class: 'fgrid' }, numField('last', 'Last price'), numField('currentStop', 'Current stop'),
-          numField('ema10', 'EMA10'), numField('highest', 'Highest price'), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Next report'), h('div', { class: 'box' }, rep))),
+          numField('ema10', 'EMA10'), numField('highest', 'Highest price'), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Earnings date'), h('div', { class: 'box' }, rep))),
         h('label', { class: 'of' }, h('span', { class: 'l' }, 'Comment'), com), sharedNote, msg,
         h('div', { class: 'row' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly, onClick: save }, 'Save'), h('button', { class: 'btn big', onClick: close }, 'Cancel'),
           h('button', { class: 'btn sm', style: { marginLeft: 'auto' }, disabled: ctx.readOnly, onClick: correctHi }, 'Correct highest price…')))),
-    h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', null, 'Line')), h('div', { class: 'card-b' }, h('dl', { class: 'facts', style: { margin: 0 } },
-      lv('Qty open', qtyTxt(C.openQty(t)) + (t.sales.length ? ` of ${qtyTxt(D.d(t.qty))} bought` : '')), lv('Buy date', dmy(t.buyDate)), lv('Buy price', usd(D.d(t.buyPrice))),
-      lv('Initial stop', t.initialStop ? usd(D.d(t.initialStop)) : 'No SL', 'The stop you had when you bought. R and risk use it. It changes only with “Correct initial stop” in Edit trade.'),
+    h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', null, 'Trade')), h('div', { class: 'card-b' }, h('dl', { class: 'facts', style: { margin: 0 } },
+      lv('Shares open', qtyTxt(C.openQty(t)) + (t.sales.length ? ` of ${qtyTxt(D.d(t.qty))} bought` : '')), lv('Buy date', dmy(t.buyDate)), lv('Buy price', usd(D.d(t.buyPrice))),
+      lv('Initial stop', t.initialStop ? usd(D.d(t.initialStop)) : 'No stop', 'The stop you had when you bought. R and risk use it. It changes only with “Correct initial stop” in Edit trade.'),
       lv('Open P&L', susd(m.openPL), '(Last price − buy price) × open shares.', numClass(m.openPL)),
-      lv('R now', R === null ? 'No SL' : rTxt(R), '(Last price − buy price) ÷ (buy price − Initial stop).'),
-      locked ? lv('Locked-in result at Current stop', susd(m.lockedAtStop) + (m.lockedR === null ? '' : ' · ' + rTxt(m.lockedR)), '(Current stop − buy price) × open shares, and the same in R: (Current stop − buy price) ÷ (buy price − Initial stop).', 'pos')
-        : lv('Loss if stop hit', susd(m.lossIfStop) + (m.lockedR === null ? '' : ' · ' + rTxt(m.lockedR) + ' at stop'), '(Current stop − last price) × open shares. In R: (Current stop − buy price) ÷ (buy price − Initial stop).', numClass(m.lossIfStop)),
-      lv('Risk at stop %', m.riskAtStopPct === null ? '–' : pctTxt(m.riskAtStopPct) + ' of capital at open', 'Loss at the Current stop as % of the capital this trade was opened with.'),
-      lv('Position size %', pctTxt(m.positionPct, 1), 'Last price × open shares as % of the estimated account.'),
-      m.realized !== null ? lv('Realized so far', susd(m.realized) + (m.rReal === null ? '' : ' · ' + rTxt(m.rReal)), 'Net result of the shares already sold from this line.', numClass(m.realized)) : null,
-      m.realized !== null ? lv('Still at risk', susd(m.lossIfStop), 'Remaining shares at the Current stop.', numClass(m.lossIfStop)) : null))),
+      lv('R (risk) now', R === null ? 'No stop' : rTxt(R), 'Result at the last price, in times your risk. +2 R = two times what you risked.'),
+      locked ? lv('Locked in at the Current stop', susd(m.lockedAtStop) + (m.lockedR === null ? '' : ' · ' + rTxt(m.lockedR)), 'What the open shares win or lose from the buy price if sold at the Current stop.', 'pos')
+        : lv('Loss from today if the stop is hit', susd(m.lossIfStop) + (m.lockedR === null ? '' : ' · ' + rTxt(m.lockedR) + ' at stop'), 'What you lose from the last price if the Current stop is hit.', numClass(m.lossIfStop)),
+      lv('Risk at stop, share of capital', m.riskAtStopPct === null ? '–' : pctTxt(m.riskAtStopPct) + ' of capital when opened', 'What the open shares lose from the buy price if the Current stop is hit, next to your capital when the trade was opened.'),
+      lv('Position size', pctTxt(m.positionPct, 1), 'How big this trade is next to your whole account, at the last price.'),
+      m.realized !== null ? lv('Taken so far', susd(m.realized) + (m.rReal === null ? '' : ' · ' + rTxt(m.rReal)), 'Result of the shares already sold from this trade.', numClass(m.realized)) : null,
+      m.realized !== null ? lv('Open risk', susd(m.lossIfStop), 'What the shares still open lose if the Current stop is hit.', numClass(m.lossIfStop)) : null))),
     h('div', { class: 'row' },
       h('button', { class: 'btn risk big', disabled: ctx.readOnly, onClick: () => { close(); ctx.go('close-trade', { tradeId: t.id }); } }, 'Close trade…'),
       h('button', { class: 'btn big', disabled: ctx.readOnly, onClick: () => { close(); editTrade(ctx, t.id); } }, 'Edit trade'),
@@ -415,18 +415,18 @@ function updatePrices(ctx, trades) {
       if (A.SHARED.includes(f)) i.addEventListener('input', () => { for (const y of inputs) if (y !== x && y.f === f && y.el && y.t.stockId === t.stockId) { y.el.value = i.value; y.mirror = true; } x.mirror = false; });
       return i;
     };
-    const rep = datePicker({ iso: t.nextReport || '', label: A.symbolOf(st, t) + ' next report' });
+    const rep = datePicker({ iso: t.nextReport || '', label: A.symbolOf(st, t) + ' earnings date' });
     inputs.push({ t, f: 'nextReport', get: () => rep.getISO(), before: t.nextReport || '' });
     return h('tr', null, h('td', null, h('b', null, A.symbolOf(st, t)), h('div', { class: 'note' }, t.id)), h('td', { class: 'r' }, qtyTxt(C.openQty(t))), h('td', { class: 'r' }, priceTxt(D.d(t.buyPrice))), h('td', null, mk('last')), h('td', null, mk('currentStop')), h('td', null, mk('highest')), h('td', null, mk('ema10')), h('td', null, h('div', { class: 'cellbox' }, rep)));
   });
-  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Unchanged fields stay as they are; emptying a box clears that value (Highest can only be changed). Lines of the same stock share last price, highest, EMA10 and next report. All changes are saved together and can be undone with one click.'),
-    h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Symbol', 'Qty', 'Buy price', 'Last price', 'Current stop', 'Highest', 'EMA10', 'Next report'].map((x, i) => h('th', { class: i > 0 && i < 7 ? 'r' : '' }, x)))), h('tbody', null, rows)))),
+  dialog({ title: 'Update prices', wide: true, ok: 'Save all', body: h('div', null, para('Type the new values. Unchanged fields stay as they are; emptying a box clears that value (Highest price can only be changed). Trades in the same stock share last price, highest price, EMA10 and earnings date. All changes are saved together and can be undone with one click.'),
+    h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['Symbol', 'Shares', 'Buy price', 'Last price', 'Current stop', 'Highest price', 'EMA10', 'Earnings date'].map((x, i) => h('th', { class: i > 0 && i < 7 ? 'r' : '' }, x)))), h('tbody', null, rows)))),
     onOk: async () => {
       const changes = []; const jumps = [];
       for (const x of inputs) {
         const { t, f } = x; const v = x.get();
         if (v === x.before || x.mirror) continue; // a mirrored value is saved once, through the line it was typed on
-        if (f === 'nextReport') { if (v === null) return `${A.symbolOf(st, t)}: next report is not a valid date (dd-mm-yyyy).`; }
+        if (f === 'nextReport') { if (v === null) return `${A.symbolOf(st, t)}: the earnings date is not a valid date. Use dd-mm-yyyy.`; }
         // his choice A (2026-11-09): emptying a box clears that value, like in the line panel (not Highest: it can only be corrected)
         else if (v !== '' || f === 'highest') { if (v === '') continue; if (D.parse(v) === null || D.parse(v) <= 0n) return `${A.symbolOf(st, t)}: enter ${f === 'last' ? 'the last price' : f} as a number above 0.`; }
         changes.push({ t, f, v });
