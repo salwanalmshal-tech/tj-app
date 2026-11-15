@@ -904,3 +904,55 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .tfmore+.tfacts{margin-top:8px}
 /* 1.5.10: longer column names wrap to two lines, so the History table keeps its width */
 #tview table.stk th.sortable button{white-space:normal;max-width:104px;line-height:1.25}
+/* 1.6.0 Performance verdicts: Settings cards and the History scales (same look in both places) */
+.vcard .vhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 18px 4px}
+.vcard .vhead h3{margin:0 0 2px}
+.vnow{display:inline-flex;align-items:center;gap:10px;padding:5px 8px 5px 14px;border-radius:999px;background:var(--raised,#F7F9FC);border:1px solid var(--line)}
+.vnow b{font-size:16px}
+.vpill{font-size:12px;font-weight:700;border-radius:999px;padding:4px 11px;transition:background .3s,color .3s}
+.vpill.good{background:#EDF7F2;color:#28765A}.vpill.ok{background:#FFF6E6;color:#9B6B23}.vpill.bad{background:#FFF1EF;color:#AC4C45}.vpill.none{background:#EEF2F6;color:#66758A}
+.vtrack{position:relative;height:14px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:3px;margin:12px 18px 4px}
+.vseg{border-radius:3px;opacity:.4;transition:opacity .3s}.vseg.on{opacity:1}
+.vseg:first-child{border-radius:7px 3px 3px 7px}.vseg:nth-child(6){border-radius:3px 7px 7px 3px}
+.vknob{position:absolute;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:#fff;border:3px solid var(--ink,#15233B);box-shadow:0 4px 12px rgba(21,35,59,.25);transition:left .45s cubic-bezier(.2,.8,.2,1)}
+.vzones{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px 18px 16px}
+.vzone{border-radius:12px;padding:10px 10px 11px;display:flex;flex-direction:column;gap:7px;min-width:0;background:#F7F9FC;border:1px solid #E6EBF1;transition:box-shadow .2s,background .2s}
+.vzone.on{background:#fff;box-shadow:0 0 0 2px var(--vc),0 8px 20px rgba(21,35,59,.08)}
+.vzn{font-size:12px;font-weight:650;display:flex;align-items:center;gap:6px}
+.vdot{width:8px;height:8px;border-radius:50%;flex:none}
+.vinp{display:flex;align-items:center;gap:5px}.vinp .sv{flex:1;min-width:0}.vinp .sv input{width:100%;min-width:0}
+.vlast{font-size:11.5px;color:var(--faint);padding:7px 2px}
+.vmsg{margin:0 18px 16px;font-size:12px;font-weight:600;color:#9B6B23;background:#FFF6E6;border:1px solid #F1DFBD;border-radius:10px;padding:8px 12px}
+/* 1.6.0 History summary upgrade: small pictures in the number cards, verdict scales, three panels */
+.metric.hm{transition:box-shadow .25s,transform .25s}.metric.hm:hover{box-shadow:0 10px 26px rgba(21,35,59,.08);transform:translateY(-2px)}
+.hmv{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.hbar{display:block;height:8px;background:#EEF2F6;border-radius:4px;overflow:hidden}.hbar.tall{height:14px;border-radius:7px}
+.hbar i,.hbar3 i,.hbarc i,.hlim i{display:block;height:100%;border-radius:inherit;transform-origin:left;animation:hgrow .9s cubic-bezier(.2,.8,.2,1) both}
+.hbar i.pos,.hbarc i.pos,.hlim i.pos{background:#28765A}.hbar i.neg,.hbarc i.neg,.hlim i.neg{background:#AC4C45}.hbar i.blue{background:#326B9E}.hlim i.amb{background:#9B6B23}
+@keyframes hgrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.hbar3{display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden}.hbar3 i{border-radius:2px}.hbar3 .w{background:#28765A}.hbar3 .l{background:#AC4C45}.hbar3 .z{background:#B4BECB}
+.hring{width:44px;height:44px;transform:rotate(-90deg);flex:none}.hring circle{fill:none;stroke-width:7}.hring .tr{stroke:#EEF2F6}.hring .pos{stroke:#28765A;stroke-linecap:round}.hring .neg{stroke:#AC4C45;stroke-linecap:round}.hring line{stroke:#15233B;stroke-width:2}
+.hbarc{display:grid;grid-template-columns:1fr 1fr;height:8px}.hbarc>span{background:#EEF2F6;display:flex}.hbarc>span:first-child{border-radius:4px 0 0 4px;border-right:2px solid #AEB8C4;justify-content:flex-end}.hbarc>span:last-child{border-radius:0 4px 4px 0}
+.hbarc>span:first-child i{transform-origin:right}
+.hspark{width:100%;height:26px;display:block}.hspark polyline{fill:none;stroke-width:2;stroke-linejoin:round}.hspark .pos{stroke:#28765A}.hspark .neg{stroke:#AC4C45}
+.amb{color:#9B6B23}
+.hperf{display:flex;flex-direction:column;gap:14px}
+.vbox{padding:6px 8px 10px}.vbh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;padding:12px 16px 4px}.vbh h3{margin:0;font-size:15px}
+.vrow2{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:grid;grid-template-columns:230px minmax(0,1fr) 24px;gap:22px;align-items:center;padding:12px 16px;border-radius:14px;transition:background .2s}
+.vrow2:hover,.vrow2.open{background:#F7F9FC}.vrow2:focus-visible{outline:2px solid #326B9E;outline-offset:2px}
+.vl{display:flex;flex-direction:column;gap:5px}.vv{display:flex;align-items:center;gap:10px}.vv b{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.vsc{display:flex;flex-direction:column}.vsc .vtrack{margin:0}
+.vlabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:3px;font-size:10.5px;color:#8D99AA;text-align:center;margin-top:7px}.vlabs .on{color:#15233B;font-weight:700}
+.vchev{color:#8D99AA;font-size:15px;transition:transform .2s}.vrow2.open .vchev{transform:rotate(90deg)}
+.vtext{margin:0 16px 10px;padding:12px 14px;font-size:13px;color:#3C4B60;background:linear-gradient(180deg,#F7F9FC,#F3F6FA);border:1px solid #E6EBF1;border-radius:14px}
+.pfrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.pf{padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}.pf h3{margin:0;font-size:15px}
+.pf1{display:flex;flex-direction:column;gap:5px}.pfh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.pfh b{font-size:18px}
+.pfsoft{background:linear-gradient(180deg,#F7F9FC,#F3F6FA);border:1px solid #E6EBF1;border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;color:#3C4B60}
+.pfgrid{display:grid;grid-template-columns:70px minmax(0,1fr) 64px;gap:10px;align-items:center}.pfgrid>b{text-align:right}
+.hlim{position:relative;display:block;height:10px;background:#EEF2F6;border-radius:5px}
+.hlim .zg{position:absolute;left:0;top:0;height:10px;background:#EDF7F2;border-radius:5px 0 0 5px}
+.hlim i{position:absolute;left:0;top:0;height:10px;border-radius:5px;opacity:.85}
+.hlim b{position:absolute;top:-3px;width:2px;height:16px;background:#66758A}.hlim b.r{background:#AC4C45}
+@media (max-width:1100px){.pfrow{grid-template-columns:1fr}.vrow2{grid-template-columns:1fr 24px}.vsc{grid-column:1/2}}
+.pfsoft.txt{display:block}

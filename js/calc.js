@@ -326,3 +326,31 @@ export function stopMovesDown(entries) {
   for (const d of days.values()) { const from = n(d.first), to = n(d.last); if (from !== null && to !== null && to < from) downs.push({ date: d.date, from, to }); }
   return { changes: sorted.length, downs };
 }
+
+// ===================================================================== Performance verdicts (plan step 2, agreed 2026-11-01 / 2026-11-13)
+// One word for each of three averages, from limits he can change in Settings → Performance verdicts (start values = his Excel).
+// History shows the word; Settings shows where his current result lands. Both use this one rule, so they can never differ.
+// Each kind: 6 zone names (lowest number first), and for each of the 5 limits whether a value EQUAL to it still belongs to the zone
+// below (incl = "up to") or already to the next one (below).
+export const VERDICTS = {
+  win: { key: 'verdictWin', title: 'Average winner', sub: 'How big your average win is, in R (risk)', unit: 'R',
+    names: ['Very weak', 'Weak', 'Acceptable', 'Good', 'Very good', 'Excellent'], tones: ['bad', 'bad', 'ok', 'good', 'good', 'good'],
+    colors: ['#AC4C45', '#E3A49B', '#E8C98F', '#8CC2A8', '#28765A', '#1C5641'], incl: [false, false, false, false, false] },
+  loss: { key: 'verdictLoss', title: 'Average loser (size)', sub: 'How big your average loss is, in R (risk), without the minus sign', unit: 'R',
+    names: ['Excellent', 'Good', 'Acceptable', 'Weak', 'Bad', 'Very bad'], tones: ['good', 'good', 'ok', 'bad', 'bad', 'bad'],
+    colors: ['#1C5641', '#28765A', '#E8C98F', '#E3A49B', '#C66A60', '#AC4C45'], incl: [false, false, true, true, true] },
+  ratio: { key: 'verdictRatio', title: 'Winner ÷ loser', sub: 'Average win divided by average loss', unit: '',
+    names: ['Very bad', 'Weak', 'Acceptable', 'Good', 'Very good', 'Excellent'], tones: ['bad', 'bad', 'ok', 'good', 'good', 'good'],
+    colors: ['#AC4C45', '#E3A49B', '#E8C98F', '#8CC2A8', '#28765A', '#1C5641'], incl: [false, false, false, false, false] },
+};
+// x = the average as a plain number (win R, loss size in R, or the ratio); limits = 5 numbers, each higher than the one before.
+// Returns the zone (0..5) and where the knob sits on a 6-zone scale (0..100), or null when there is no value.
+export function verdictOf(kind, x, limits) {
+  const V = VERDICTS[kind]; if (x === null || x === undefined || !Number.isFinite(x) || !limits || limits.length !== 5) return null;
+  let at = 5;
+  for (let i = 0; i < 5; i++) if (V.incl[i] ? x <= limits[i] : x < limits[i]) { at = i; break; }
+  const lo = at === 0 ? 0 : limits[at - 1], hi = at === 5 ? null : limits[at];
+  const frac = hi === null ? 0.5 : hi === lo ? 0.5 : Math.min(1, Math.max(0, (x - lo) / (hi - lo)));
+  return { at, name: V.names[at], tone: V.tones[at], pos: Math.round(((at + frac) / 6) * 1000) / 10 };
+}
+export const verdictLimits = (S, kind) => (S[VERDICTS[kind].key] || []).map((v) => Number(String(v)));

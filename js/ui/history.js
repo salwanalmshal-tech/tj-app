@@ -8,6 +8,7 @@ import * as A from '../actions.js';
 import { resultPctMark } from '../marks.js';
 import { parseDMY, todayISO } from '../dates.js';
 import { editTrade, withNew, resolveNew } from './tradeforms.js';
+import { goSection } from './settings.js';
 // data.js is loaded only when exporting (keeps History importable in the tests)
 
 let loadedState = null;
@@ -75,6 +76,10 @@ function build(){
     t.R=BN(RB); t.labelRaw=C.rCategory(RB,S)??'–'; t.label=esc(t.labelRaw); t.labelTone=C.rCategoryTone(RB,S);
     t.sdPct=BN(sdB); t.sdRaw=C.stopDistanceLabel(sdB,S)??'No SL'; t.sd=esc(t.sdRaw==='No SL'?'No stop':t.sdRaw);
     t.comm=BN((C.N(src.buyCommission)??0n)+src.sales.reduce((a,x)=>a+(C.N(x.commission)??0n),0n));
+    // plan step 2: risk at the Initial stop and position size, both next to the capital when the trade was opened
+    const riskB=C.riskOfQty(src,D.d(src.qty)); t.riskOpen=capB&&capB>0n&&riskB!==null?BN(D.pct(riskB,capB)):null;
+    t.sizeOpen=capB&&capB>0n?BN(D.pct(D.mul(D.d(src.buyPrice),D.d(src.qty)),capB)):null;
+    const costB=D.mul(D.d(src.buyPrice),C.soldQty(src)); t.tradePct=costB>0n?BN(D.pct(netB,costB)):null;
     const mk=C.moveKept(src);
     t.mk={kind:mk.kind,why:mk.why??null,pct:BN(mk.pct??null),upPct:BN(mk.upPct??null),endPct:BN(mk.endPct??null),hi:BN(mk.highest),maxSale:BN(mk.maxSale)};
     t.keptG=mk.kind==='kept'?(t.mk.pct>=50?KEPT_G[0]:KEPT_G[1]):mk.kind==='gaveback'?KEPT_G[2]:mk.kind==='never'?KEPT_G[3]:KEPT_G[4];
@@ -537,19 +542,79 @@ function detailRow4(t){
     <button class="btn" data-symf="${t.sym}">All ${t.sym} trades</button><span class="note">Changes here wait for the save delay in Settings, like everywhere else</span></div></td></tr>`;
 }
 
-// ---- trades summary: six small cards, each with a hover explanation; follow the filters
+// ---- trades summary: six small cards, each with a hover explanation and a small picture; follow the filters (plan step 2 look)
 function sumCards(s,ts){
   const above=s.wr!==null&&s.be!==null?s.wr>=s.be:null,tn=(v)=>v>0?'pos':v<0?'neg':'';
   const P=(ts.length===TR.length&&PREV?.trades)?PREV.trades:null,keyOf={'Trades':'n','Win rate':'wr','Average win':'winR','Average loss':'lossR','Per trade':'avgR','Net result':'net'};
-  const m=(k,v,d,c,tip)=>{const pv=P?P[keyOf[k]]:undefined,ch=was(pv,String(v));return `<div class="metric${ch?' chg':''}" title="${esc((ch?'Before: '+pv+'. ':'')+tip)}"><span class="lab">${k==='Per trade'?'Average per trade':k}</span><span class="v ${c||''}">${v}</span><span class="d">${ch?`<b class="was">was ${pv}</b>`:d}</span></div>`;};
-  return m('Trades',s.n,`${s.w} won · ${s.l} lost`,'',`Closed trades in this list. A trade counts when its last share is sold.`)+
-    m('Win rate',pct(s.wr===null?null:s.wr*100),`you need ${pct(s.be===null?null:s.be*100)} to break even`,above===null?'':above?'pos':'neg',s.wr===null?'':`${s.w} of ${s.w+s.l} trades made money. With these win and loss sizes you need at least ${pct(s.be*100)} to break even.`)+
-    m('Average win',R(s.winR),'per winning trade','pos',s.winR===null?'No winning trades here.':`A winning trade made on average ${fx(s.winR,2)} times the money you planned to risk. ${RTIP}`)+
-    m('Average loss',R(s.lossR),'per losing trade','neg',s.lossR===null?'No losing trades here.':`A losing trade lost on average ${fx(-s.lossR,2)} times the money you planned to risk. ${RTIP}`)+
-    m('Per trade',R(s.avgR),'in R (risk), wins and losses together',tn(s.avgR),s.avgR===null?'':`Wins and losses together: each trade ${s.avgR>=0?'made':'lost'} on average ${fx(Math.abs(s.avgR),2)} times the money you risked. Above 0 = you make money over time.`)+
-    m('Net result',usd(s.net),`${sx(s.capPct,2)} % share of capital`,tn(s.net),`All these trades together, after commissions. Share of capital = each trade's result next to your capital when it was opened, added up.`);
+  const m=(k,v,d,c,tip,viz='',side='')=>{const pv=P?P[keyOf[k]]:undefined,ch=was(pv,String(v));return `<div class="metric hm${ch?' chg':''}" title="${esc((ch?'Before: '+pv+'. ':'')+tip)}"><span class="lab">${k==='Per trade'?'Average per trade':k}</span><span class="hmv"><span class="v ${c||''}">${v}</span>${side}</span>${viz}<span class="d">${ch?`<b class="was">was ${pv}</b>`:d}</span></div>`;};
+  const z=s.n-s.w-s.l, W=ts.filter(t=>t.net>0), L=ts.filter(t=>t.net<0);
+  const bar=(w,cls)=>`<span class="hbar"><i class="${cls}" style="width:${Math.max(0,Math.min(100,w)).toFixed(1)}%"></i></span>`;
+  const scale=Math.max(2.5,Math.abs(s.winR??0),Math.abs(s.lossR??0));
+  const split=s.n?`<span class="hbar3"><i class="w" style="width:${(100*s.w/s.n).toFixed(1)}%"></i><i class="l" style="width:${(100*s.l/s.n).toFixed(1)}%"></i>${z?`<i class="z" style="width:${(100*z/s.n).toFixed(1)}%"></i>`:''}</span>`:'';
+  const C2=2*Math.PI*22, ring=s.wr===null?'':`<svg class="hring" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="22" class="tr"/><circle cx="28" cy="28" r="22" class="${above?'pos':'neg'}" stroke-dasharray="${(C2*s.wr).toFixed(1)} ${C2.toFixed(1)}"/>${s.be!==null?`<line x1="28" y1="1.5" x2="28" y2="11" transform="rotate(${(360*s.be).toFixed(1)} 28 28)"/>`:''}</svg>`;
+  const mid=s.avgR===null?'':`<span class="hbarc"><span>${s.avgR<0?`<i class="neg" style="width:${Math.min(100,Math.abs(s.avgR)*100).toFixed(1)}%"></i>`:''}</span><span>${s.avgR>0?`<i class="pos" style="width:${Math.min(100,s.avgR*100).toFixed(1)}%"></i>`:''}</span></span>`;
+  const seq=ts.slice().sort((a,b)=>a.sellDate<b.sellDate?-1:a.sellDate>b.sellDate?1:a.lastSeq-b.lastSeq);let run=0;const pts=[0,...seq.map(t=>(run+=t.net))];
+  const lo=Math.min(...pts),hi=Math.max(...pts),sp=pts.length>2?`<svg class="hspark" viewBox="0 0 120 26" preserveAspectRatio="none" aria-hidden="true"><polyline class="${s.net>=0?'pos':'neg'}" points="${pts.map((v,i)=>`${(120*i/(pts.length-1)).toFixed(1)},${(hi===lo?13:24-22*(v-lo)/(hi-lo)).toFixed(1)}`).join(' ')}"/></svg>`:'';
+  const wCap=mean(W.map(t=>t.capPct).filter(x=>x!==null)),lCap=mean(L.map(t=>t.capPct).filter(x=>x!==null));
+  return m('Trades',s.n,`${s.w} won · ${s.l} lost${z?` · ${z} at 0`:''}`,'',`Closed trades in this list. A trade counts when its last share is sold.`,split)+
+    m('Win rate',pct(s.wr===null?null:s.wr*100),`you need ${pct(s.be===null?null:s.be*100)} to break even`,above===null?'':above?'pos':'neg',s.wr===null?'':`${s.w} of ${s.w+s.l} trades made money. With these win and loss sizes you need at least ${pct(s.be*100)} to break even. The dark tick on the ring marks that break-even win rate.`,'',ring)+
+    m('Average win',R(s.winR),wCap===null?'per winning trade':`${sx(wCap,2)} % share of capital`,'pos',s.winR===null?'No winning trades here.':`A winning trade made on average ${fx(s.winR,2)} times the money you planned to risk, and ${sx(wCap,2)} % next to your capital when it was opened. ${RTIP}`,s.winR===null?'':bar(100*s.winR/scale,'pos'))+
+    m('Average loss',R(s.lossR),lCap===null?'per losing trade':`${sx(lCap,2)} % share of capital`,'neg',s.lossR===null?'No losing trades here.':`A losing trade lost on average ${fx(-s.lossR,2)} times the money you planned to risk, and ${sx(lCap,2)} % next to your capital when it was opened. ${RTIP}`,s.lossR===null?'':bar(100*Math.abs(s.lossR)/scale,'neg'))+
+    m('Per trade',R(s.avgR),'in R (risk), wins and losses together',tn(s.avgR),s.avgR===null?'':`Wins and losses together: each trade ${s.avgR>=0?'made':'lost'} on average ${fx(Math.abs(s.avgR),2)} times the money you risked. Above 0 = you make money over time. The bar grows right of the middle line when it is above 0.`,mid)+
+    m('Net result',usd(s.net),`${sx(s.capPct,2)} % share of capital`,tn(s.net),`All these trades together, after commissions. Share of capital = each trade's result next to your capital when it was opened, added up. The line shows the running total, trade by trade, in sell-date order.`,sp);
 }
-function renderSummary(ts){$('sum').innerHTML=sumCards(stats(ts),ts);}
+function renderSummary(ts){$('sum').innerHTML=sumCards(stats(ts),ts);renderPerf(ts);}
+// ---- plan step 2: "How good are these results?" (3 verdict scales, limits in Settings) + Biggest trades / Time in trades / At the moment you opened
+let vOpen=-1;
+const VKINDS=['win','loss','ratio'];
+function renderPerf(ts){
+  const el=$('perf');if(!el)return;const st=stats(ts);
+  const vals={win:st.winR,loss:st.lossR===null?null:Math.abs(st.lossR),ratio:st.payoff};
+  const lim=(k)=>C.verdictLimits(S,k), f2=(x)=>fx(x,2);
+  const range=(k,i)=>{const V=C.VERDICTS[k],L=lim(k),u=V.unit?' '+V.unit:'';return i===0?`${V.incl[0]?'up to':'below'} ${f2(L[0])}${u}`:i===5?`above ${f2(L[4])}${u}`:`${f2(L[i-1])} to ${f2(L[i])}${u}`;};
+  const textOf=(k,x,r)=>{const V=C.VERDICTS[k];
+    if(k==='win')return `Your winning trades make ${f2(x)} times what you risked, on average. “${r.name}” is ${range(k,r.at)}.`+(r.at<5?` “${V.names[r.at+1]}” is ${range(k,r.at+1)}.`:'');
+    if(k==='loss')return `Your losing trades lose ${f2(x)} times what you planned to risk, on average. “${r.name}” is ${range(k,r.at)}.`+(x<=1?' Under 1 R means your stops mostly hold.':' Above 1 R means many losses went past the risk you planned.')+(r.at>0?` “${V.names[r.at-1]}” is ${range(k,r.at-1)}.`:'');
+    return `An average win is ${f2(x)} times an average loss. With that ratio you need to win ${pct(st.be*100)} of your trades to break even, and you win ${pct(st.wr*100)}. “${r.name}” is ${range(k,r.at)}.`;};
+  const empty={win:'No winning trades in this list.',loss:'No losing trades in this list.',ratio:'Needs at least one winning and one losing trade.'};
+  const rows=VKINDS.map((k,i)=>{const V=C.VERDICTS[k],x=vals[k],r=C.verdictOf(k,x,lim(k)),open=vOpen===i;
+    const segs=V.colors.map((c,j)=>`<span class="vseg${r&&r.at===j?' on':''}" style="background:${c}"></span>`).join('');
+    const labs=V.names.map((n,j)=>`<span class="${r&&r.at===j?'on':''}">${n.toLowerCase()}</span>`).join('');
+    return `<button class="vrow2${open?' open':''}" type="button" data-v="${i}" aria-expanded="${open}"><span class="vl"><span class="eyebrow">${V.title}</span><span class="vv"><b>${x===null?'–':f2(x)+(V.unit?' '+V.unit:'')}</b><span class="vpill ${r?r.tone:'none'}">${r?r.name:'Not enough data'}</span></span></span>
+      <span class="vsc"><span class="vtrack">${segs}${r?`<span class="vknob" style="left:${r.pos}%"></span>`:''}</span><span class="vlabs">${labs}</span></span><span class="vchev">›</span></button>
+      ${open?`<div class="vtext">${r?textOf(k,x,r):empty[k]}</div>`:''}`;}).join('');
+  // Biggest trades
+  const W=ts.filter(t=>t.net>0),L=ts.filter(t=>t.net<0);
+  const bw=W.length?W.reduce((a,b)=>b.net>a.net?b:a):null,bl=L.length?L.reduce((a,b)=>b.net<a.net?b:a):null;
+  const big=Math.max(bw?bw.net:0,bl?-bl.net:0)||1;
+  const wP=mean(W.map(t=>t.tradePct).filter(x=>x!==null)),lP=mean(L.map(t=>t.tradePct).filter(x=>x!==null));
+  const one=(t,lab,cls)=>t?`<div class="pf1"><div class="pfh"><span class="eyebrow">${lab} · ${t.sym}</span><b class="${cls}">${usd(t.net)}</b></div><span class="hbar"><i class="${cls}" style="width:${(100*Math.abs(t.net)/big).toFixed(1)}%"></i></span><span class="note">${sx(t.capPct,2)} % share of capital · ${t.id}</span></div>`:`<div class="pf1"><span class="eyebrow">${lab}</span><span class="note">none in this list</span></div>`;
+  const times=bw&&bl?`<span class="note">your biggest win is ${fx(bw.net/-bl.net,1)}× your biggest loss</span>`:'';
+  const p1=`<section class="scard pf"><h3>Biggest trades</h3>${one(bw,'Largest winner','pos')}${one(bl,'Largest loser','neg')}${times}
+    <div class="pfsoft" title="The average result of a winning trade, next to the money you paid for it, divided by the same for a losing trade. Example: wins +8 % and losses −4 % = 2,0×."><span class="note">Average win ÷ average loss, next to the money paid</span><b>${wP!==null&&lP?fx(wP/-lP,1)+'×':'–'}</b></div></section>`;
+  // Time in trades
+  const dW=mean(W.map(t=>t.days)),dL=mean(L.map(t=>t.days)),lg=ts.length?ts.reduce((a,b)=>b.days>a.days?b:a):null,top=Math.max(lg?lg.days:0,1);
+  const drow=(lab,d,cls,extra='')=>`<span class="eyebrow">${lab}</span><span class="hbar tall"><i class="${cls}" style="width:${d===null?0:Math.max(2,100*d/top).toFixed(1)}%"></i></span><b>${d===null?'–':fx(d,0)+' day'+(Math.round(d)===1?'':'s')}</b>${extra}`;
+  const rt=dW!==null&&dL?dW/dL:null;
+  const tline=rt===null?'':rt>=1.2?`You hold winners <b class="pos">${fx(rt,1)}× longer</b> than losers: you cut losses faster than wins.`:rt<=1/1.2?`You hold losers <b class="neg">${fx(1/rt,1)}× longer</b> than winners: losses get more time than wins.`:'You hold winners and losers <b>about as long</b>.';
+  const p2=`<section class="scard pf"><h3>Time in trades</h3><div class="pfgrid">${drow('Winners',dW,'pos')}${drow('Losers',dL,'neg')}${drow('Longest',lg?lg.days:null,'blue')}</div>${lg?`<span class="note">longest: ${lg.sym} · ${lg.id}</span>`:''}${tline?`<div class="pfsoft txt">${tline}</div>`:''}</section>`;
+  // At the moment you opened
+  const rk=ts.map(t=>t.riskOpen).filter(x=>x!==null),avgRisk=mean(rk),warn=Number(S.riskWarn),red=Number(S.riskRed);
+  const rmax=Math.max(red*1.25,(avgRisk??0)*1.1),rc=avgRisk===null?'':avgRisk<=warn?'pos':avgRisk<=red?'amb':'neg';
+  const rtx=avgRisk===null?'no trade with an Initial stop here':avgRisk<=warn?`within your ${fx(warn,2)} % limit`:avgRisk<=red?`above ${fx(warn,2)} %, within your ${fx(red,2)} % limit`:`above your ${fx(red,2)} % limit`;
+  const sz=ts.filter(t=>t.sizeOpen!==null),ls=sz.length?sz.reduce((a,b)=>b.sizeOpen>a.sizeOpen?b:a):null,big2=Number(S.posTooBig),nAbove=sz.filter(t=>t.sizeOpen>big2).length;
+  const smax=Math.max(big2*1.5,(ls?ls.sizeOpen:0)*1.05),sc=ls===null?'':ls.sizeOpen>big2?'neg':'pos';
+  const p3=`<section class="scard pf"><h3>At the moment you opened</h3>
+    <div class="pf1" title="Average of: what each trade would lose at its Initial stop, next to your capital when it was opened. Your limits are in Settings → Risk and position size."><div class="pfh"><span class="eyebrow">Average risk</span><b class="${rc}">${avgRisk===null?'–':fx(avgRisk,2)+' %'}</b></div>
+      <span class="hlim"><span class="zg" style="width:${(100*warn/rmax).toFixed(1)}%"></span>${avgRisk===null?'':`<i class="${rc}" style="width:${Math.min(100,100*avgRisk/rmax).toFixed(1)}%"></i>`}<b style="left:${(100*warn/rmax).toFixed(1)}%"></b><b class="r" style="left:${(100*red/rmax).toFixed(1)}%"></b></span>
+      <span class="note">${rk.length} trade${rk.length===1?'':'s'} · <b class="${rc}">${rtx}</b></span></div>
+    <div class="pf1" title="The biggest position in this list: buy price × shares, next to your capital when it was opened. The line marks your “too big” limit in Settings."><div class="pfh"><span class="eyebrow">Largest position${ls?' · '+ls.sym:''}</span><b class="${sc}">${ls===null?'–':fx(ls.sizeOpen,1)+' %'}</b></div>
+      <span class="hlim">${ls===null?'':`<i class="${sc}" style="width:${Math.min(100,100*ls.sizeOpen/smax).toFixed(1)}%"></i>`}<b class="r" style="left:${(100*big2/smax).toFixed(1)}%"></b></span>
+      <span class="note">your limit: ${fx(big2,2)} % · <b class="${sc}">${ls===null?'–':nAbove?`${nAbove} trade${nAbove===1?'':'s'} above it`:'none above it'}</b></span></div></section>`;
+  el.innerHTML=`<section class="scard vbox"><div class="vbh"><h3>How good are these results?</h3><button class="linkbtn" type="button" id="vset">Change limits in Settings →</button></div>${rows}</section><div class="pfrow">${p1}${p2}${p3}</div>`;
+  el.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{const i=+b.dataset.v;vOpen=vOpen===i?-1:i;renderPerf(ts);});
+  $('vset').onclick=()=>{goSection('verdicts');CTX.go('settings');};
+}
 // 2026-11-10 what-if: when trades are left out, one line shows how the numbers move (with them → without them)
 function renderEffect(all,ts){
   let e=$('heffect');if(!e){e=document.createElement('div');e.id='heffect';$('sum').before(e);}
@@ -699,7 +764,7 @@ const SKELETON=`<div class="hlists">
     <section class="hview" id="sec-report"><div class="hrep">
         <section class="scard"><div class="sch"><h3>7 checks</h3><span class="note">all closed trades</span></div><div id="checks"></div></section>
         <section class="card hdet"><div class="card-b" id="ckcard" aria-live="polite"></div></section></div></section>
-    <section class="hview" id="sec-trades"><div class="metrics six" id="sum"></div>
+    <section class="hview" id="sec-trades"><div class="metrics six" id="sum"></div><div id="perf" class="hperf"></div>
       <section class="scard ltable"><div class="lhead" id="fbar"></div><div id="tview"></div></section></section>
     <section class="hview" id="sec-compare"><div id="cview" style="display:flex;flex-direction:column;gap:14px"></div></section>
   </div>`;

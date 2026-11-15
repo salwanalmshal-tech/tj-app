@@ -14,7 +14,7 @@ export const goSection = (k) => { lastSection = k; };
 
 const SECTIONS = [
   ['Trading', [['rules', 'Trading rules', 'Stops, EMA10 and earnings'], ['risk', 'Risk and position size', 'Capital at risk and allocation']]],
-  ['Journal', [['results', 'Results and labels', 'Result labels and stop distance'], ['history', 'History marks', 'Closed-trade highlighting']]],
+  ['Journal', [['results', 'Results and labels', 'Result labels and stop distance'], ['history', 'History marks', 'Closed-trade highlighting'], ['verdicts', 'Performance verdicts', 'Words for your average R (risk)']]],
   ['System', [['saving', 'Saving and backup', 'Autosave and Excel copies'], ['account', 'Account and data', 'Version, file and connection']]],
 ];
 
@@ -107,6 +107,40 @@ export function render(ctx) {
       row({ path: 'histGain', label: 'Gain to highlight', sub: 'Closed trades that gained more than this of the capital.', chip: 'Gain above', tone: 'pos' })),
     card('Result per stock', 'Coming with the Dashboard', h('p', { class: 'snote', style: { margin: 0 } }, 'Results grouped by stock will live on the Dashboard (not built yet). These limits are hidden here until then; nothing is lost.')),
   ];
+  // Performance verdicts (plan step 2): 5 limits per scale; the card shows where his current result lands, live while typing
+  const now = (() => { // averages of ALL closed trades (the History words follow the filters; this card shows the whole journal)
+    const w = [], l = [];
+    for (const t of st.trades) { if (!(t.sales.length && C.openQty(t) === 0n)) continue; const R = C.rMultiple(t); if (R === null) continue; const net = C.realized(t);
+      if (net > 0n) w.push(Number(D.toStr(R))); else if (net < 0n) l.push(Number(D.toStr(R))); }
+    const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+    const win = mean(w), loss = l.length ? Math.abs(mean(l)) : null;
+    return { win, loss, ratio: win !== null && loss ? win / loss : null };
+  })();
+  const fmt2 = (x) => (x === null ? '–' : x.toFixed(2).replace('.', ','));
+  const verdictCard = (kind) => {
+    const V = C.VERDICTS[kind]; const paths = [0, 1, 2, 3, 4].map((i) => `${V.key}.${i}`);
+    const segs = V.colors.map((c) => h('span', { class: 'vseg', style: { background: c } }));
+    const knob = h('span', { class: 'vknob' }); const pill = h('span', { class: 'vpill' }); const err = h('div', { class: 'vmsg', hidden: true }, 'Each limit must be higher than the one before it.');
+    const boxes = V.names.map((name, i) => h('div', { class: 'vzone' }, h('span', { class: 'vzn' }, h('span', { class: 'vdot', style: { background: V.colors[i] } }), name),
+      i < 5 ? h('label', { class: 'vinp' }, h('span', { class: 'su' }, V.incl[i] ? 'up to' : 'below'), num(paths[i], 'num', V.unit, `${V.title}, ${name}: ${V.incl[i] ? 'up to' : 'below'}`)) : h('span', { class: 'vlast' }, 'anything higher')));
+    const x = now[kind];
+    live.push(() => {
+      const L = paths.map((p) => { const v = D.parse(inputs.get(p)[0].value); return v === null ? null : Number(D.toStr(v)); });
+      const bad = L.some((v, i) => v === null || (i > 0 && L[i - 1] !== null && v <= L[i - 1])); err.hidden = !bad;
+      const r = bad ? null : C.verdictOf(kind, x, L);
+      segs.forEach((sg, i) => sg.classList.toggle('on', !!r && r.at === i)); boxes.forEach((b, i) => { b.classList.toggle('on', !!r && r.at === i); b.style.setProperty('--vc', V.colors[i]); });
+      knob.hidden = !r; if (r) knob.style.left = r.pos + '%';
+      pill.className = 'vpill ' + (r ? r.tone : 'none'); pill.textContent = r ? r.name : x === null ? 'No trades yet' : '–';
+    });
+    return h('section', { class: 'scard vcard' },
+      h('div', { class: 'vhead' }, h('div', null, h('h3', null, V.title), h('span', { class: 'note' }, V.sub)),
+        h('span', { class: 'vnow' }, h('span', { class: 'note' }, 'Your result now'), h('b', null, x === null ? '–' : fmt2(x) + (V.unit ? ' ' + V.unit : '')), pill)),
+      h('div', { class: 'vtrack' }, ...segs, knob),
+      h('div', { class: 'vzones' }, boxes), err);
+  };
+  const verdicts = [
+    h('p', { class: 'snote' }, 'These limits only choose the word History shows under “How good are these results?”. Change a limit and watch where your result lands. Nothing else changes. “Your result now” uses all your closed trades.'),
+    verdictCard('win'), verdictCard('loss'), verdictCard('ratio')];
   const saving = [
     card('Saving', 'Automatic',
       row({ path: 'saveDelaySec', kind: 'int', unit: 'sec', label: 'Save after your last edit', sub: 'Only for the Setup, Mistake and Setup rating edits in History\'s trade details, which save as you change them, with no Save button. Everywhere else, saving happens the moment you press Save.', chip: 'Automatic save', tone: 'plain' }),
@@ -123,7 +157,7 @@ export function render(ctx) {
       kv('Google account', ctx.account || '–'),
       ctx.demo ? null : h('div', { class: 'srow kv' }, h('div', { class: 'sl' }, h('span', null, 'Connection')), h('button', { class: 'btn quiet-dng', onClick: async () => { const ok = await dialog({ title: 'Disconnect from Google?', ok: 'Disconnect', danger: true, body: para('The program forgets the connection and reloads. Your data stays in your Drive. You can sign in again at any time.', '') }); if (!ok) return; await ctx.saver.flush(); await ctx.storage.releaseLock?.(); ctx.auth.revoke(); location.reload(); } }, 'Disconnect…'))),
   ];
-  const BODY = { rules, risk, results, history, saving, account };
+  const BODY = { rules, risk, results, history, verdicts, saving, account };
   const TITLES = Object.fromEntries(SECTIONS.flatMap(([g, items]) => items.map(([k, t, sub]) => [k, [g, t, sub]])));
 
   // ---------------------------------------------------------------- save (same checks as before)
@@ -139,6 +173,7 @@ export function render(ctx) {
     const num = (x) => D.d(String(x));
     for (let i = 1; i < ns.rCategories.length; i++) if (num(ns.rCategories[i][0]) >= num(ns.rCategories[i - 1][0])) return fail(`Trade result labels: each limit must be lower than the one above it (“${ns.rCategories[i][1]}”).`);
     for (let i = 1; i < ns.stopDistance.length; i++) if (num(ns.stopDistance[i][0]) <= num(ns.stopDistance[i - 1][0])) return fail(`Stop distance labels: each limit must be higher than the one above it (“${ns.stopDistance[i][1]}”).`);
+    for (const V of Object.values(C.VERDICTS)) for (let i = 1; i < 5; i++) if (num(ns[V.key][i]) <= num(ns[V.key][i - 1])) return fail(`Performance verdicts, ${V.title}: each limit must be higher than the one before it.`);
     if (num(ns.riskWarn) >= num(ns.riskRed)) return fail('The risk attention limit must be lower than the red risk limit.');
     if (num(ns.posSmallFrom) >= num(ns.posSmallTo)) return fail('Position size “small from” must be lower than “small to”.');
     if (num(ns.posNear) >= num(ns.posTooBig)) return fail('Position size “near the limit” must be lower than “too big”.');
@@ -161,7 +196,7 @@ export function render(ctx) {
   for (const [k, kids] of Object.entries(BODY)) panes[k] = h('div', { class: 'spane-b' }, kids);
   const nav = h('nav', { class: 'snav', 'aria-label': 'Settings sections' }, SECTIONS.map(([g, items]) => [h('div', { class: 'sng' }, g),
     ...items.map(([k, t, sub]) => (navBtns[k] = h('button', { type: 'button', onClick: () => pick(k) }, h('b', null, t), h('span', null, sub))))]));
-  pick(BODY[lastSection] ? lastSection : 'rules');
+  pick(BODY[lastSection] ? lastSection : 'rules'); refresh();
   return h('div', { class: 'sset' },
     h('div', { class: 'sset-top' }, status),
     h('div', { class: 'sset-grid' }, nav,
