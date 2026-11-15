@@ -1047,3 +1047,11 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .d-mt.on{box-shadow:inset 0 0 0 1.5px #9FC0DE}
 .metric.hm{transition:none}.metric.hm:hover{box-shadow:none;transform:none}
 .vknob{transition:none}
+/* 1.7.1 (his choice, small touch-up): Capital in line with the rest — smaller big number, no violet, no hover shadow */
+.cap-big{font-size:34px;font-weight:700;letter-spacing:-.02em}
+.ai.violet{background:var(--infobg);color:var(--accent)}
+.cap-act:hover{box-shadow:none;border-color:#BFD5EA}
+/* 1.7.1: the Edit / Delete buttons of Capital activity were cut off at the right edge (older fault): tighter cells, table scrolls if still too wide */
+.cap-table th,.cap-table td{padding-left:12px;padding-right:12px}
+.cap-table td:last-child{white-space:nowrap;text-align:right}
+.cap-grid>.scard:first-child{overflow-x:auto}
