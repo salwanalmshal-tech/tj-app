@@ -8,6 +8,7 @@ import * as C from '../calc.js';
 import * as A from '../actions.js';
 import { runReport, GROUP_NAMES, MEASURE_NAMES, measureText, measureTone, filterBar, blankFilters, filterText, openTradesInHistory } from './history.js';
 import { todayISO } from '../dates.js';
+import { dragItems } from './dashboard.js';
 
 const V = { tab: 'mine', cur: null, draft: null, dirty: false };
 export function openReport(id) { V.tab = 'mine'; V.cur = id; V.draft = null; V.dirty = false; }
@@ -93,11 +94,11 @@ async function exportExcel(ctx, rep) {
 // ---------------------------------------------------------------- the page
 export function render(ctx) {
   const st = ctx.store.state;
-  const tabs = h('div', { class: 'seg', role: 'tablist' }, [['mine', 'My reports'], ['blocks', 'Built-in blocks']].map(([k, l]) =>
+  const tabs = h('div', { class: 'seg', role: 'tablist' }, [['mine', 'My reports'], ['blocks', 'Screens']].map(([k, l]) =>
     h('button', { class: 'seg-b', role: 'tab', 'aria-pressed': String(V.tab === k), onClick: () => { V.tab = k; ctx.redraw(); } }, l)));
   const head = h('header', { class: 'pg-head' },
     h('div', null, h('div', { class: 'eyebrow' }, 'Learn'), h('h1', null, 'Reports'),
-      h('p', { class: 'lead' }, V.tab === 'mine' ? 'Your own tables and charts. Each report keeps its own filters and updates after every closed trade.' : 'Every block the program has, under the screen it comes from. Switch one off to take it away from that screen; it stays here.')),
+      h('p', { class: 'lead' }, V.tab === 'mine' ? 'Your own tables and charts. Each report keeps its own filters and updates after every closed trade.' : 'For each screen: every block and every report, with a switch. Switch one off to take it away from that screen; it stays here. Drag rows to arrange this list (the order on the screens does not change).')),
     h('div', { class: 'acts' }, tabs));
   return h('div', { class: 'rpage' }, head, V.tab === 'mine' ? mine(ctx, st) : builtIns(ctx, st));
 }
@@ -159,19 +160,30 @@ function mine(ctx, st) {
 }
 
 function builtIns(ctx, st) {
-  const group = (title, note, screen, items) => {
+  // 1.7.1: each screen lists its own built-in cards/blocks, other built-in blocks placed there, and ALL his reports.
+  // Rows can be dragged to arrange THIS list only (layouts.reportsList); the order on the screens never changes here.
+  const reps = (st.reports || []).map((r) => ({ id: 'r:' + r.id, kind: 'block', name: r.name, desc: (GROUP_NAMES[r.g1] || '') + (r.g2 ? ' · ' + GROUP_NAMES[r.g2] : '') + ' · ' + r.measures.map((m) => MEASURE_NAMES[m]).join(', '), mine: true }));
+  const group = (title, note, screen, own) => {
     const p = C.placement(st, screen); const here = new Set([...p.cards, ...p.blocks]);
+    const guests = C.BUILTIN.filter((b) => here.has(b.id) && !own.some((o) => o.id === b.id));
+    const all = [...own, ...guests, ...(screen === 'history' || screen === 'dashboard' || screen === 'open' ? reps : [])];
+    const saved = st.layouts?.reportsList?.[screen] || []; const at = (id) => { const i = saved.indexOf(id); return i < 0 ? 1e6 + all.findIndex((x) => x.id === id) : i; };
+    const items = [...all].sort((a, b) => at(a.id) - at(b.id));
     const rows = items.map((b) => { const on = here.has(b.id); const elsewhere = C.shownOn(st, b.id).filter((x) => x !== screen);
-      return h('div', { class: 'r-brow' + (on ? '' : ' off') },
-        h('span', { class: 'r-bt' }, h('span', { class: 'r-bn' }, h('b', null, b.name), h('span', { class: 'r-kind' }, b.kind === 'card' ? 'Number card' : 'Block')),
+      const row = h('div', { class: 'r-brow' + (on ? '' : ' off') + (ctx.readOnly ? '' : ' drag') },
+        ctx.readOnly ? null : h('span', { class: 'r-grip', 'aria-hidden': 'true' }, '⋮⋮'),
+        h('span', { class: 'r-bt' }, h('span', { class: 'r-bn' }, h('b', null, b.name), b.mine ? h('span', { class: 'r-mine' }, 'My report') : h('span', { class: 'r-kind' }, b.kind === 'card' ? 'Number card' : 'Block')),
           h('span', { class: 'note' }, b.desc + (elsewhere.length ? ' · also on ' + elsewhere.map((x) => C.SCREEN_NAME[x]).join(', ') : ''))),
-        sw(on, on ? 'Shown' : 'Not shown', () => { const r = ctx.act((x) => A.setShown(x, screen, b.id, !on), { label: (on ? 'off ' : 'on ') + C.SCREEN_NAME[screen], now: true }); if (r && !r.ok) toast(r.error); }, ctx.readOnly)); });
+        sw(on, on ? 'Shown' : 'Not shown', () => { const r = ctx.act((x) => A.setShown(x, screen, b.id, !on), { label: (on ? 'off ' : 'on ') + C.SCREEN_NAME[screen], now: true }); if (r && !r.ok) toast(r.error); }, ctx.readOnly));
+      row.dataset.id = b.id; return row; });
+    const list = h('div', { class: 'r-blist' }, rows);
+    if (!ctx.readOnly && rows.length > 1) dragItems(list, '.r-brow', (ids) => ctx.act((x) => A.orderReportsList(x, screen, ids), { label: 'Reports list order', now: true }));
     const n = items.filter((b) => here.has(b.id)).length;
-    return h('section', { class: 'scard r-bgroup' }, h('div', { class: 'r-bh' }, h('h3', null, title), h('span', { class: 'note' }, `${n} of ${items.length} shown`)), h('p', { class: 'note', style: { margin: '0' } }, note), rows);
+    return h('section', { class: 'scard r-bgroup' }, h('div', { class: 'r-bh' }, h('h3', null, title), h('span', { class: 'note' }, `${n} of ${items.length} shown`)), h('p', { class: 'note', style: { margin: '0' } }, note), list);
   };
   const cards = C.BUILTIN.filter((b) => b.kind === 'card');
   return h('div', { class: 'r-bgrid' },
-    group('Dashboard', 'Number cards and blocks of the Dashboard.', 'dashboard', C.BUILTIN.filter((b) => b.home === 'dashboard')),
+    group('Dashboard', 'Number cards, blocks and your reports.', 'dashboard', C.BUILTIN.filter((b) => b.home === 'dashboard')),
     group('History', 'The Trades tab. The 7 checks stay in their own tab.', 'history', C.BUILTIN.filter((b) => b.home === 'history')),
-    group('Open positions', `The number cards above your position cards (at most ${C.PLACE_CARD_MAX.open}). The position cards themselves always stay.`, 'open', cards));
+    group('Open positions', `Number cards (at most ${C.PLACE_CARD_MAX.open}) and your reports. The position cards themselves always stay.`, 'open', cards));
 }

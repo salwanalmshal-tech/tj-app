@@ -1031,3 +1031,6 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .pl-grid>.d-guest,.pl-grid>.h-guest.full{grid-column:span 3}
 @media (max-width:1100px){.pl-grid{grid-template-columns:1fr}.pl-grid>*{grid-column:span 1!important}}
 .pl-reset{grid-column:1/-1;margin-top:-4px}
+.r-blist{display:flex;flex-direction:column;gap:9px}
+.r-brow.drag{cursor:grab}.r-grip{color:#AEB8C4;font-size:12px;letter-spacing:-2px;margin-right:2px}
+.r-brow.drag{grid-template-columns:12px minmax(0,1fr) auto;gap:10px}.r-grip{align-self:center;margin:0}

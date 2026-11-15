@@ -490,3 +490,8 @@ export function deleteReport(st, id) {
   for (const s of C.SCREENS) { const p = C.placement(st, s); if (p.blocks.includes('r:' + id)) { p.blocks = p.blocks.filter((x) => x !== 'r:' + id); writePlace(st, s, p); } }
   st.reports.splice(i, 1); return ok(true);
 }
+// 1.7.1 (his wish): the order of the rows in Reports → Screens. Only that page's list; never the order on the screens.
+export function orderReportsList(st, screen, ids) {
+  if (!C.SCREENS.includes(screen) || !Array.isArray(ids) || new Set(ids).size !== ids.length) return err('Unknown list.');
+  st.layouts ??= {}; st.layouts.reportsList = { ...(st.layouts.reportsList || {}), [screen]: [...ids] }; return ok(ids);
+}
