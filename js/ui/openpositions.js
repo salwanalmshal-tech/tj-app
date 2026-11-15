@@ -275,7 +275,7 @@ function posCard(ctx, l, today) {
         h('div', null, lab('Risk, share of capital'), Object.assign(val('risk', risk, 'mid'), stop !== null && stop >= buy ? { title: 'Stop is above the buy price: no risk left' } : {})),
         h('div', null, lab('Performance'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'Change from your buy price to the last price' }, result === null ? '–' : spct(result, 2))))),
     h('div', { class: 'pc-size', title: 'Position size: how big this trade is next to your whole account, at the last price' },
-      missing.length ? h('span', { class: 'pc-miss', title: 'Sector, industry and exchange: add them in Lists → Stocks. Setup and rating: Edit trade. Earnings date: Update today.' }, 'Missing: ' + missing.join(', ')) : priceLineEl(t),
+      missing.length ? h('span', { class: 'pc-miss', title: 'Sector, industry and exchange: add them in Lists → Stocks. Setup and rating: Edit trade. Earnings date: Update today.' }, 'Missing: ' + missing.join(', ')) : null, // 1.7.1: the grey price line is removed (his choice)
       // 2026-11-06: the size line is removed; its colours now go to the size text (green / orange / red, same limits)
       h('span', { class: 'sz c-' + sizeCls, title: hl.size ? hl.size.why.join(' · ') : null }, 'Position size ' + pctTxt(size, 1))));
 }
@@ -283,32 +283,6 @@ function posCard(ctx, l, today) {
 // 1.5.2: plain price line in the place of the "Missing: …" text (shown only when nothing is missing). Grey only, no rule
 // and no colour: it just shows where Stop, Buy, Last, EMA10 and Highest sit. Each point has its own shape so they are
 // easy to tell apart: Stop = solid square, Buy = small dot, Last = big dark dot, EMA = thin tick, High = empty ring.
-// Names go under the line; a name that would run into its neighbour goes above the line instead.
-const SVGNS = 'http://www.w3.org/2000/svg';
-function priceLineEl(t) {
-  const pts = C.priceLine(t); if (!pts) return null;
-  const W = 380, X0 = 16, X1 = 364, Y = 24, GAP = 38;
-  const el = (tag, attrs, text) => { const e = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); if (text) e.textContent = text; return e; };
-  const svg = el('svg', { viewBox: `0 0 ${W} 48`, class: 'pc-line', role: 'img', 'aria-label': 'Price line, low to high: ' + [...pts].sort((a, b) => a.pos - b.pos).map((p) => `${p.label} ${priceTxt(p.value)}`).join(', ') });
-  svg.append(el('line', { x1: X0, y1: Y, x2: X1, y2: Y, class: 'pl-track' }));
-  const sorted = [...pts].map((p) => ({ ...p, x: X0 + p.pos * (X1 - X0) })).sort((a, b) => a.x - b.x || (a.key === 'last' ? 1 : -1));
-  const rows = { below: [], above: [] };
-  for (const p of sorted) { // name under the line when there is room, else above it; when both are taken, the row with fewer names
-    const free = (r) => !rows[r].length || p.x - rows[r].at(-1).x >= GAP;
-    const r = free('below') ? 'below' : free('above') ? 'above' : rows.above.length < rows.below.length ? 'above' : 'below';
-    p.row = r; p.lx = p.x; rows[r].push(p);
-  }
-  for (const list of Object.values(rows)) { // names that would still touch are moved apart (the points themselves never move)
-    for (let i = 1; i < list.length; i++) list[i].lx = Math.max(list[i].lx, list[i - 1].lx + GAP);
-    for (let i = list.length - 1; i >= 0; i--) list[i].lx = Math.min(list[i].lx, i === list.length - 1 ? W - 14 : list[i + 1].lx - GAP);
-  }
-  const shape = { stop: (x) => el('rect', { x: x - 4.5, y: Y - 4.5, width: 9, height: 9, class: 'pl-fill' }), buy: (x) => el('circle', { cx: x, cy: Y, r: 3.5, class: 'pl-fill' }),
-    ema: (x) => el('line', { x1: x, y1: Y - 8, x2: x, y2: Y + 8, class: 'pl-tick' }), high: (x) => el('circle', { cx: x, cy: Y, r: 5, class: 'pl-ring' }), last: (x) => el('circle', { cx: x, cy: Y, r: 6.5, class: 'pl-last' }) };
-  for (const key of ['stop', 'buy', 'ema', 'high', 'last']) { const p = sorted.find((q) => q.key === key); const s = shape[key](p.x); s.append(el('title', {}, `${p.label} ${priceTxt(p.value)}`)); svg.append(s); }
-  for (const p of sorted) svg.append(el('text', { x: Math.max(14, p.lx), y: p.row === 'below' ? 45 : 10, 'text-anchor': 'middle', class: 'pl-name' + (p.key === 'last' ? ' on' : '') }, p.label));
-  return svg;
-}
-
 // ---- Line panel: all marks, the daily values (B2: saved at once, Undo for the last change), the facts, and the actions ----
 function detail(ctx, id) {
   document.querySelector('.sheet-scrim')?.remove();

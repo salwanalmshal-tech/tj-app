@@ -845,14 +845,6 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 }
 
 /* ---------- 1.5.2: plain price line on the position cards (grey only) and the share calculator ---------- */
-.pc-line{margin-right:auto;width:62%;max-width:380px;height:auto;flex:0 1 auto;overflow:visible}
-.pc-line .pl-track{stroke:var(--field);stroke-width:2;stroke-linecap:round}
-.pc-line .pl-fill{fill:#8D99AA}
-.pc-line .pl-tick{stroke:#8D99AA;stroke-width:2}
-.pc-line .pl-ring{fill:var(--panel);stroke:#8D99AA;stroke-width:2}
-.pc-line .pl-last{fill:var(--ink)}
-.pc-line .pl-name{font-size:12px;fill:var(--faint);font-family:'Inter',system-ui,sans-serif}
-.pc-line .pl-name.on{fill:var(--ink);font-weight:600}
 .calc{border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--raised)}
 .calc-h{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .calc-h .k{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
