@@ -231,7 +231,8 @@ export function setupStats(state, from, to) {
   const by = new Map();
   for (const t of closedTrades(state)) {
     const l = lastSaleDate(t); if (l < from || l > to) continue;
-    const name = state.setups.find((s) => s.id === t.setupId)?.name ?? 'Unclassified';
+    // shown name only (1.7.0, word list): no setup and the stored "Unclassified" both show as "Not filled in", as in History
+    const sn = state.setups.find((s) => s.id === t.setupId)?.name; const name = sn && sn !== 'Unclassified' ? sn : 'Not filled in';
     const g = by.get(name) ?? { name, n: 0, net: 0n, won: 0, lost: 0, zero: 0, rSum: 0n, rN: 0 };
     const r = realized(t); g.n++; g.net += r; if (r > 0n) g.won++; else if (r < 0n) g.lost++; else g.zero++;
     const R = rMultiple(t); if (R !== null) { g.rSum += R; g.rN++; }
@@ -354,3 +355,64 @@ export function verdictOf(kind, x, limits) {
   return { at, name: V.names[at], tone: V.tones[at], pos: Math.round(((at + frac) / 6) * 1000) / 10 };
 }
 export const verdictLimits = (S, kind) => (S[VERDICTS[kind].key] || []).map((v) => Number(String(v)));
+
+// ===================================================================== Reports and placement (plan step 3, agreed 2026-11-15)
+// One library of everything that can be shown: the 7 number cards, the Dashboard blocks, the History blocks and his own
+// reports ('r:<id>'). Each screen keeps an ordered list of what it shows: layouts.place[screen] = { cards: [...], blocks: [...] }.
+// Nothing saved yet = exactly what each screen showed before (so an old data file looks the same).
+// Fixed, never in these lists: the 7 checks (History tab) and the position cards on Open positions.
+export const SCREENS = ['dashboard', 'history', 'open'];
+export const SCREEN_NAME = { dashboard: 'Dashboard', history: 'History', open: 'Open positions' };
+export const CARD_KEYS = ['capital', 'openpl', 'loss', 'progress', 'month', 'year', 'market'];
+export const BUILTIN = [
+  { id: 'c.capital', kind: 'card', home: 'dashboard', name: 'Capital (closed trades)', desc: 'Start capital, deposits, dividends and every sale' },
+  { id: 'c.openpl', kind: 'card', home: 'dashboard', name: 'Open P&L', desc: 'Open trades at the last price' },
+  { id: 'c.loss', kind: 'card', home: 'dashboard', name: 'Loss if all stops hit', desc: 'From today’s prices to every Current stop' },
+  { id: 'c.progress', kind: 'card', home: 'dashboard', name: 'Result vs money put in', desc: 'Sale results and dividends next to money put in' },
+  { id: 'c.month', kind: 'card', home: 'dashboard', name: 'This month', desc: 'Sales this month' },
+  { id: 'c.year', kind: 'card', home: 'dashboard', name: 'This year', desc: 'Sales this year' },
+  { id: 'c.market', kind: 'card', home: 'dashboard', name: 'In market / Cash', desc: 'Share of the account in open trades' },
+  { id: 'd.exposure', kind: 'block', home: 'dashboard', name: 'Exposure — your open trades', desc: 'Ring and table per stock' },
+  { id: 'd.months', kind: 'block', home: 'dashboard', name: 'Your year, month by month', desc: 'Month bars and running total' },
+  { id: 'd.curve', kind: 'block', home: 'dashboard', name: 'Capital over time', desc: 'Line since the start, deepest drop' },
+  { id: 'd.setups', kind: 'block', home: 'dashboard', name: 'Result by setup', desc: 'Net result, win rate, average per trade' },
+  { id: 'h.cards', kind: 'block', home: 'history', name: 'Number cards (6)', desc: 'Trades, win rate, average win/loss, average per trade, net result' },
+  { id: 'h.verdicts', kind: 'block', home: 'history', name: 'How good are these results?', desc: 'The 3 verdict scales' },
+  { id: 'h.big', kind: 'block', home: 'history', name: 'Biggest trades', desc: 'Largest winner and loser' },
+  { id: 'h.time', kind: 'block', home: 'history', name: 'Time in trades', desc: 'Days held for winners and losers' },
+  { id: 'h.open', kind: 'block', home: 'history', name: 'At the moment you opened', desc: 'Average risk, largest position' },
+];
+export const BUILTIN_BY_ID = Object.fromEntries(BUILTIN.map((b) => [b.id, b]));
+export const PLACE_CARD_MAX = { open: 4 };
+const DASH_CARDS = ['capital', 'openpl', 'loss', 'progress', 'month', 'year', 'market'];
+const DASH_BLOCKS = ['exposure', 'months', 'curve', 'setups'];
+const keepOrder = (saved, def) => { const ok = (saved || []).filter((k) => def.includes(k)); return [...ok, ...def.filter((k) => !ok.includes(k))]; };
+// what a screen showed before 1.7.0 (and shows when nothing is saved)
+export function placeDefault(state, screen) {
+  const lay = state.layouts || {};
+  if (screen === 'dashboard') return { cards: keepOrder(lay.dashboard?.cards, DASH_CARDS).map((k) => 'c.' + k), blocks: keepOrder(lay.dashboard?.blocks, DASH_BLOCKS).map((k) => 'd.' + k) };
+  if (screen === 'history') return { cards: [], blocks: ['h.cards', 'h.verdicts', 'h.big', 'h.time', 'h.open'] };
+  return { cards: openCards(state).map((k) => 'c.' + k), blocks: [] };
+}
+export const isReportId = (id) => typeof id === 'string' && id.startsWith('r:');
+// may this id stand in this list? cards: the 7 number cards; blocks: any built-in block or one of his reports
+export function placeable(state, id, kind) {
+  if (isReportId(id)) return kind === 'block' && (state.reports || []).some((r) => 'r:' + r.id === id);
+  const b = BUILTIN_BY_ID[id]; return !!b && b.kind === kind;
+}
+export function placement(state, screen) {
+  const saved = state.layouts?.place?.[screen];
+  const base = saved ? { cards: saved.cards || [], blocks: saved.blocks || [] } : placeDefault(state, screen);
+  const clean = (list, kind) => [...new Set(list)].filter((id) => placeable(state, id, kind));
+  let cards = screen === 'history' ? [] : clean(base.cards, 'card');
+  if (PLACE_CARD_MAX[screen]) cards = cards.slice(0, PLACE_CARD_MAX[screen]);
+  return { cards, blocks: clean(base.blocks, 'block') };
+}
+// the standard order of a screen's list ("Reset order": order only, nothing shown or hidden changes)
+// the screen's own blocks first (in their usual order), then blocks from other screens, then his reports
+export function standardOrder(ids, screen) {
+  const at = (id) => { if (isReportId(id)) return 1000; const i = BUILTIN.findIndex((b) => b.id === id); return (screen && BUILTIN[i]?.home !== screen ? 500 : 0) + i; };
+  return [...ids].sort((a, b) => at(a) - at(b) || ids.indexOf(a) - ids.indexOf(b));
+}
+// which screens show this id
+export const shownOn = (state, id) => SCREENS.filter((s) => { const p = placement(state, s); return p.cards.includes(id) || p.blocks.includes(id); });

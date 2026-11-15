@@ -8,6 +8,7 @@ import { h, money, dmy, datePicker, infoBtn } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
 import * as A from '../actions.js';
+import { swapButton, blockEl as placedBlock } from './place.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 function s(tag, attrs, ...kids) {
@@ -48,8 +49,10 @@ export function render(ctx) {
   const canDrag = mode === 'drag' && !ctx.readOnly;
   const setLayout = (patch, label) => ctx.act((d) => { d.layouts ??= {}; d.layouts.dashboard = { ...(d.layouts.dashboard || {}), ...patch }; return { ok: true }; }, { label, now: true });
   const seg = (key, label) => h('button', { class: 'seg-b', 'aria-pressed': String(mode === key), disabled: ctx.readOnly, onClick: () => { if (mode !== key) setLayout({ mode: key }, 'dashboard order mode'); } }, label);
-  const cardOrder = mode === 'drag' ? ordered(lay.cards, CARDS) : CARDS;
-  const blockOrder = mode === 'drag' ? ordered(lay.blocks, BLOCKS) : BLOCKS;
+  // 1.7.0: what the Dashboard shows comes from its list in Reports (calc.js placement); Auto = the standard order
+  const pl = C.placement(st, 'dashboard');
+  const cardOrder = mode === 'drag' ? pl.cards : C.standardOrder(pl.cards, 'dashboard');
+  const blockOrder = mode === 'drag' ? pl.blocks : C.standardOrder(pl.blocks, 'dashboard');
   const grip = canDrag ? h('span', { class: 'd-grip', 'aria-hidden': 'true' }, '⋮⋮') : null;
 
   const wrap = h('div', { class: 'dash' });
@@ -57,29 +60,32 @@ export function render(ctx) {
     h('div', null, h('div', { class: 'eyebrow' }, 'Learn'), h('h1', null, 'Dashboard'), h('p', { class: 'lead' }, 'Where your account stands today, and how the year is going.')),
     h('div', { class: 'acts' },
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Card order' }, seg('auto', 'Auto'), seg('drag', 'Drag and drop')),
-      mode === 'drag' ? h('button', { class: 'btn ghost', disabled: ctx.readOnly, onClick: () => setLayout({ cards: [...CARDS], blocks: [...BLOCKS] }, 'dashboard order reset') }, 'Reset order') : null)));
+      mode === 'drag' ? h('button', { class: 'btn ghost', disabled: ctx.readOnly, onClick: () => ctx.act((d) => A.resetShownOrder(d, 'dashboard'), { label: 'dashboard order reset', now: true }) }, 'Reset order') : null)));
   if (!st.capital.start) { wrap.append(h('div', { class: 'msg' }, 'Add your start capital in Capital first — the Dashboard is built from it.')); return wrap; }
   if (canDrag) wrap.append(h('div', { class: 'd-note' }, 'Drag mode — grab a card or a block and move it. Cards move among the cards, blocks among the blocks. Your order is saved.'));
 
   const ex = C.dashExposure(st);
-  // "On Open positions" ticks: up to 4 cards also show on top of Open positions (their order is set there, by dragging)
-  const pins = C.openCards(st); const pinMsg = V.pinMsg; V.pinMsg = false;
-  const pin = (k) => { const on = pins.includes(k);
-    return h('div', { class: 'd-pinrow' }, h('button', { class: 'd-pin' + (on ? ' on' : ''), type: 'button', 'aria-pressed': String(on), disabled: ctx.readOnly,
-      title: on ? 'Shown on Open positions. Click to take it away there.' : 'Click to show this card on Open positions too.',
-      onClick: () => { const r = ctx.act((d) => A.toggleOpenCard(d, k), { label: on ? 'card taken off Open positions' : 'card shown on Open positions', now: true }); if (r && !r.ok) { V.pinMsg = true; ctx.redraw(); } } },
-      on ? '✓ On Open positions' : '+ Open positions')); };
-  const cards = h('div', { class: 'd-cards' + (canDrag ? ' d-dragmode' : '') }, cardOrder.map((k, i) => { const c = CARD[k](st, today, ex, grip); c.dataset.id = k; c.style.animationDelay = (i * 0.05) + 's';
-    (k === 'capital' ? c.firstElementChild : c).append(pin(k)); return c; }));
-  const pinLine = h('div', { class: 'd-pinline' }, h('span', { class: 'd-q' }, `${pins.length} of ${C.OPEN_CARD_MAX} cards shown on Open positions · drag them into your order there · these cards are never filtered`),
-    pinMsg ? h('span', { class: 'd-pinmsg', role: 'status' }, `Max ${C.OPEN_CARD_MAX} — untick one first`) : null);
-  const blocks = h('div', { class: 'd-blocks' + (canDrag ? ' d-dragmode' : '') }, blockOrder.map((k, i) => { const b = BLOCK[k](ctx, st, today, ex, grip); b.dataset.id = k; b.style.animationDelay = (0.1 + i * 0.05) + 's'; return b; }));
+  const cards = h('div', { class: 'd-cards' + (canDrag ? ' d-dragmode' : '') }, cardOrder.map((id, i) => { const k = id.slice(2); const c = CARD[k](st, today, ex, grip); c.dataset.id = id; c.style.animationDelay = (i * 0.05) + 's';
+    c.append(swapButton(ctx, 'dashboard', id)); return c; }));
+  const blocks = h('div', { class: 'd-blocks' + (canDrag ? ' d-dragmode' : '') }, blockOrder.map((id, i) => { const b = blockElFor(ctx, id, { grip, today, ex }); if (!b) return null; b.dataset.id = id; b.style.animationDelay = (0.1 + i * 0.05) + 's';
+    b.classList.add('pl-blk'); b.append(swapButton(ctx, 'dashboard', id)); return b; }).filter(Boolean));
+  const empty = !cardOrder.length && !blockOrder.length ? h('div', { class: 'msg' }, 'Nothing is shown on the Dashboard. Switch blocks on in Reports.') : null;
   if (canDrag) {
-    dragItems(cards, '.d-card', (ids) => setLayout({ cards: ids }, 'dashboard card order'));
-    dragItems(blocks, '.d-block', (ids) => setLayout({ blocks: ids }, 'dashboard block order'));
+    dragItems(cards, '.d-card', (ids) => ctx.act((d) => A.orderShown(d, 'dashboard', 'card', ids), { label: 'dashboard card order', now: true }));
+    dragItems(blocks, '.pl-blk', (ids) => ctx.act((d) => A.orderShown(d, 'dashboard', 'block', ids), { label: 'dashboard block order', now: true }));
   }
-  wrap.append(cards, pinLine, blocks);
+  wrap.append(...[empty, cardOrder.length ? cards : null, blockOrder.length ? blocks : null].filter(Boolean));
   return wrap;
+}
+
+// a block of the library on the Dashboard: its own blocks directly, History blocks and reports through place.js
+function blockElFor(ctx, id, o) { if (id.startsWith('d.')) { const k = id.slice(2); return BLOCK[k] ? BLOCK[k](ctx, ctx.store.state, o.today, o.ex, o.grip) : null; } return placedBlock(ctx, id, { grip: o.grip }); }
+// a Dashboard block shown on another screen (History, Open positions)
+export function blockEl(ctx, key, o = {}) {
+  const st = ctx.store.state; const today = ctx.today(); const year = today.slice(0, 4);
+  if (!V.preset) Object.assign(V, { preset: year, from: year + '-01-01', to: year + '-12-31' });
+  if (!st.capital.start || !BLOCK[key]) return null;
+  const b = BLOCK[key](ctx, st, today, C.dashExposure(st), o.grip || null); b.classList.add('d-guest'); return b;
 }
 
 // ---------------------------------------------------------------- number cards (never filtered)
@@ -421,7 +427,7 @@ const baseCapital = C.periodBaseCapital;
 // Drag and drop, the same feel as the Open positions cards (place decided by the middle of the dragged item).
 const DRAG_START_PX = 6, SLIDE_MS = 350, DROP_MS = 300, EASE = 'cubic-bezier(.22,.61,.36,1)', INNER = 0.22;
 let blockClick = false;
-window.addEventListener('click', (e) => { if (blockClick) { e.stopPropagation(); e.preventDefault(); blockClick = false; } }, true);
+if (typeof window !== 'undefined') window.addEventListener('click', (e) => { if (blockClick) { e.stopPropagation(); e.preventDefault(); blockClick = false; } }, true);
 export function dragItems(grid, sel, onDone) {
   const ids = () => [...grid.children].map((x) => x.dataset.id ?? x.dataset.ph);
   const start = ids().join(); let d = null;

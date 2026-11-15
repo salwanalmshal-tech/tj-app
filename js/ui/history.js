@@ -9,6 +9,8 @@ import { resultPctMark } from '../marks.js';
 import { parseDMY, todayISO } from '../dates.js';
 import { editTrade, withNew, resolveNew } from './tradeforms.js';
 import { goSection } from './settings.js';
+import { swapButton, blockEl as placedBlock } from './place.js';
+import { dragItems } from './dashboard.js';
 // data.js is loaded only when exporting (keeps History importable in the tests)
 
 let loadedState = null;
@@ -563,12 +565,12 @@ function sumCards(s,ts){
     m('Per trade',R(s.avgR),'in R (risk), wins and losses together',tn(s.avgR),s.avgR===null?'':`Wins and losses together: each trade ${s.avgR>=0?'made':'lost'} on average ${fx(Math.abs(s.avgR),2)} times the money you risked. Above 0 = you make money over time. The bar grows right of the middle line when it is above 0.`,mid)+
     m('Net result',usd(s.net),`${sx(s.capPct,2)} % share of capital`,tn(s.net),`All these trades together, after commissions. Share of capital = each trade's result next to your capital when it was opened, added up. The line shows the running total, trade by trade, in sell-date order.`,sp);
 }
-function renderSummary(ts){$('sum').innerHTML=sumCards(stats(ts),ts);renderPerf(ts);}
+function renderSummary(ts){renderBlocks(ts);}
 // ---- plan step 2: "How good are these results?" (3 verdict scales, limits in Settings) + Biggest trades / Time in trades / At the moment you opened
 let vOpen=-1;
 const VKINDS=['win','loss','ratio'];
-function renderPerf(ts){
-  const el=$('perf');if(!el)return;const st=stats(ts);
+function perfParts(ts){
+  const st=stats(ts);
   const vals={win:st.winR,loss:st.lossR===null?null:Math.abs(st.lossR),ratio:st.payoff};
   const lim=(k)=>C.verdictLimits(S,k), f2=(x)=>fx(x,2);
   const range=(k,i)=>{const V=C.VERDICTS[k],L=lim(k),u=V.unit?' '+V.unit:'';return i===0?`${V.incl[0]?'up to':'below'} ${f2(L[0])}${u}`:i===5?`above ${f2(L[4])}${u}`:`${f2(L[i-1])} to ${f2(L[i])}${u}`;};
@@ -611,13 +613,43 @@ function renderPerf(ts){
     <div class="pf1" title="The biggest position in this list: buy price × shares, next to your capital when it was opened. The line marks your “too big” limit in Settings."><div class="pfh"><span class="eyebrow">Largest position${ls?' · '+ls.sym:''}</span><b class="${sc}">${ls===null?'–':fx(ls.sizeOpen,1)+' %'}</b></div>
       <span class="hlim">${ls===null?'':`<i class="${sc}" style="width:${Math.min(100,100*ls.sizeOpen/smax).toFixed(1)}%"></i>`}<b class="r" style="left:${(100*big2/smax).toFixed(1)}%"></b></span>
       <span class="note">your limit: ${fx(big2,2)} % · <b class="${sc}">${ls===null?'–':nAbove?`${nAbove} trade${nAbove===1?'':'s'} above it`:'none above it'}</b></span></div></section>`;
-  el.innerHTML=`<section class="scard vbox"><div class="vbh"><h3>How good are these results?</h3><button class="linkbtn" type="button" id="vset">Change limits in Settings →</button></div>${rows}</section><div class="pfrow">${p1}${p2}${p3}</div>`;
-  el.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{const i=+b.dataset.v;vOpen=vOpen===i?-1:i;renderPerf(ts);});
-  $('vset').onclick=()=>{goSection('verdicts');CTX.go('settings');};
+  return {verdicts:`<section class="scard vbox"><div class="vbh"><h3>How good are these results?</h3><button class="linkbtn" type="button" data-vset>Change limits in Settings →</button></div>${rows}</section>`,big:p1,time:p2,open:p3};
+}
+// one History block as an element (on History it follows the filters; on another screen it uses all closed trades)
+const HB_SPAN={'h.cards':'full','h.verdicts':'full','h.big':'one','h.time':'one','h.open':'one'};
+function hBlockEl(id,ts){
+  const el=document.createElement('div');el.className='hblk '+(HB_SPAN[id]==='full'?'full':'one');
+  if(id==='h.cards'){el.innerHTML=`<div class="metrics six">${sumCards(stats(ts),ts)}</div>`;return el;}
+  const P=perfParts(ts);el.innerHTML={'h.verdicts':P.verdicts,'h.big':P.big,'h.time':P.time,'h.open':P.open}[id]??'';
+  if(id==='h.verdicts')wireV(el,id,ts);
+  return el;
+}
+function wireV(el,id,ts){
+  el.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{const i=+b.dataset.v;vOpen=vOpen===i?-1:i;el.innerHTML=perfParts(ts).verdicts;wireV(el,id,ts);});
+  el.querySelector('[data-vset]')?.addEventListener('click',()=>{goSection('verdicts');CTX.go('settings');});
+}
+// History blocks for another screen (Dashboard, Open positions): all closed trades
+export function historyBlock(ctx,id){
+  CTX=CTX||ctx;load(ctx.store.state);if(!TR.length)return null;
+  const el=hBlockEl(id,TR);el.classList.add('h-guest');return el;
+}
+// the History Trades tab: its list from Reports, in his order, draggable, each with ⇄ Swap
+function renderBlocks(ts){
+  const box=$('hblocks');if(!box)return;box.innerHTML='';
+  const pl=C.placement(RAW,'history');
+  for(const id of pl.blocks){
+    const el=id.startsWith('h.')?hBlockEl(id,ts):placedBlock(CTX,id,{});if(!el)continue;
+    if(!id.startsWith('h.'))el.classList.add(C.isReportId(id)?'one':'full');
+    el.dataset.id=id;el.classList.add('pl-blk');el.append(swapButton(CTX,'history',id));box.append(el);
+  }
+  if(!pl.blocks.length)box.innerHTML='<div class="note" style="padding:4px 2px">No blocks shown here. Switch them on in Reports → Built-in blocks, or place one of your reports.</div>';
+  if(!CTX.readOnly&&pl.blocks.length>1)dragItems(box,'.pl-blk',(ids)=>CTX.act((d)=>A.orderShown(d,'history','block',ids),{label:'History block order',now:true}));
+  if(!CTX.readOnly&&pl.blocks.join()!==C.standardOrder(pl.blocks,'history').join()){const r=document.createElement('div');r.className='pl-reset full';r.innerHTML='<button class="linkbtn" type="button">Reset order</button><span class="note"> · the blocks go back to their usual order; nothing is switched on or off</span>';
+    r.querySelector('button').onclick=()=>CTX.act((d)=>A.resetShownOrder(d,'history'),{label:'History order reset',now:true});box.append(r);}
 }
 // 2026-11-10 what-if: when trades are left out, one line shows how the numbers move (with them → without them)
 function renderEffect(all,ts){
-  let e=$('heffect');if(!e){e=document.createElement('div');e.id='heffect';$('sum').before(e);}
+  let e=$('heffect');if(!e){e=document.createElement('div');e.id='heffect';$('hblocks').before(e);}
   if(all===ts||all.length===ts.length){e.hidden=true;e.innerHTML='';return;}
   const a=stats(all),b=stats(ts),n=all.length-ts.length,tn=(v)=>v>0?'pos':v<0?'neg':'';
   const it=(l,x,y,f,c)=>`<span class="ef"><span class="k">${l}</span> <span class="${c?tn(x):''}">${f(x)}</span> <span class="ar">→</span> <b class="${c?tn(y):''}">${f(y)}</b></span>`;
@@ -764,7 +796,7 @@ const SKELETON=`<div class="hlists">
     <section class="hview" id="sec-report"><div class="hrep">
         <section class="scard"><div class="sch"><h3>7 checks</h3><span class="note">all closed trades</span></div><div id="checks"></div></section>
         <section class="card hdet"><div class="card-b" id="ckcard" aria-live="polite"></div></section></div></section>
-    <section class="hview" id="sec-trades"><div class="metrics six" id="sum"></div><div id="perf" class="hperf"></div>
+    <section class="hview" id="sec-trades"><div id="hblocks" class="hblocks"></div>
       <section class="scard ltable"><div class="lhead" id="fbar"></div><div id="tview"></div></section></section>
     <section class="hview" id="sec-compare"><div id="cview" style="display:flex;flex-direction:column;gap:14px"></div></section>
   </div>`;
@@ -801,3 +833,107 @@ function editSale(ctx, tradeId, saleId) {
       const res = ctx.act((d) => A.editSale(d, t.id, s.id, patch), { label: 'edit sale ' + sym, now: true }); return res.ok ? true : res.error;
     } });
 }
+
+// ===================================================================== Reports engine (plan step 3, 1.7.0)
+// A report = group by (one, or two together) + measures + its own saved History filters. Same trades, same filters
+// and the same stats() as History, so a report and History can never show different numbers for the same trades.
+export const GROUP_NAMES={month:'Month (last sale)',year:'Year (last sale)',setup:'Setup',rating:'Setup rating',mistake:'Mistake',sector:'Sector',industry:'Industry',exchange:'Exchange',stock:'Stock',label:'Result label',sd:'Stop distance',days:'Days held',how:'How you bought',kept:'Move kept',stopdn:'Stop moved down'};
+export const MEASURE_NAMES={trades:'Trades',wins:'Wins',losses:'Losses',winRate:'Win rate',be:'Break-even win rate',net:'Net result',capPct:'Share of capital',avgR:'Average per trade',winR:'Average win',lossR:'Average loss',ratio:'Winner ÷ loser',days:'Average days held',best:'Largest winner',worst:'Largest loser',sales:'Number of sales'};
+const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const NONE='Not filled in';
+function groupKey(g,t){
+  const st=stockBy[t.stockId]||{};const blank=(v)=>(v&&String(v).trim())?String(v).trim():NONE;
+  switch(g){
+    case 'month':return t.sellDate.slice(0,7);
+    case 'year':return t.sellDate.slice(0,4);
+    case 'setup':return realSetup(t)?setupNameRaw(t):NONE;
+    case 'rating':return t.stars!==null?t.stars+' star'+(t.stars===1?'':'s'):t.rateable?'Not rated':'No rating (no setup)';
+    case 'mistake':return mistakeNameRaw(t)||NONE;
+    case 'sector':return blank(st.sector);case 'industry':return blank(st.industry);case 'exchange':return blank(st.exchange);
+    case 'stock':return t.symRaw;
+    case 'label':return t.labelRaw==='–'?'No label (no stop)':t.labelRaw;
+    case 'sd':return t.sdRaw==='No SL'?'No stop':t.sdRaw;
+    case 'days':return Object.keys(DAYS).find(d=>t.days>=DAYS[d][0]&&t.days<=DAYS[d][1])+' days';
+    case 'how':return t.how;case 'kept':return t.keptG;case 'stopdn':return t.stopG;
+  }
+  return '?';
+}
+const groupLabel=(g,k)=>g==='month'?MON3[+k.slice(5,7)-1]+' '+k.slice(0,4):k;
+function groupOrder(g,keys){
+  const fixed={days:Object.keys(DAYS).map(d=>d+' days'),how:HOW,kept:KEPT_G,stopdn:STOP_G,
+    label:[...S.rCategories.map(r=>r[1]),S.rCategoryElse,'No label (no stop)'],sd:[...S.stopDistance.map(s=>s[1]),S.stopDistanceElse,'No stop'],
+    rating:['5 stars','4 stars','3 stars','2 stars','1 star','Not rated','No rating (no setup)']}[g];
+  if(g==='month'||g==='year')return [...keys].sort();
+  if(fixed)return [...keys].sort((a,b)=>{const i=fixed.indexOf(a),j=fixed.indexOf(b);return (i<0?99:i)-(j<0?99:j)||a.localeCompare(b);});
+  return [...keys].sort((a,b)=>(a===NONE)-(b===NONE)||a.localeCompare(b));
+}
+// the value of one measure for a group of trades (numbers, not text; null = cannot be told)
+export function measureOf(m,ts){
+  const s=stats(ts);
+  switch(m){
+    case 'trades':return s.n;case 'wins':return s.w;case 'losses':return s.l;
+    case 'winRate':return s.wr===null?null:s.wr*100;case 'be':return s.be===null?null:s.be*100;
+    case 'net':return s.n?s.net:null;case 'capPct':return s.n?s.capPct:null;
+    case 'avgR':return s.avgR;case 'winR':return s.winR;case 'lossR':return s.lossR;case 'ratio':return s.payoff;
+    case 'days':return s.days;
+    case 'best':{const w=ts.filter(t=>t.net>0);return w.length?Math.max(...w.map(t=>t.net)):null;}
+    case 'worst':{const l=ts.filter(t=>t.net<0);return l.length?Math.min(...l.map(t=>t.net)):null;}
+    case 'sales':return ts.reduce((a,t)=>a+t.sales.length,0);
+  }
+  return null;
+}
+export function measureText(m,v){
+  if(v===null||v===undefined||Number.isNaN(v))return '–';
+  if(['trades','wins','losses','sales'].includes(m))return String(v);
+  if(m==='winRate'||m==='be')return pct(v,0);
+  if(m==='net'||m==='best'||m==='worst')return usd(v);
+  if(m==='capPct')return sx(v,2)+' %';
+  if(m==='ratio')return fx(v,2);
+  if(m==='days')return fx(v,0)+' days';
+  return R(v);
+}
+export const measureTone=(m,v)=>v===null||['trades','wins','losses','sales','days','winRate','be','ratio'].includes(m)?'':v>0?'pos':v<0?'neg':'';
+// run a report on a journal: { trades, rows:[{key,label,ts,vals,sub:[{key,label,vals}]}], total:{vals}, series:[second-level keys] }
+export function runReport(state,rep){
+  load(state);const ts=applyF({...newF(),...structuredClone(rep.filters||{})});
+  const by=(g,list)=>{const m=new Map();for(const t of list){const k=groupKey(g,t);if(!m.has(k))m.set(k,[]);m.get(k).push(t);}return m;};
+  const vals=(list)=>Object.fromEntries(rep.measures.map(m=>[m,measureOf(m,list)]));
+  const m1=by(rep.g1,ts);
+  const series=rep.g2?groupOrder(rep.g2,[...by(rep.g2,ts).keys()]):[];
+  const rows=groupOrder(rep.g1,[...m1.keys()]).map(k=>{const list=m1.get(k);const r={key:k,label:groupLabel(rep.g1,k),n:list.length,vals:vals(list),ids:list.map(t=>t.id)};
+    if(rep.g2){const m2=by(rep.g2,list);r.sub=series.filter(s=>m2.has(s)).map(s=>({key:s,label:groupLabel(rep.g2,s),n:m2.get(s).length,vals:vals(m2.get(s)),ids:m2.get(s).map(t=>t.id)}));}
+    return r;});
+  return {trades:ts.length,rows,total:vals(ts),series:series.map(s=>({key:s,label:groupLabel(rep.g2,s)}))};
+}
+// the History filter bar, for any filter object (Reports keeps one per report). onChange runs after every change.
+export function filterBar(state,f,onChange,opts={}){
+  load(state);const box=document.createElement('div');box.className='hf rfbar';let more=!!opts.more;
+  const draw=()=>{box.innerHTML='';
+    const per=document.createElement('select');per.setAttribute('aria-label','Period');
+    PERIODS.filter(p=>p[0]!=='custom'||f.period==='custom').forEach(([v,l])=>{const o=new Option(v==='custom'?'Own dates':l,v);o.selected=f.period===v;per.add(o);});
+    per.onchange=()=>{f.period=per.value;f.from='';f.to='';draw();onChange();};
+    const dt=(k,ph)=>{const w=datePicker({iso:f[k]||'',label:ph+' (sell date)',onChange:()=>apply()});w.classList.add('hdate');
+      const apply=()=>{const v=w.getISO();if(v===null){w.classList.add('bad');return;}w.classList.remove('bad');if((v||'')===(f[k]||''))return;f[k]=v||'';f.period=(f.from||f.to)?'custom':'all';draw();onChange();};
+      w.input.addEventListener('change',apply);return w;};
+    const dates=document.createElement('span');dates.className='hdates';dates.append(dt('from','From'),document.createTextNode('–'),dt('to','To'));
+    const res=document.createElement('select');res.setAttribute('aria-label','Result');[['all','Winners and losers'],['winners','Winners'],['losers','Losers']].forEach(([v,l])=>{const o=new Option(l,v);o.selected=f.result===v;res.add(o);});res.onchange=()=>{f.result=res.value;onChange();};
+    const re=()=>{draw();onChange();};
+    box.append(per,dates,ms('syms',f,re),res);
+    if(more){for(const k of ['labels','setups','mistakes','days','sds','how','kept','stopdn'])box.append(ms(k,f,re));box.append(starsF(f,re));}
+    const mb=document.createElement('button');mb.className='linkbtn';mb.type='button';mb.textContent=more?'Fewer filters':'More filters';mb.onclick=()=>{more=!more;draw();};
+    const rs=document.createElement('button');rs.className='linkbtn';rs.type='button';rs.textContent='Reset';rs.onclick=()=>{Object.assign(f,newF());draw();onChange();};
+    box.append(mb,rs);};
+  draw();return box;
+}
+export const blankFilters=()=>newF();
+// one sentence of the saved filters, for a report block ("This year · Winners · Setup: VCP")
+export function filterText(state,f0){
+  load(state);const f={...newF(),...(f0||{})};const parts=[];
+  if(f.period==='custom')parts.push(`Sold ${f.from?'from '+dmy(f.from):''} ${f.to?'to '+dmy(f.to):''}`.trim());else parts.push(PERIODS.find(p=>p[0]===f.period)?.[1]??'All trades');
+  if(f.result!=='all')parts.push(f.result==='winners'?'Winners':'Losers');
+  for(const k of Object.keys(FNAME))if(f[k]&&f[k].length)parts.push(`${(f.not||[]).includes(k)?'Leave out '+FNAME[k].toLowerCase():FNAME[k]}: ${f[k].length===1?(OPTS[k]().find(o=>o[0]===f[k][0])?.[1]??f[k][0]):f[k].length+' chosen'}`);
+  if(starsChip(f))parts.push(starsChip(f));
+  return parts.join(' · ');
+}
+// open History → Trades with these trades (a click on a report row)
+export function openTradesInHistory(ctx,ids,label){F={...newF(),ids:[...ids],idsLabel:label};view='trades';ctx.go('history',{reportOpen:Date.now()});}

@@ -432,3 +432,61 @@ export function orderOpenCards(st, ids) {
   st.layouts ??= {}; st.layouts.dashboard = { ...(st.layouts.dashboard || {}), onOpen: [...ids] };
   return ok(ids);
 }
+
+// ===================================================================== Reports and placement (plan step 3, 1.7.0)
+// Placement: what each screen shows, in order (calc.js placement). Every change writes the whole list of that screen,
+// so nothing else can be lost. A number card only stands among cards, a block or report only among blocks.
+function writePlace(st, screen, p) { st.layouts ??= {}; st.layouts.place = { ...(st.layouts.place || {}) }; st.layouts.place[screen] = { cards: [...p.cards], blocks: [...p.blocks] }; }
+const kindOf = (st, id) => (C.isReportId(id) ? 'block' : C.BUILTIN_BY_ID[id]?.kind);
+export function setShown(st, screen, id, on) {
+  if (!C.SCREENS.includes(screen)) return err('Unknown screen.');
+  const kind = kindOf(st, id); if (!kind || !C.placeable(st, id, kind) || (screen === 'history' && kind === 'card')) return err('This cannot be shown there.');
+  const p = C.placement(st, screen); const list = kind === 'card' ? p.cards : p.blocks;
+  if (on) { if (list.includes(id)) return ok(p); const max = kind === 'card' ? C.PLACE_CARD_MAX[screen] : null; if (max && list.length >= max) return err(`Max ${max} number cards on ${C.SCREEN_NAME[screen]} — switch one off first.`); list.push(id); }
+  else { const i = list.indexOf(id); if (i < 0) return ok(p); list.splice(i, 1); }
+  writePlace(st, screen, p); return ok(p);
+}
+// swap: the new one takes the old one's place; if the new one is already shown there, the two change places
+export function swapShown(st, screen, oldId, newId) {
+  const p = C.placement(st, screen); const kind = kindOf(st, oldId);
+  if (!kind || kind !== kindOf(st, newId) || !C.placeable(st, newId, kind)) return err(kind === 'card' ? 'A number card can only be swapped for another number card.' : 'This cannot be swapped here.');
+  const list = kind === 'card' ? p.cards : p.blocks; const i = list.indexOf(oldId); if (i < 0) return err('That block is not on this screen.');
+  const j = list.indexOf(newId); if (j >= 0) list[j] = oldId; list[i] = newId;
+  writePlace(st, screen, p); return ok(p);
+}
+export function orderShown(st, screen, kind, ids) {
+  const p = C.placement(st, screen); const cur = kind === 'card' ? p.cards : p.blocks;
+  if (!Array.isArray(ids) || ids.length !== cur.length || new Set(ids).size !== ids.length || !ids.every((x) => cur.includes(x))) return err('The order does not match what is shown.');
+  if (kind === 'card') p.cards = [...ids]; else p.blocks = [...ids];
+  writePlace(st, screen, p); return ok(p);
+}
+export function resetShownOrder(st, screen) { const p = C.placement(st, screen); writePlace(st, screen, { cards: C.standardOrder(p.cards, screen), blocks: C.standardOrder(p.blocks, screen) }); return ok(true); }
+
+// Reports: { id, name, g1, g2, measures: [...], chart: 'bar'|'line', filters: {...History filter choices} }
+export const REPORT_GROUPS = ['month', 'year', 'setup', 'rating', 'mistake', 'sector', 'industry', 'exchange', 'stock', 'label', 'sd', 'days', 'how', 'kept', 'stopdn'];
+export const REPORT_MEASURES = ['trades', 'wins', 'losses', 'winRate', 'be', 'net', 'capPct', 'avgR', 'winR', 'lossR', 'ratio', 'days', 'best', 'worst', 'sales'];
+export { exampleReports } from './model.js';
+function cleanReport(r) {
+  const name = String(r.name ?? '').trim(); if (!name) return err('Give the report a name.');
+  if (!REPORT_GROUPS.includes(r.g1)) return err('Choose what to group by.');
+  if (r.g2 && (!REPORT_GROUPS.includes(r.g2) || r.g2 === r.g1)) return err('"Then by" must be different from "Group by".');
+  const measures = [...new Set(r.measures || [])].filter((m) => REPORT_MEASURES.includes(m)); if (!measures.length) return err('Tick at least one measure.');
+  return ok({ name: name.slice(0, 80), g1: r.g1, g2: r.g2 || '', measures, chart: r.chart === 'line' ? 'line' : 'bar', filters: structuredClone(r.filters || {}) });
+}
+export function saveReport(st, r) {
+  const c = cleanReport(r); if (!c.ok) return c;
+  st.reports ??= [];
+  if (r.id) { const cur = st.reports.find((x) => x.id === r.id); if (!cur) return err('Report not found.'); Object.assign(cur, c.data); return ok(cur); }
+  const n = Math.max(0, ...st.reports.map((x) => Number(String(x.id).replace(/\D/g, '')) || 0)) + 1;
+  const it = { id: 'RP-' + n, ...c.data }; st.reports.push(it); return ok(it);
+}
+export function copyReport(st, id) {
+  const cur = (st.reports || []).find((x) => x.id === id); if (!cur) return err('Report not found.');
+  return saveReport(st, { ...structuredClone(cur), id: null, name: (cur.name + ' (copy)').slice(0, 80) });
+}
+// deleting a report also takes it off every screen (Undo brings both back)
+export function deleteReport(st, id) {
+  const i = (st.reports || []).findIndex((x) => x.id === id); if (i < 0) return err('Report not found.');
+  for (const s of C.SCREENS) { const p = C.placement(st, s); if (p.blocks.includes('r:' + id)) { p.blocks = p.blocks.filter((x) => x !== 'r:' + id); writePlace(st, s, p); } }
+  st.reports.splice(i, 1); return ok(true);
+}

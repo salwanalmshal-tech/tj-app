@@ -9,6 +9,7 @@ import * as A from '../actions.js';
 import { diffDays } from '../dates.js';
 import { editTrade } from './tradeforms.js';
 import { dragItems } from './dashboard.js';
+import { swapButton, blockEl as placedBlock } from './place.js';
 
 export const usd = (a) => (a === null || a === undefined ? '–' : (a < 0n ? '−$' : '$') + money(D.abs(a)));
 export const susd = (a) => (a === null || a === undefined ? '–' : (a > 0n ? '+$' : a < 0n ? '−$' : '$') + money(D.abs(a)));
@@ -74,13 +75,22 @@ export function render(ctx) {
     year: () => { const y = today.slice(0, 4); const v = C.yearResult(st, y); const cap = C.periodBaseCapital(st, y + '-01-01', y + '-12-31'); const late = !!st.capital.start && st.capital.start.date > y + '-01-01';
       return metric('This year', `The result of the sales made this year, next to your capital on 1 January. Now: ${susd(v)}.`, susd(v), numClass(v), `${ofCap(v, cap)} of capital on ${late ? dmy(st.capital.start.date) + ' (start)' : '1 Jan'}`); },
   };
-  const pins = C.openCards(st);
+  // 1.7.0: the number cards (max 4) and any blocks or reports come from the Open positions list in Reports;
+  // always draggable here, like before. The position cards below are fixed (never switched off).
+  const pl = C.placement(st, 'open'); const pins = pl.cards.map((id) => id.slice(2));
   if (pins.length) {
     const canMove = !ctx.readOnly && pins.length > 1;
-    const row = h('section', { class: `metrics n${pins.length}` + (canMove ? ' canmove' : ''), 'aria-label': 'Account' }, pins.map((k) => { const el = METRIC[k](); el.dataset.id = k; if (canMove) el.title = 'Drag to change the order'; return el; }));
-    if (canMove) dragItems(row, '.metric', (ids) => ctx.act((d) => A.orderOpenCards(d, ids), { label: 'account card order', now: true }));
+    const row = h('section', { class: `metrics n${pins.length}` + (canMove ? ' canmove' : ''), 'aria-label': 'Account' }, pins.map((k) => { const el = METRIC[k](); el.dataset.id = 'c.' + k; if (canMove) el.title = 'Drag to change the order'; el.classList.add('pl-card'); el.append(swapButton(ctx, 'open', 'c.' + k)); return el; }));
+    if (canMove) dragItems(row, '.metric', (ids) => ctx.act((d) => A.orderShown(d, 'open', 'card', ids), { label: 'account card order', now: true }));
     wrap.append(row);
   }
+  if (pl.blocks.length) {
+    const grid = h('section', { class: 'pl-grid', 'aria-label': 'Reports' }, pl.blocks.map((id) => { const b = placedBlock(ctx, id, {}); if (!b) return null; b.dataset.id = id; b.classList.add('pl-blk'); b.append(swapButton(ctx, 'open', id)); return b; }).filter(Boolean));
+    if (!ctx.readOnly && pl.blocks.length > 1) dragItems(grid, '.pl-blk', (ids) => ctx.act((d) => A.orderShown(d, 'open', 'block', ids), { label: 'Open positions block order', now: true }));
+    wrap.append(grid);
+  }
+  if (!ctx.readOnly && (pl.cards.join() !== C.standardOrder(pl.cards, 'open').join() || pl.blocks.join() !== C.standardOrder(pl.blocks, 'open').join()))
+    wrap.append(h('div', { class: 'pl-reset' }, h('button', { class: 'linkbtn', type: 'button', onClick: () => ctx.act((d) => A.resetShownOrder(d, 'open'), { label: 'Open positions order reset', now: true }) }, 'Reset order'), h('span', { class: 'note' }, ' · cards and reports go back to their usual order; nothing is switched on or off')));
 
   if (!all.length) {
     wrap.append(h('section', { class: 'card' }, h('div', { class: 'card-b', style: { paddingTop: '22px' } }, h('div', { class: 'calm' }, '✓ You have no open trades.'))));

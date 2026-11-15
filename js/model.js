@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.7.0';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -35,6 +35,15 @@ export function defaultSettings() {
   };
 }
 
+// 1.7.0 Reports: the 3 example reports a journal starts with (he can change, copy or delete them)
+export function exampleReports() {
+  return [
+    { id: 'RP-1', name: 'Win rate per month', g1: 'month', g2: '', measures: ['winRate', 'trades', 'net', 'avgR'], chart: 'line', filters: { period: 'year' } },
+    { id: 'RP-2', name: 'Result by setup', g1: 'setup', g2: '', measures: ['net', 'avgR', 'trades', 'winRate'], chart: 'bar', filters: { period: 'all' } },
+    { id: 'RP-3', name: 'Result by sector', g1: 'sector', g2: '', measures: ['net', 'trades', 'winRate', 'capPct'], chart: 'bar', filters: { period: 'year' } },
+  ];
+}
+
 export function emptyState(now = new Date().toISOString()) {
   return {
     meta: { app: 'trade-journal', schema: SCHEMA, version: APP_VERSION, createdAt: now, savedAt: null, envelope: null },
@@ -44,7 +53,7 @@ export function emptyState(now = new Date().toISOString()) {
     stocks: [], setups: [], errors: [],
     trades: [], dividends: [],
     trash: [], changeLog: [], stopHistory: [], splits: [],
-    reports: [], layouts: {}, columnTemplates: {},
+    reports: exampleReports(), layouts: {}, columnTemplates: {},
     historySeen: null, reminders: {},
   };
 }
@@ -100,6 +109,8 @@ export function migrate(data) {
   const base = emptyState();
   for (const k of Object.keys(base)) if (out[k] === undefined) out[k] = base[k];
   out.settings = { ...base.settings, ...out.settings };
+  // 1.7.0: a journal from before the Reports page gets the 3 example reports once (never again after he deletes them)
+  if (!out.meta.reportsSeeded) { if (!Array.isArray(out.reports) || !out.reports.length) out.reports = exampleReports(); out.meta.reportsSeeded = true; }
   // 1.4.9: whole stars only. A half-star rating from 1.4.8 is cleared, so the trade shows as not rated and can be rated again.
   for (const t of out.trades || []) if (t && t.stars !== undefined && t.stars !== null && !Number.isInteger(t.stars)) t.stars = null;
   out.meta.schema = SCHEMA; out.meta.version = APP_VERSION;
