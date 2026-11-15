@@ -63,10 +63,12 @@ export function dialog({ title, body, ok = 'OK', cancel = 'Cancel', danger = fal
     okBtn = h('button', { class: 'btn ' + (danger && !info ? 'dng' : 'pri'), onClick: doOk, disabled: !!confirmWord }, ok);
     const cancelBtn = info ? null : h('button', { class: 'btn', onClick: () => close(false) }, cancel);
     const box = h('div', { class: 'dlg' + (wide ? ' wide' : '') + (cls ? ' ' + cls : ''), role: danger ? 'alertdialog' : 'dialog', 'aria-modal': 'true', 'aria-label': title, style: danger ? { border: '2px solid var(--neg)' } : null },
-      h('h2', { style: danger ? { color: 'var(--neg)' } : null }, title), body,
-      confirmWord ? h('label', { class: 'fld', style: { marginTop: '10px' } }, 'Type ' + confirmWord + ' to confirm', word) : null,
-      msg,
-      h('div', { style: { display: 'flex', gap: '8px', marginTop: '14px', justifyContent: 'flex-end' } }, cancelBtn, okBtn));
+      h('h2', { style: danger ? { color: 'var(--neg)' } : null }, title),
+      // 1.7.2 fix: a pop-up taller than the screen scrolls inside; the title and the buttons always stay in view
+      h('div', { class: 'dlg-body' }, body,
+        confirmWord ? h('label', { class: 'fld', style: { marginTop: '10px' } }, 'Type ' + confirmWord + ' to confirm', word) : null,
+        msg),
+      h('div', { class: 'dlg-foot', style: { display: 'flex', gap: '8px', marginTop: '14px', justifyContent: 'flex-end' } }, cancelBtn, okBtn));
     const scrim = h('div', { class: 'scrim fixed' }, box);
     const onKey = (e) => {
       if (document.querySelector('.dp-pop')) return; // a calendar is open on top: it handles its own keys

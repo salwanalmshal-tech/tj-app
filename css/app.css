@@ -1055,3 +1055,8 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .cap-table th,.cap-table td{padding-left:12px;padding-right:12px}
 .cap-table td:last-child{white-space:nowrap;text-align:right}
 .cap-grid>.scard:first-child{overflow-x:auto}
+/* 1.7.2 fix: pop-ups never grow past the screen; long content scrolls inside, title and buttons stay visible */
+.scrim.fixed{overflow:hidden}
+.scrim.fixed .dlg{max-height:calc(100vh - 48px);display:flex;flex-direction:column}
+.scrim.fixed .dlg>h2,.scrim.fixed .dlg>.dlg-foot{flex:0 0 auto}
+.dlg-body{flex:1 1 auto;min-height:0;overflow:auto}
