@@ -216,9 +216,9 @@ export function renderOpen(ctx) {
 export function renderClose(ctx) {
   const st = ctx.store.state; const today = ctx.today();
   const bySym = new Map(); for (const t of C.openTrades(st)) { if (!bySym.has(t.stockId)) bySym.set(t.stockId, []); bySym.get(t.stockId).push(t); }
-  if (!bySym.size) return h('section', { class: 'panel' }, h('div', { class: 'pb' }, h('p', null, 'You have no open positions to close.'), h('button', { class: 'btn', onClick: () => back(ctx) }, 'Back')));
+  if (!bySym.size) return h('section', { class: 'panel' }, h('div', { class: 'pb' }, h('p', null, 'You have no open trades to close.'), h('button', { class: 'btn', onClick: () => back(ctx) }, 'Back')));
   const startTrade = ctx.params.tradeId ? A.tradeById(st, ctx.params.tradeId) : null;
-  const symSel = h('select', { 'aria-label': 'Symbol' }, [...bySym.entries()].map(([sid, ts]) => h('option', { value: sid, selected: startTrade ? startTrade.stockId === sid : false }, `${A.stockById(st, sid).symbol} · ${ts.length} line${ts.length === 1 ? '' : 's'} · ${qtyTxt(ts.reduce((a, t) => a + C.openQty(t), 0n))} shares`)));
+  const symSel = h('select', { 'aria-label': 'Symbol' }, [...bySym.entries()].map(([sid, ts]) => h('option', { value: sid, selected: startTrade ? startTrade.stockId === sid : false }, `${A.stockById(st, sid).symbol} · ${ts.length} trade${ts.length === 1 ? '' : 's'} · ${qtyTxt(ts.reduce((a, t) => a + C.openQty(t), 0n))} shares`)));
   const total = numInput(startTrade ? D.edit(C.openQty(startTrade)) : '', 'Total shares sold'), date = dateInput(today, 'Sell date'), price = numInput('', 'Sell price'), comm = numInput('', 'Sell commission');
   // 1.5.3: same layout as Open trade. Left: The sale / Which lines / Review. Right: the live "Result check" (one result block per
   // trade), which replaces the result pop-ups that used to open before saving. Every rule is unchanged.
@@ -230,7 +230,7 @@ export function renderClose(ctx) {
   let autoId = null;
   let touchedLines = false;
   // Q6: the mistake is chosen when closing; it is saved on every trade closed in this sale (empty = keep what the trade has)
-  const mistake = h('select', { 'aria-label': 'Mistake' }, h('option', { value: '' }, 'None'), st.errors.filter((x) => !x.archived).map((x) => h('option', { value: x.id }, x.name)));
+  const mistake = h('select', { 'aria-label': 'Mistake' }, h('option', { value: '' }, 'Not filled in'), st.errors.filter((x) => !x.archived).map((x) => h('option', { value: x.id }, x.name)));
   let mistakeTouched = false; mistake.addEventListener('change', () => { mistakeTouched = true; });
   const mistakeNew = withNew(mistake, 'Mistake');
   // Setup when closing (2026-11-06): shows the setup of the lines; a chosen setup is saved on every trade closed in this sale,
@@ -251,7 +251,7 @@ export function renderClose(ctx) {
       const i = h('input', { value: '0', inputmode: 'decimal', style: { textAlign: 'right' }, 'aria-label': 'Shares to close, ' + t.id }); inputs.set(t.id, i);
       i.addEventListener('input', () => { touchedLines = true; autoId = null; refresh(); });
       return h('div', { class: 'cl-line', 'data-id': t.id },
-        h('div', { class: 'cl-id' }, h('span', null, h('b', null, t.id), ` · bought ${dmy(t.buyDate)}`), h('span', { class: 'note' }, `${qtyTxt(C.openQty(t))} shares open · buy price ${priceTxt(D.d(t.buyPrice))}`), h('span', { class: 'cl-auto', hidden: true }, 'auto-selected — you can change it')),
+        h('div', { class: 'cl-id' }, h('span', null, h('b', null, t.id), ` · bought ${dmy(t.buyDate)}`), h('span', { class: 'note' }, `${qtyTxt(C.openQty(t))} shares open · buy price ${priceTxt(D.d(t.buyPrice))}`), h('span', { class: 'cl-auto', hidden: true }, 'Filled in for you: only this trade has these shares. You can change it.')),
         h('div', { class: 'cl-r' }, h('span', { class: 'l' }, 'Result'), h('b', { 'data-res': t.id }, '–')),
         h('label', { class: 'of' }, h('span', { class: 'l' }, 'Shares to close'), box(i)),
         h('button', { class: 'btn sm', type: 'button', onClick: () => { i.value = D.edit(C.openQty(t)); touchedLines = true; autoId = null; if (!total.value) total.value = ''; refresh(); } }, 'Sell all'));
@@ -269,11 +269,11 @@ export function renderClose(ctx) {
     cLine.textContent = tot !== null && tot > 0n && D.parse(price.value) !== null && D.parse(price.value) > 0n ? `${qtyTxt(tot)} share${tot === D.SCALE ? '' : 's'} at $${priceTxt(D.parse(price.value))}${iso ? ' on ' + dmy(iso) : ''}` : 'Fill in the sale to see the result.';
     const ok = tot !== null && tot > 0n && assigned === tot;
     status.replaceChildren(...[
-      tot === null || tot <= 0n ? h('span', { class: 'pill warn' }, 'Enter the total shares sold') : h('span', { class: 'pill ' + (ok ? 'pos' : 'warn') }, ok ? `✓ ${qtyTxt(tot)} of ${qtyTxt(tot)} assigned` : `${qtyTxt(assigned)} of ${qtyTxt(tot)} assigned`),
-      multi ? h('div', { class: 'msg warn', role: 'status', style: { marginTop: '6px' } }, `◆ Several lines match ${qtyTxt(D.parse(total.value))} shares (${multi.map((t) => t.id).join(', ')}): choose one. The program never picks for you.`) : null].filter(Boolean));
+      tot === null || tot <= 0n ? h('span', { class: 'pill warn' }, 'Enter the shares sold') : h('span', { class: 'pill ' + (ok ? 'pos' : 'warn') }, ok ? `✓ ${qtyTxt(tot)} of ${qtyTxt(tot)} shares placed` : `${qtyTxt(assigned)} of ${qtyTxt(tot)} shares placed`),
+      multi ? h('div', { class: 'msg warn', role: 'status', style: { marginTop: '6px' } }, `◆ More than one trade has ${qtyTxt(D.parse(total.value))} shares open (${multi.map((t) => t.id).join(', ')}): choose which one. The program never guesses.`) : null].filter(Boolean));
     // preview on a copy
     prevBox.replaceChildren(); let valid = ok && iso && D.parse(price.value) !== null && D.parse(price.value) > 0n && (comm.value.trim() === '' || D.parse(comm.value) !== null);
-    let reason = !ok ? 'Assign all shares to lines first.' : !iso ? 'Enter a valid sell date.' : D.parse(price.value) === null || D.parse(price.value) <= 0n ? 'Enter the sell price.' : comm.value.trim() && D.parse(comm.value) === null ? 'Sell commission must be a number.' : '';
+    let reason = !ok ? 'Choose which trades all the shares come from.' : !iso ? 'Enter a valid sell date (dd-mm-yyyy).' : D.parse(price.value) === null || D.parse(price.value) <= 0n ? 'Enter the sell price.' : comm.value.trim() && D.parse(comm.value) === null ? 'Sell commission must be a number.' : '';
     if (valid) {
       const draft = structuredClone(st); const res = A.closeSale(draft, { date: iso, price: price.value, commission: comm.value, allocations });
       if (!res.ok) { valid = false; reason = res.error; prevBox.append(h('div', { class: 'msg bad', role: 'alert' }, '■ ' + res.error)); }
@@ -288,13 +288,13 @@ export function renderClose(ctx) {
           const capPct = cap && cap > 0n ? D.pct(r.det.net, cap) : null;
           prevBox.append(h('div', { class: 'cl-block' }, h('div', { class: 'cl-bh' }, h('b', null, r.t.id), left > 0n ? ' · partly sold' : ' · closed'),
             resultCard({ t: r.t, sale: r.sale, net: r.det.net, tradePct: cost > 0n ? D.pct(r.det.net, cost) : null, capPct, days: C.saleDays(r.t, r.sale), left }, { k: 0, n: 1, first: false, price: price.value, notes: null })));
-          if (left === 0n) { const tot = C.tradeNet(r.t); const m = cap && cap > 0n ? resultPctMark(D.pct(tot, cap), S) : null; if (m) marks.push([m.level === 'neg' ? 'rev' : 'ok', `${m.icon} ${r.t.id}: ${m.text} of capital`]); }
+          if (left === 0n) { const tot = C.tradeNet(r.t); const m = cap && cap > 0n ? resultPctMark(D.pct(tot, cap), S) : null; if (m) marks.push([m.level === 'neg' ? 'rev' : 'ok', `${m.icon} ${r.t.id}: the whole trade ${m.level === 'neg' ? 'lost' : 'won'} more than ${(m.level === 'neg' ? S.histLoss : S.histGain).replace('.', ',')} % of capital`]); }
         }
         const stay = lines().map((t) => A.tradeById(draft, t.id)).filter((t) => t && C.openQty(t) > 0n);
-        const row = (k, v) => h('div', null, h('span', null, k), h('b', null, v));
+        const row = (k, v) => h('div', null, Array.isArray(k) ? h('span', { title: k[1] }, k[0]) : h('span', null, k), h('b', null, v));
         prevBox.append(h('div', { class: 'ck cl-rows' },
-          row('Result in R', rows.map((r) => (rows.length > 1 ? r.t.id + ' ' : '') + (r.R === null ? '–' : (r.R > 0n ? '+' : r.R < 0n ? '−' : '') + D.fmt(D.abs(r.R), 2) + ' R')).join(' · ')),
-          row('Still open after', stay.length ? stay.map((t) => `${t.id} · ${qtyTxt(C.openQty(t))}`).join(', ') : 'Nothing in ' + symNow),
+          row(['R (risk)', 'The result in times your risk. +2 R = two times what you risked.'], rows.map((r) => (rows.length > 1 ? r.t.id + ' ' : '') + (r.R === null ? '–' : (r.R > 0n ? '+' : r.R < 0n ? '−' : '') + D.fmt(D.abs(r.R), 2) + ' R')).join(' · ')),
+          row('Still open after this sale', stay.length ? stay.map((t) => `${t.id} · ${qtyTxt(C.openQty(t))}`).join(', ') : 'No open ' + symNow + ' trades left'),
           row('Capital (closed trades) after', usd(C.capitalNow(draft)))));
         if (marks.length) prevBox.append(h('div', { class: 'conds' }, marks.map(([lv, m]) => h('div', { class: 'cond ' + lv }, m))));
       }
@@ -315,7 +315,7 @@ export function renderClose(ctx) {
       const sellIn = comm.value.trim() === '' ? numInput('', 'Sell commission') : null;
       const buyIns = missBuy.map((t) => [t, numInput('', 'Buy commission ' + t.id)]);
       const fill = await dialog({ title: 'Commission missing', ok: 'Save commissions and continue', cancel: 'Continue without',
-        body: h('div', { style: { display: 'grid', gap: '10px' } }, para('Without the commission the result is calculated without it, and the line is marked as missing data. You can fill it in now, or continue without it.', ''),
+        body: h('div', { style: { display: 'grid', gap: '10px' } }, para('The result will not include the missing commission, and the trade is marked as missing data. Fill it in now, or continue without it.', ''),
           sellIn ? field('Sell commission of this sale (USD)', sellIn) : null,
           buyIns.map(([t, i]) => field(`Buy commission of ${t.id} (bought ${dmy(t.buyDate)}) (USD)`, i))),
         onOk: () => { for (const i of [sellIn, ...buyIns.map((x) => x[1])]) if (i && i.value.trim() && D.parse(i.value) === null) return 'Commissions must be numbers (or leave the field empty).'; return true; } });
@@ -354,7 +354,7 @@ export function renderClose(ctx) {
   const card = (title, lead, right, ...kids) => h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, title), h('p', { class: 'lead' }, lead)), right), h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '16px' } }, kids));
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '20px' } },
     h('header', { class: 'pg-head' },
-      h('div', null, h('div', { class: 'eyebrow' }, 'Exit'), h('h1', null, 'Close trade'), h('p', { class: 'lead' }, 'Enter the sale, then take a moment to look at the result.')),
+      h('div', null, h('div', { class: 'eyebrow' }, 'Exit'), h('h1', null, 'Close trade'), h('p', { class: 'lead' }, 'Enter the sale, then look at the result before you save.')),
       h('div', { class: 'acts' }, h('span', { class: 'hpill' }, 'Capital (closed trades)', h('b', null, usd(C.capitalNow(st)))), h('button', { class: 'btn ghost', onClick: () => back(ctx) }, 'Cancel'))),
     h('div', { class: 'op-grid' },
       h('div', { class: 'op-left' },
@@ -362,7 +362,7 @@ export function renderClose(ctx) {
           h('div', { class: 'fgrid' }, of('Symbol', box(symSel)), of('Shares sold', box(total)), of('Sell price', box(price, '$')),
             of('Sell date', h('div', { class: 'datebox' }, box(date), h('button', { class: 'btn today', type: 'button', onClick: () => { date.setISO(today); refresh(); } }, 'Today')), dnote),
             of('Sell commission', box(comm, '$')))),
-        card('Which lines', 'You choose the lines. The program never picks for you when it is unclear.', status, linesBox),
+        card('Which trades', 'You choose which trades the shares come from. The program never guesses.', status, linesBox),
         card('Review', 'Optional. Saved on every trade closed in this sale.', null,
           h('div', { class: 'fgrid cl-rev' }, of('Setup', box(setupSel), setupNew), of('Mistake (if any)', box(mistake), mistakeNew), h('div', { class: 'of' }, h('span', { class: 'l' }, 'Setup rating'), starsSel)))),
       h('aside', { class: 'card acc op-check', 'aria-label': 'Result check' }, h('div', { class: 'card-b' },
@@ -380,8 +380,8 @@ function resultCard(r, { k, n, first, price, notes }) {
     h('div', { class: 'res-sub' }, `${qtyTxt(D.d(r.sale.qty))} shares · ${priceTxt(D.d(r.t.buyPrice))} → ${priceTxt(D.d(r.sale.price))}`),
     h('div', { class: 'res-hero' }, h('span', { class: 'res-word' }, word), h('span', { class: 'res-money' }, (r.net > 0n ? '+$' : r.net < 0n ? '−$' : '$') + money(D.abs(r.net)))),
     h('div', { class: 'res-tiles' },
-      h('div', null, h('span', null, 'Of the trade'), h('b', null, sp(r.tradePct))),
-      h('div', null, h('span', null, 'Of capital'), h('b', null, sp(r.capPct))),
+      h('div', null, h('span', { title: 'The result next to what you paid for these shares. Example: paid $1 000, won $50 = +5 %.' }, 'Of the money paid'), h('b', null, sp(r.tradePct))),
+      h('div', null, h('span', { title: 'The result next to your capital when the trade was opened.' }, 'Share of capital'), h('b', null, sp(r.capPct))),
       h('div', null, h('span', null, 'Days held'), h('b', { class: 'n' }, String(r.days)))),
     r.left > 0n ? h('div', { class: 'res-left' }, `Partly sold – ${qtyTxt(r.left)} shares still open`) : null,
     notes ? h('p', { class: 'note', style: { margin: '10px 0 0' } }, notes) : null);
@@ -390,42 +390,42 @@ function resultCard(r, { k, n, first, price, notes }) {
 // =====================================================================  EDIT PANEL (opened from Open positions and History)
 export function editTrade(ctx, id) {
   const st = ctx.store.state; const t = A.tradeById(st, id); if (!t) return; const sym = A.symbolOf(st, t);
-  const q = numInput(D.edit(D.d(t.qty)), 'Quantity'), bp = numInput(D.edit(D.d(t.buyPrice)), 'Buy price'), bc = numInput(t.buyCommission === '' ? '' : D.edit(D.d(t.buyCommission)), 'Buy commission'), bd = dateInput(t.buyDate, 'Buy date');
+  const q = numInput(D.edit(D.d(t.qty)), 'Shares'), bp = numInput(D.edit(D.d(t.buyPrice)), 'Buy price'), bc = numInput(t.buyCommission === '' ? '' : D.edit(D.d(t.buyCommission)), 'Buy commission'), bd = dateInput(t.buyDate, 'Buy date');
   const is = numInput(t.initialStop === '' ? '' : D.edit(D.d(t.initialStop)), 'Initial stop');
-  const setup = sel(st.setups.filter((x) => !isUncl(x) && (!x.archived || x.id === t.setupId)), t.setupId, { blank: 'Unclassified' }); const setupNew = withNew(setup, 'Setup');
+  const setup = sel(st.setups.filter((x) => !isUncl(x) && (!x.archived || x.id === t.setupId)), t.setupId, { blank: 'Not filled in' }); const setupNew = withNew(setup, 'Setup');
   const stars = starsFor(st, setup, { value: t.stars ?? null });
-  const err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId); const errNew = withNew(err, 'Error');
+  const err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId); const errNew = withNew(err, 'Mistake');
   const com = h('textarea', { rows: 2, 'aria-label': 'Comment' }); com.value = t.comment || '';
   const msg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
   const sold = C.soldQty(t);
   dialog({ title: `Edit ${sym} · ${t.id}`, wide: true, ok: 'Save', body: h('div', { style: { display: 'grid', gap: '12px' } },
-    sold > 0n ? h('div', { class: 'msg info' }, `● ${qtyTxt(sold)} shares were already sold. Quantity cannot go below that.`) : null,
-    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Buy date', bd), field('Quantity', q), field('Buy price', bp), field('Buy commission', bc), field('Initial stop', is, 'Used for R. Changing it is logged.')),
-    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } }, field('Setup', h('div', { class: 'selnew' }, setup, setupNew)), h('div', { class: 'fld' }, 'Setup rating', stars), field('Error', h('div', { class: 'selnew' }, err, errNew))), field('Comment', com), msg,
+    sold > 0n ? h('div', { class: 'msg info' }, `● ${qtyTxt(sold)} shares were already sold. Shares cannot go below that.`) : null,
+    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Buy date', bd), field('Shares', q), field('Buy price', bp), field('Buy commission', bc), field('Initial stop', is, 'Used for R (risk). A change is written to the change log.')),
+    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } }, field('Setup', h('div', { class: 'selnew' }, setup, setupNew)), h('div', { class: 'fld' }, 'Setup rating', stars), field('Mistake', h('div', { class: 'selnew' }, err, errNew))), field('Comment', com), msg,
     h('div', { class: 'row' }, h('button', { class: 'btn quiet-dng', onClick: async () => { const ok = await dialog({ title: `Delete trade ${t.id} (${sym})?`, danger: true, ok: 'Delete trade', body: para(`This moves the trade${t.sales.length ? ' and its ' + t.sales.length + ' sale(s)' : ''} to the Trash for 15 days. Capital and statistics change. You can restore it from the Trash (Import / Export).`, '') }); if (!ok) return; const r = ctx.act((d) => A.deleteTrade(d, t.id), { label: 'delete trade', now: true }); if (r.ok) { closeTopDialog(); toast(`${t.id} moved to the Trash.`, 'Restore', () => ctx.store.undo()); } else toast(r.error); } }, 'Delete…'))),
     onOk: async () => {
       const bdi = parseDMY(bd.value); if (!bdi) return 'Enter a valid buy date (dd-mm-yyyy).';
       const patch = {}; const rows = [];
-      const chk = (k, v, before, fmtf) => { if (v !== before) { patch[k] = v; rows.push(Object.assign([k === 'qty' ? 'Quantity' : k === 'buyPrice' ? 'Buy price' : k === 'buyCommission' ? 'Buy commission' : 'Buy date', fmtf(before), fmtf(v)], { changed: true })); } };
+      const chk = (k, v, before, fmtf) => { if (v !== before) { patch[k] = v; rows.push(Object.assign([k === 'qty' ? 'Shares' : k === 'buyPrice' ? 'Buy price' : k === 'buyCommission' ? 'Buy commission' : 'Buy date', fmtf(before), fmtf(v)], { changed: true })); } };
       const raw = (x) => x.value.trim();
       const norm = (x) => (raw(x) === '' ? '' : D.parse(raw(x)) === null ? 'bad' : D.toStr(D.parse(raw(x))));
-      if ([q, bp].some((x) => norm(x) === '' || norm(x) === 'bad') || norm(bc) === 'bad' || norm(is) === 'bad') return 'Check the numbers: quantity and buy price must be numbers above 0.';
+      if ([q, bp].some((x) => norm(x) === '' || norm(x) === 'bad') || norm(bc) === 'bad' || norm(is) === 'bad') return 'Check the numbers: shares and buy price must be numbers above 0.';
       chk('qty', norm(q), t.qty, (v) => qtyTxt(D.d(v))); chk('buyPrice', norm(bp), t.buyPrice, (v) => priceTxt(D.d(v))); chk('buyCommission', norm(bc), t.buyCommission, (v) => (v === '' ? '–' : money(D.d(v)))); chk('buyDate', bdi, t.buyDate, dmy);
       const isNew = norm(is); const isChange = isNew !== t.initialStop;
       // buy data first (checks quantity), on a copy to show the effect
       if (rows.length) {
         const trial = structuredClone(st); const r = A.editBuyData(trial, t.id, patch);
-        if (!r.ok && r.quantity) { await dialog({ title: `${sym}: ${qtyTxt(r.quantity.bought)} is less than the ${qtyTxt(r.quantity.sold)} shares already sold`, danger: true, info: true, ok: 'OK', body: h('div', null, para('Bought must equal sold plus still open.'), changeTable([['Bought (new value)', '', qtyTxt(r.quantity.bought)], ['Sold', '', qtyTxt(r.quantity.sold)], Object.assign(['Missing', '', '−' + qtyTxt(r.quantity.missing)], { changed: true })], ['Part', '', 'Shares']), h('div', { class: 'msg info', style: { marginTop: '8px' } }, '● Nothing was changed. Correct the sold quantity first, or enter a quantity of at least ' + qtyTxt(r.quantity.sold) + '.')) }); return false; }
+        if (!r.ok && r.quantity) { await dialog({ title: `${sym}: ${qtyTxt(r.quantity.bought)} is less than the ${qtyTxt(r.quantity.sold)} shares already sold`, danger: true, info: true, ok: 'OK', body: h('div', null, para('Bought must equal sold plus still open.'), changeTable([['Bought (new value)', '', qtyTxt(r.quantity.bought)], ['Sold', '', qtyTxt(r.quantity.sold)], Object.assign(['Missing', '', '−' + qtyTxt(r.quantity.missing)], { changed: true })], ['Part', '', 'Shares']), h('div', { class: 'msg info', style: { marginTop: '8px' } }, '● Nothing was changed. Correct the sales first, or enter at least ' + qtyTxt(r.quantity.sold) + ' shares.')) }); return false; }
         if (!r.ok) return r.error;
         const tt = A.tradeById(trial, t.id);
-        const ok = await dialog({ title: `Change the buy data of ${sym}?`, ok: 'Save changes', body: h('div', null, para('Capital at open is recalculated for this trade.'), changeTable([...rows, Object.assign(['Capital at open', money(num(t.capitalAtOpen)), money(C.capitalBefore(trial, tt.buyDate, tt.seq))], { changed: true })])) });
+        const ok = await dialog({ title: `Change the buy data of ${sym}?`, ok: 'Save changes', body: h('div', null, para('Capital when opened is calculated again for this trade.'), changeTable([...rows, Object.assign(['Capital when opened', money(num(t.capitalAtOpen)), money(C.capitalBefore(trial, tt.buyDate, tt.seq))], { changed: true })])) });
         if (!ok) return false;
       }
       if (isChange) {
-        if (isNew === '') return 'To remove the Initial stop, leave it as it is. A stop can be corrected, not removed.';
+        if (isNew === '') return 'The Initial stop cannot be removed, only corrected.';
         const trial = structuredClone(st); const r = A.correctInitialStop(trial, t.id, isNew); if (!r.ok) return r.error;
         const t2 = A.tradeById(trial, t.id); const before = C.riskOfQty(t, C.openQty(t) + C.soldQty(t));
-        const ok = await dialog({ title: `Correct the Initial stop of ${sym} from ${t.initialStop ? priceTxt(D.d(t.initialStop)) : '–'} to ${priceTxt(D.d(isNew))}?`, ok: 'Correct stop', body: h('div', null, para('The Initial stop is used for R and risk, so it normally never changes. This correction is written to the log.'), changeTable([Object.assign(['Initial stop', t.initialStop ? priceTxt(D.d(t.initialStop)) : '–', priceTxt(D.d(isNew))], { changed: true }), Object.assign(['Risk at Initial stop', before === null ? '–' : '−' + money(before), '−' + money(C.riskOfQty(t2, D.d(t2.qty)))], { changed: true })])) });
+        const ok = await dialog({ title: `Correct the Initial stop of ${sym} from ${t.initialStop ? priceTxt(D.d(t.initialStop)) : '–'} to ${priceTxt(D.d(isNew))}?`, ok: 'Correct stop', body: h('div', null, para('The Initial stop is used for R (risk) and for risk, so it normally never changes. This correction is written to the change log.'), changeTable([Object.assign(['Initial stop', t.initialStop ? priceTxt(D.d(t.initialStop)) : '–', priceTxt(D.d(isNew))], { changed: true }), Object.assign(['Risk at Initial stop', before === null ? '–' : '−' + money(before), '−' + money(C.riskOfQty(t2, D.d(t2.qty)))], { changed: true })])) });
         if (!ok) return false;
       }
       const diffsBefore = new Set(A.capitalDiffs(ctx.store.state).map((x) => x.id + ':' + x.after));
