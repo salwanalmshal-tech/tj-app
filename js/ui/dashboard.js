@@ -217,10 +217,14 @@ function periodPicker(ctx, st, today) {
 const BLOCK = {
   exposure(ctx, st, today, ex, grip) {
     const b = h('section', { class: 'd-block wide' });
-    b.append(blockHead(grip, 'Exposure — your open trades', h('span', { class: 'd-q' }, `Next to your account estimate ${usd(ex.account)} · tap a stock`)));
+    // 1.7.3 (his request): a clear way back to all stocks after tapping one
+    const sel = V.ex >= 0 && V.ex < ex.rows.length ? ex.rows[V.ex] : null;
+    const showAll = () => { V.ex = -1; ctx.redraw(); };
+    b.append(blockHead(grip, 'Exposure — your open trades', h('span', { style: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
+      h('span', { class: 'd-q' }, `Next to your account estimate ${usd(ex.account)} · ${sel ? 'tap it again for all' : 'tap a stock'}`),
+      sel ? h('button', { class: 'chip', 'aria-label': 'Show all stocks', onClick: showAll }, '× Show all') : null)));
     if (!ex.rows.length) { b.append(h('div', { class: 'd-q', style: { padding: '8px 18px 18px' } }, 'No open trades.')); return b; }
     const secColor = new Map(ex.sectors.map((x, i) => [x.key, COLORS[i % COLORS.length]]));
-    const sel = V.ex >= 0 && V.ex < ex.rows.length ? ex.rows[V.ex] : null;
     const R = 78, CIRC = 2 * Math.PI * R; let off = 0;
     const ring = s('svg', { viewBox: '0 0 200 200', role: 'img', 'aria-label': `${D.fmt(ex.totalPct ?? 0n, 1)} percent of the account in the market`, style: { width: '200px', height: '200px', transform: 'rotate(-90deg)' } },
       s('circle', { cx: 100, cy: 100, r: R, fill: 'none', stroke: '#EEF2F6', 'stroke-width': 20 }),
@@ -247,7 +251,7 @@ const BLOCK = {
         h('span', null, 'Total'), h('span'), h('span', { style: { textAlign: 'right' } }, usd(ex.total)), h('span', { style: { textAlign: 'right' } }, D.fmt(ex.totalPct ?? 0n, 1) + ' %'),
         h('span', { class: 'neg', style: { textAlign: 'right' } }, susd(ex.rows.reduce((a, r) => a + (r.loss ?? 0n), 0n)))));
     b.append(h('div', { class: 'd-exgrid', style: { padding: '8px 18px 18px', display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: '24px', alignItems: 'center' } },
-      h('div', { style: { position: 'relative', width: '200px', height: '200px', justifySelf: 'center' } }, ring, center), list));
+      h('div', { style: { position: 'relative', width: '200px', height: '200px', justifySelf: 'center', cursor: sel ? 'pointer' : 'default' }, title: sel ? 'Show all stocks' : '', onClick: () => { if (sel) showAll(); } }, ring, center), list));
     return b;
   },
 
@@ -262,12 +266,13 @@ const BLOCK = {
       h('span', { class: tone(tot), style: { fontSize: '34px', fontWeight: '800', letterSpacing: '-.03em' } }, susd(tot)),
       h('span', { style: { fontSize: '13px', color: '#3C4B60' } }, h('b', { class: tone(tot) }, cap0 > 0n ? spct(D.pct(tot, cap0)) : '–'), ` of capital on ${late ? dmy(st.capital.start.date) + ' (start)' : dmy(V.from)} · `, h('b', null, `${green} of ${shown.length}`), ' months green · by sale date')));
     if (!ms.length) return b;
-    if (!V.sel || !ms.some((m) => m.month === V.sel && m.has)) V.sel = (shown.filter((m) => m.month <= nowK).at(-1) ?? shown.at(-1))?.month ?? null;
+    // 1.7.3 (his choice A): no month selected = the whole period; a month stays selected only while it has trades
+    if (V.sel && !ms.some((m) => m.month === V.sel && m.has)) V.sel = null;
     const max = Math.max(1e-9, ...shown.map((m) => Math.abs(num(m.net))));
     const n = ms.length; const k = 95 / max;
     const grid = h('div', { class: 'd-mgrid', style: { gridTemplateColumns: `repeat(${n},minmax(${n > 12 ? '44px' : '0'},1fr))` } }, ms.map((m, i) => {
       const future = m.month > nowK; const hgt = Math.max(4, Math.round(Math.abs(num(m.net)) * k));
-      return h('button', { class: 'd-mt' + (m.month === V.sel ? ' on' : ''), disabled: !m.has, 'aria-label': `${monName(m.month, true)}: ${m.has ? susd(m.net) : future ? 'not started' : 'no trades'}`, onClick: () => { V.sel = m.month; ctx.redraw(); } },
+      return h('button', { class: 'd-mt' + (m.month === V.sel ? ' on' : ''), disabled: !m.has, 'aria-label': `${monName(m.month, true)}: ${m.has ? susd(m.net) : future ? 'not started' : 'no trades'}`, onClick: () => { V.sel = V.sel === m.month ? null : m.month; ctx.redraw(); } },
         h('span', { class: tone(m.net), style: { height: '16px', fontSize: '11.5px', fontWeight: '700' } }, m.has ? (m.net < 0n ? '−' : '+') + Math.round(Math.abs(num(m.net))) : ''),
         h('span', { class: 'd-cap' + (future ? ' future' : !m.has ? ' none' : '') }, h('span', { class: 'd-zero' }),
           m.has ? h('span', { class: 'd-bar ' + (m.net < 0n ? 'dn' : 'up'), style: { height: hgt + 'px', animationDelay: (i * 0.06).toFixed(2) + 's', opacity: m.month === nowK ? '.7' : '1' } }) : null),
@@ -289,19 +294,23 @@ const BLOCK = {
       h('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '11.5px', color: 'var(--muted)', padding: '2px 6px 12px' } },
         h('span', null, h('span', { style: { display: 'inline-block', width: '9px', height: '9px', borderRadius: '3px', background: 'var(--pos)' } }), ' month result'),
         h('span', null, h('span', { style: { display: 'inline-block', width: '14px', borderTop: '2.5px solid var(--accent)', verticalAlign: 'middle' } }), ' running total for the period'),
-        h('span', null, 'Tap a month for its details'))));
-    const m = ms.find((x) => x.month === V.sel);
+        h('span', null, V.sel ? 'Tap the month again for all months' : 'Tap a month for its details'),
+        h('button', { class: 'chip', 'aria-pressed': String(!V.sel), onClick: () => { V.sel = null; ctx.redraw(); } }, 'All months'))));
+    const one = ms.find((x) => x.month === V.sel);
+    const sum = (k) => shown.reduce((a, x) => a + (x[k] || 0), 0);
+    const best = shown.map((x) => x.best).filter(Boolean).reduce((a, x) => (!a || x.net > a.net ? x : a), null);
+    const m = one || (shown.length ? { all: true, net: tot, pct: cap0 > 0n ? D.pct(tot, cap0) : null, closed: sum('closed'), won: sum('won'), lost: sum('lost'), zero: sum('zero'), best, run: shown.at(-1).run } : null);
     if (m) {
       const wp = m.closed ? (m.won / m.closed) * 100 : 0, lp = m.closed ? (m.lost / m.closed) * 100 : 0;
       b.append(h('div', { class: 'd-soft d-detail', style: { margin: '0 18px 18px', padding: '14px', display: 'grid', gridTemplateColumns: '170px repeat(4,minmax(0,1fr))', gap: '12px' } },
         h('div', { style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px', paddingLeft: '4px' } }, h('span', { class: 'eyebrow' }, 'Selected'),
-          h('span', { style: { fontSize: '22px', fontWeight: '800', letterSpacing: '-.02em' } }, monName(m.month, true)), h('span', { class: 'd-q' }, m.month === nowK ? 'month in progress' : 'closed month')),
-        h('div', { class: 'd-stat' }, h('span', { class: 'eyebrow' }, 'Result'), h('b', { class: tone(m.net) }, susd(m.net)), h('span', { class: 'd-q' }, `${spct(m.pct)} of capital on the 1st`)),
+          h('span', { style: { fontSize: '22px', fontWeight: '800', letterSpacing: '-.02em' } }, m.all ? 'All months' : monName(m.month, true)), h('span', { class: 'd-q' }, m.all ? `${dmy(V.from)} – ${dmy(V.to)}` : m.month === nowK ? 'month in progress' : 'closed month')),
+        h('div', { class: 'd-stat' }, h('span', { class: 'eyebrow' }, 'Result'), h('b', { class: tone(m.net) }, susd(m.net)), h('span', { class: 'd-q' }, m.all ? `${spct(m.pct)} of capital on ${late ? dmy(st.capital.start.date) : dmy(V.from)}` : `${spct(m.pct)} of capital on the 1st`)),
         h('div', { class: 'd-stat' }, h('span', { class: 'eyebrow' }, 'Trades closed'), h('b', null, String(m.closed)),
           h('span', { style: { display: 'flex', height: '6px', borderRadius: '3px', overflow: 'hidden', background: '#E6EBF1', marginTop: '4px' } }, h('span', { style: { width: wp + '%', background: 'var(--pos)' } }), h('span', { style: { width: lp + '%', background: 'var(--neg)' } })),
           h('span', { class: 'd-q' }, `${m.won} won · ${m.lost} lost` + (m.zero ? ` · ${m.zero} at 0` : ''))),
         h('div', { class: 'd-stat' }, h('span', { class: 'eyebrow' }, 'Best trade'), h('b', { class: m.best ? tone(m.best.net) : '' }, m.best ? susd(m.best.net) : '–'), h('span', { class: 'd-q' }, m.best ? m.best.sym : 'no trade closed')),
-        h('div', { class: 'd-stat' }, h('span', { class: 'eyebrow' }, 'Total after this month'), h('b', { class: tone(m.run) }, susd(m.run)), h('span', { class: 'd-q' }, 'running total'))));
+        h('div', { class: 'd-stat' }, h('span', { class: 'eyebrow' }, m.all ? 'Total for the period' : 'Total after this month'), h('b', { class: tone(m.run) }, susd(m.run)), h('span', { class: 'd-q' }, 'running total'))));
     }
     return b;
   },

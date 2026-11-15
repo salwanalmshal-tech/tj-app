@@ -1060,3 +1060,5 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .scrim.fixed .dlg{max-height:calc(100vh - 48px);display:flex;flex-direction:column}
 .scrim.fixed .dlg>h2,.scrim.fixed .dlg>.dlg-foot{flex:0 0 auto}
 .dlg-body{flex:1 1 auto;min-height:0;overflow:auto}
+/* 1.7.3: the Swap button (top right, shows on hover) never covers the block header's own buttons */
+.d-block>.d-bh{padding-right:44px}
