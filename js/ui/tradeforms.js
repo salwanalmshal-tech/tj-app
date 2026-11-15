@@ -394,7 +394,7 @@ export function editTrade(ctx, id) {
   const is = numInput(t.initialStop === '' ? '' : D.edit(D.d(t.initialStop)), 'Initial stop');
   const setup = sel(st.setups.filter((x) => !isUncl(x) && (!x.archived || x.id === t.setupId)), t.setupId, { blank: 'Not filled in' }); const setupNew = withNew(setup, 'Setup');
   const stars = starsFor(st, setup, { value: t.stars ?? null });
-  const err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId); const errNew = withNew(err, 'Mistake');
+  const err = sel(st.errors.filter((x) => !x.archived || x.id === t.errorId), t.errorId, { blank: 'Not filled in' }); const errNew = withNew(err, 'Mistake');
   const com = h('textarea', { rows: 2, 'aria-label': 'Comment' }); com.value = t.comment || '';
   const msg = h('div', { class: 'msg bad', role: 'alert', style: { display: 'none' } });
   const sold = C.soldQty(t);

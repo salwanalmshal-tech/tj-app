@@ -73,7 +73,7 @@ function build(){
     t.capPct=capPctRaw===null?null:BN(capPctRaw);
     t.histMark=resultPctMark(capPctRaw,S); // G8: ▼ red loss / ▲ green gain, same rule as the Settings limits
     t.R=BN(RB); t.labelRaw=C.rCategory(RB,S)??'–'; t.label=esc(t.labelRaw); t.labelTone=C.rCategoryTone(RB,S);
-    t.sdPct=BN(sdB); t.sdRaw=C.stopDistanceLabel(sdB,S)??'No SL'; t.sd=esc(t.sdRaw);
+    t.sdPct=BN(sdB); t.sdRaw=C.stopDistanceLabel(sdB,S)??'No SL'; t.sd=esc(t.sdRaw==='No SL'?'No stop':t.sdRaw);
     t.comm=BN((C.N(src.buyCommission)??0n)+src.sales.reduce((a,x)=>a+(C.N(x.commission)??0n),0n));
     const mk=C.moveKept(src);
     t.mk={kind:mk.kind,why:mk.why??null,pct:BN(mk.pct??null),upPct:BN(mk.upPct??null),endPct:BN(mk.endPct??null),hi:BN(mk.highest),maxSale:BN(mk.maxSale)};
@@ -264,7 +264,7 @@ function check7(ts){
   const head=v==='bad'?"your journal can't yet tell you which setup works":v==='watch'?'some trades are still missing tags':'your trades are well tagged';
   const per={};real.forEach(t=>{(per[setupName(t)]??=[]).push(t);});
   const ready=Object.entries(per).filter(([,a])=>a.length>=10);
-  const body=`<b>${ts.length-real.length} of ${ts.length}</b> trades are still “Unclassified” (setup missing), so History can't compare your setups yet. `+
+  const body=`<b>${ts.length-real.length} of ${ts.length}</b> trades have no setup filled in yet, so History can't compare your setups yet. `+
     `<b>Mistakes:</b> ${mist.length} trade${mist.length===1?'':'s'} have a mistake tagged (${[...new Set(mist.map(mistakeName))].map(n=>`${n} ×${mist.filter(t=>mistakeName(t)===n).length}`).join(', ')}), ${plan.length} are marked “Followed my plan”, and <b>${none.length} are not filled in</b>.`+
     (mention.length?` <b>${mention.length} comment${mention.length>1?'s':''} mention a mistake without the tag</b> (${list(mention)}).`:' No comment mentions a mistake without its tag.')+
     (ready.length?`<div style="margin-top:8px">${ready.map(([n,a])=>{const s=stats(a);return `<b>${esc(n)}</b>: ${s.n} trades, ${pct(s.wr*100)} won, ${R(s.avgR)} per trade`;}).join('<br>')}</div>`:'');
@@ -318,10 +318,10 @@ function baseF(f){const b={...f,not:[],skip:[]};for(const k of outKeys(f))b[k]=[
 const OPTS={
   syms:()=>[...new Set(TR.map(t=>t.symRaw))].sort().map(s=>[s,s]),
   labels:()=>[...S.rCategories.map(r=>r[1]),S.rCategoryElse,'–'].map(s=>[s,s==='–'?'No label (no stop)':s]),
-  setups:()=>[['__none','Unclassified (missing)'],...RAW.setups.filter(s=>s.name!=='Unclassified').map(s=>[s.name,s.name])],
+  setups:()=>[['__none','Not filled in'],...RAW.setups.filter(s=>s.name!=='Unclassified').map(s=>[s.name,s.name])],
   mistakes:()=>[['__none','Not filled in'],['Followed my plan','Followed my plan'],...realErrors().map(e=>[e.name,e.name])],
   days:()=>Object.keys(DAYS).map(d=>[d,d==='0–1'?'0–1 days (failed right away)':d+' days']),
-  sds:()=>[...S.stopDistance.map(s=>s[1]),S.stopDistanceElse,'No SL'].map(s=>[s,s]),
+  sds:()=>[...S.stopDistance.map(s=>s[1]),S.stopDistanceElse,'No SL'].map(s=>[s,s==='No SL'?'No stop':s]),
   how:()=>HOW.map(h=>[h,h]),
   kept:()=>KEPT_G.map(h=>[h,h]),
   stopdn:()=>STOP_G.map(h=>[h,h]),
@@ -388,7 +388,7 @@ function cmpSentence(a,b,sa,sb){
 const capz=(s)=>s.charAt(0).toUpperCase()+s.slice(1);
 // ---- report: short facts per check, each with a plain hover explanation (title); "last 20" as one plain sentence
 const m0=(n)=>'$'+fx(Math.abs(n),0);
-const RTIP='R = how many times the money you planned to risk (buy price − initial stop) × shares.';
+const RTIP='R (risk) = the result in times the money you planned to risk. Example: you risk $50 and win $100 = +2 R.';
 function factsFor(id){
   const ts=TR,st=stats(ts),sp=split(ts),r=sp?sp.recent:[],rs=sp?stats(r):null;
   const f=(l,v,d,c,tip)=>({l,v,d,c:c||'',tip});
@@ -396,7 +396,7 @@ function factsFor(id){
       f('Win rate',pct(st.wr*100),`${st.w} of ${st.w+st.l} trades`,st.wr>=st.be?'pos':'neg',`The share of your trades that made money: ${st.w} of ${st.w+st.l}. With your win and loss sizes you need at least ${pct(st.be*100)} to break even.`),
       f('Average win',R(st.winR),'per winning trade','pos',`A winning trade made on average ${fx(st.winR,2)} times the money you planned to risk. ${RTIP}`),
       f('Average loss',R(st.lossR),'per losing trade','neg',`A losing trade lost on average ${fx(-st.lossR,2)} times the money you planned to risk. ${RTIP}`),
-      f('Per trade',R(st.avgR),'all trades together',st.avgR>0?'pos':'neg',`Wins and losses together: each trade ${st.avgR>=0?'made':'lost'} on average ${fx(Math.abs(st.avgR),2)} times the money you risked. Above 0 = you make money over time. ${RTIP}`)],
+      f('Average per trade',R(st.avgR),'in R (risk), wins and losses together',st.avgR>0?'pos':'neg',`Wins and losses together: each trade ${st.avgR>=0?'made':'lost'} on average ${fx(Math.abs(st.avgR),2)} times the money you risked. Above 0 = you make money over time. ${RTIP}`)],
     last:rs?(()=>{const bs=stats(sp.before);const smaller=bs.winR&&rs.winR&&rs.winR<bs.winR*0.85;return `You won ${rs.w} of ${RECENT} (${pct(rs.wr*100)}). ${smaller?`Your wins were smaller than before (${R(rs.winR)} instead of ${R(bs.winR)}), so you`:'You'} needed ${pct(rs.be*100)} to break even — ${rs.avgR<0?'so these trades lost money':'so these trades still made money'}.`;})():null};
   if(id===2){const top=[...ts].filter(t=>t.net>0).sort((a,b)=>b.net-a.net).slice(0,3),tsum=sum(top.map(t=>t.net)),gross=sum(ts.filter(t=>t.net>0).map(t=>t.net)),rest=st.net-tsum;
     return{f:[f(`Your ${top.length} biggest win${top.length===1?'':'s'}`,'+'+m0(tsum),top.map(t=>t.sym).join(', '),'pos',`${top.map(t=>`${t.sym} ${usd0(t.net)}`).join(', ')}. Together ${m0(tsum)}.`),
@@ -427,7 +427,7 @@ function factsFor(id){
       f('Held 6 days or more',(held.net<0?'−':'+')+m0(held.net),`${held.w} of ${held.n} won`,held.net>0?'pos':'neg',`Trades you kept 6 days or more: ${held.n} trades, ${held.w} won, ${usd0(held.net)} together.`)],
       last:sp?(rf.length?`${rf.length} trades lost within a day (${symCount(rf)}) and cost ${m0(sum(rf.map(t=>t.net)))} together.`:'No trade lost within a day.')+(Math.abs(rf.length/RECENT-fast.length/ts.length)<0.06?' About the same as before.':rf.length/RECENT<fast.length/ts.length?' Fewer than before.':' More than before.'):null};}
   if(id===7){const real=ts.filter(realSetup).length,mist=ts.filter(t=>t.errorId&&t.errorId!==PLAN).length,none=ts.filter(t=>!t.errorId).length,rr=r.filter(realSetup).length;
-    return{f:[f('With a real setup',`${real} of ${ts.length}`,'trades','',`Trades with a setup other than “Unclassified”. History compares setups once one has 10 or more closed trades.`),
+    return{f:[f('With a real setup',`${real} of ${ts.length}`,'trades','',`Trades with a setup filled in. History compares setups once one has 10 or more closed trades.`),
       f('Mistake filled in',mist,'trades','',`Trades where you picked a mistake, for example FOMO or Revenge trade.`),
       f('Mistake left empty',none,'trades','',`Trades where the Mistake box is empty. Pick “Followed my plan” when there was no mistake.`)],
       last:sp?`${rr} of the ${RECENT} have a real setup${rr===0?', so History still can\'t tell which setup works for you':''}.`:null};}
@@ -458,7 +458,7 @@ function renderChecks(){
 }
 
 // ---- trades table (program list table)
-const COLS4=[['sym','Symbol'],['sellDate','Sold'],['days','Days','r'],['net','Net result','r'],['capPct','% capital','r'],['R','R','r'],['label','Result'],['setup','Setup'],['stars','Stars'],['mistake','Mistake'],['c','']];
+const COLS4=[['sym','Symbol'],['sellDate','Sell date'],['days','Days held','r'],['net','Net result','r'],['capPct','Share of capital','r'],['R','R (risk)','r'],['label','Result label'],['setup','Setup'],['stars','Setup rating'],['mistake','Mistake'],['c','']];
 // #13: colour comes from the trade's own tone (same rule, same position, as Settings) - never from matching the
 // label's text, so a renamed label keeps its colour and never disagrees with what Settings shows for it.
 const TONE_CLS={green:'g',red:'r',amber:'o',blue:'b',grey:''};
@@ -471,10 +471,10 @@ function renderTable(ts,inc=ts){
   const rows=[...ts].sort((a,b)=>{const x=val(a,sort.k),y=val(b,sort.k);return ((x??-1e9)<(y??-1e9)?-1:(x??-1e9)>(y??-1e9)?1:a.order-b.order)*sort.d;});
   const pages=Math.max(1,Math.ceil(rows.length/PAGE));if(page>=pages)page=pages-1;const shown=rows.slice(page*PAGE,page*PAGE+PAGE);
   const tn=(n)=>n>0?'pos':n<0?'neg':'';
-  v.innerHTML=`<div class="tw fx"><table class="stk"><thead><tr>${COLS4.map(([k,l,c])=>`<th class="sortable ${c||''}${sort.k===k?' on':''}">${k==='c'?'':`<button data-k="${k}">${l}<span class="sa">${sort.k===k?(sort.d>0?'▲':'▼'):'↕'}</span></button>`}</th>`).join('')}</tr></thead><tbody>${
+  v.innerHTML=`<div class="tw fx"><table class="stk"><thead><tr>${COLS4.map(([k,l,c])=>`<th class="sortable ${c||''}${sort.k===k?' on':''}">${k==='c'?'':`<button data-k="${k}"${k==='R'?' title="The result in times your risk. +2 R = two times what you risked."':''}>${l}<span class="sa">${sort.k===k?(sort.d>0?'▲':'▼'):'↕'}</span></button>`}</th>`).join('')}</tr></thead><tbody>${
     shown.map(t=>{const nw=PREV?.trades?.ids&&!PREV.trades.ids.includes(t.id);return `<tr class="hrow${openRow===t.id?' open':''}${nw?' newrow':''}${counted.has(t.id)?'':' outrow'}" data-id="${t.id}" tabindex="0"><td><input type="checkbox" class="hcount" data-cnt="${t.id}"${counted.has(t.id)?' checked':''}${!counted.has(t.id)&&!F.skip.includes(t.id)?' disabled title="Left out by a filter"':' title="Untick to leave this trade out of the numbers"'} aria-label="Count ${t.symRaw} ${t.id}"><b class="lsym">${t.sym}</b>${nw?' <span class="chgtag">New</span>':''}<span class="htid">${t.id}</span></td><td>${dmy(t.sellDate)}</td><td class="r">${t.days}</td>
      <td class="r ${tn(t.net)}"><b>${usd(t.net)}</b></td><td class="r ${tn(t.net)}">${sx(t.capPct,2)} %${t.histMark?` <span class="${t.histMark.level}" title="${t.histMark.text}">${t.histMark.icon}</span>`:''}</td><td class="r">${t.R===null?'<span class="mut">–</span>':sx(t.R,2)}</td>
-     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.labelTone)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Missing</span>'}</td><td>${t.stars!==null?starsHtml(t.stars):t.rateable?'<span class="mut">Not rated</span>':'<span class="mut">–</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
+     <td>${t.label==='–'?'<span class="mut">–</span>':`<span class="hlab ${labC(t.labelTone)}">${capz(t.label.toLowerCase())}</span>`}</td><td>${realSetup(t)?setupName(t):'<span class="lmiss">Not filled in</span>'}</td><td>${t.stars!==null?starsHtml(t.stars):t.rateable?'<span class="mut">Not rated</span>':'<span class="mut">–</span>'}</td><td>${mistakeName(t)?mistakeName(t):'<span class="mut">–</span>'}</td><td>${t.comment?'💬':''}</td></tr>${openRow===t.id?detailRow4(t):''}`;}).join('')}</tbody></table></div>
     <div class="lfoot"><span class="note">Showing ${shown.length} of ${rows.length} trades${rows.length>counted.size?` · <b>${rows.length-counted.size} left out</b> (grey)`:''} · untick a trade to leave it out · click a row for details</span><span style="display:flex;gap:8px;align-items:center">${pages>1?`<span class="lpager">${Array.from({length:pages},(_,i)=>`<button class="btn sm${i===page?' on':''}" data-p="${i}">${i+1}</button>`).join('')}</span>`:''}<button class="btn sm" id="hx-export">Export to Excel</button></span></div>`;
   $('hx-export').onclick=()=>exportExcel(rows.filter(t=>counted.has(t.id)));
   v.querySelectorAll('[data-cnt]').forEach(c=>{c.onclick=(e)=>e.stopPropagation();c.onchange=()=>{const id=c.dataset.cnt;F.skip=c.checked?F.skip.filter(x=>x!==id):[...F.skip,id];renderAll();};});
@@ -541,13 +541,13 @@ function detailRow4(t){
 function sumCards(s,ts){
   const above=s.wr!==null&&s.be!==null?s.wr>=s.be:null,tn=(v)=>v>0?'pos':v<0?'neg':'';
   const P=(ts.length===TR.length&&PREV?.trades)?PREV.trades:null,keyOf={'Trades':'n','Win rate':'wr','Average win':'winR','Average loss':'lossR','Per trade':'avgR','Net result':'net'};
-  const m=(k,v,d,c,tip)=>{const pv=P?P[keyOf[k]]:undefined,ch=was(pv,String(v));return `<div class="metric${ch?' chg':''}" title="${esc((ch?'Before: '+pv+'. ':'')+tip)}"><span class="lab">${k}</span><span class="v ${c||''}">${v}</span><span class="d">${ch?`<b class="was">was ${pv}</b>`:d}</span></div>`;};
+  const m=(k,v,d,c,tip)=>{const pv=P?P[keyOf[k]]:undefined,ch=was(pv,String(v));return `<div class="metric${ch?' chg':''}" title="${esc((ch?'Before: '+pv+'. ':'')+tip)}"><span class="lab">${k==='Per trade'?'Average per trade':k}</span><span class="v ${c||''}">${v}</span><span class="d">${ch?`<b class="was">was ${pv}</b>`:d}</span></div>`;};
   return m('Trades',s.n,`${s.w} won · ${s.l} lost`,'',`Closed trades in this list. A trade counts when its last share is sold.`)+
-    m('Win rate',pct(s.wr===null?null:s.wr*100),`you need ${pct(s.be===null?null:s.be*100)}`,above===null?'':above?'pos':'neg',s.wr===null?'':`${s.w} of ${s.w+s.l} trades made money. With these win and loss sizes you need at least ${pct(s.be*100)} to break even.`)+
+    m('Win rate',pct(s.wr===null?null:s.wr*100),`you need ${pct(s.be===null?null:s.be*100)} to break even`,above===null?'':above?'pos':'neg',s.wr===null?'':`${s.w} of ${s.w+s.l} trades made money. With these win and loss sizes you need at least ${pct(s.be*100)} to break even.`)+
     m('Average win',R(s.winR),'per winning trade','pos',s.winR===null?'No winning trades here.':`A winning trade made on average ${fx(s.winR,2)} times the money you planned to risk. ${RTIP}`)+
     m('Average loss',R(s.lossR),'per losing trade','neg',s.lossR===null?'No losing trades here.':`A losing trade lost on average ${fx(-s.lossR,2)} times the money you planned to risk. ${RTIP}`)+
-    m('Per trade',R(s.avgR),'all trades together',tn(s.avgR),s.avgR===null?'':`Wins and losses together: each trade ${s.avgR>=0?'made':'lost'} on average ${fx(Math.abs(s.avgR),2)} times the money you risked. Above 0 = you make money over time.`)+
-    m('Net result',usd(s.net),`${sx(s.capPct,2)} % of capital`,tn(s.net),`All these trades together, after commissions. % of capital = each trade's result divided by your capital when you bought it, added up.`);
+    m('Per trade',R(s.avgR),'in R (risk), wins and losses together',tn(s.avgR),s.avgR===null?'':`Wins and losses together: each trade ${s.avgR>=0?'made':'lost'} on average ${fx(Math.abs(s.avgR),2)} times the money you risked. Above 0 = you make money over time.`)+
+    m('Net result',usd(s.net),`${sx(s.capPct,2)} % share of capital`,tn(s.net),`All these trades together, after commissions. Share of capital = each trade's result next to your capital when it was opened, added up.`);
 }
 function renderSummary(ts){$('sum').innerHTML=sumCards(stats(ts),ts);}
 // 2026-11-10 what-if: when trades are left out, one line shows how the numbers move (with them → without them)
@@ -557,7 +557,7 @@ function renderEffect(all,ts){
   const a=stats(all),b=stats(ts),n=all.length-ts.length,tn=(v)=>v>0?'pos':v<0?'neg':'';
   const it=(l,x,y,f,c)=>`<span class="ef"><span class="k">${l}</span> <span class="${c?tn(x):''}">${f(x)}</span> <span class="ar">→</span> <b class="${c?tn(y):''}">${f(y)}</b></span>`;
   e.hidden=false;e.className='heffect';
-  e.innerHTML=`<span class="eh">Without the ${n} trade${n>1?'s':''} you left out</span>${it('Win rate',a.wr===null?null:a.wr*100,b.wr===null?null:b.wr*100,pct,false)}${it('Per trade',a.avgR,b.avgR,R,true)}${it('Net result',a.net,b.net,usd,true)}${it('% of capital',a.capPct,b.capPct,(v)=>sx(v,2)+' %',true)}<button class="linkbtn" id="ef-undo" type="button">Count them again</button>`;
+  e.innerHTML=`<span class="eh">Without the ${n} trade${n>1?'s':''} you left out</span>${it('Win rate',a.wr===null?null:a.wr*100,b.wr===null?null:b.wr*100,pct,false)}${it('Average per trade',a.avgR,b.avgR,R,true)}${it('Net result',a.net,b.net,usd,true)}${it('Share of capital',a.capPct,b.capPct,(v)=>sx(v,2)+' %',true)}<button class="linkbtn" id="ef-undo" type="button">Count them again</button>`;
   $('ef-undo').onclick=()=>{for(const k of outKeys(F))F[k]=[];F.not=[];F.skip=[];renderAll();};
 }
 
@@ -599,7 +599,7 @@ function diffs(A,B,sa,sb){
   const out=[],an=`<b>${esc(A.name)}</b>`,bn=`<b>${esc(B.name)}</b>`;
   if(!sa.n||!sb.n)return[`${!sa.n?an:bn} has no trades yet, so there is nothing to compare.`];
   const better=(x,y)=>x>y?[an,bn]:[bn,an];
-  if(sa.avgR!==null&&sb.avgR!==null&&Math.abs(sa.avgR-sb.avgR)>=0.05){const [w,l]=better(sa.avgR,sb.avgR);out.push({k:Math.abs(sa.avgR-sb.avgR)*3,t:`Per trade, ${w} did better: ${R(Math.max(sa.avgR,sb.avgR))} against ${R(Math.min(sa.avgR,sb.avgR))} for ${l}.`});}
+  if(sa.avgR!==null&&sb.avgR!==null&&Math.abs(sa.avgR-sb.avgR)>=0.05){const [w,l]=better(sa.avgR,sb.avgR);out.push({k:Math.abs(sa.avgR-sb.avgR)*3,t:`On average per trade, ${w} did better: ${R(Math.max(sa.avgR,sb.avgR))} against ${R(Math.min(sa.avgR,sb.avgR))} for ${l}.`});}
   if(sa.wr!==null&&sb.wr!==null&&Math.abs(sa.wr-sb.wr)>=0.05){const [w,l]=better(sa.wr,sb.wr);out.push({k:Math.abs(sa.wr-sb.wr)*5,t:`${w} won more often: ${pct(Math.max(sa.wr,sb.wr)*100)} of trades, against ${pct(Math.min(sa.wr,sb.wr)*100)}.`});}
   if(sa.winR&&sb.winR&&Math.abs(sa.winR/sb.winR-1)>=0.25){const [w,l]=better(sa.winR,sb.winR);out.push({k:Math.abs(sa.winR-sb.winR),t:`The wins were bigger in ${w}: ${R(Math.max(sa.winR,sb.winR))} on average, against ${R(Math.min(sa.winR,sb.winR))}.`});}
   if(sa.lossR&&sb.lossR&&Math.abs(sa.lossR/sb.lossR-1)>=0.2){const [w,l]=better(sa.lossR,sb.lossR);out.push({k:Math.abs(sa.lossR-sb.lossR),t:`The losses were smaller in ${w}: ${R(Math.max(sa.lossR,sb.lossR))} on average, against ${R(Math.min(sa.lossR,sb.lossR))}.`});}
@@ -694,7 +694,7 @@ async function exportExcel(rows){
 }
 const SKELETON=`<div class="hlists">
     <div class="lbar" id="trades-top"><div class="ltabs" role="tablist">
-      <button id="v-report" role="tab">Report</button><button id="v-trades" role="tab">Trades<span class="n" id="n-trades"></span></button><button id="v-compare" role="tab">Compare</button>
+      <button id="v-report" role="tab">Checks</button><button id="v-trades" role="tab">Trades<span class="n" id="n-trades"></span></button><button id="v-compare" role="tab">Compare</button>
     </div><span class="note" id="tabnote"></span></div>
     <section class="hview" id="sec-report"><div class="hrep">
         <section class="scard"><div class="sch"><h3>7 checks</h3><span class="note">all closed trades</span></div><div id="checks"></div></section>
@@ -719,9 +719,9 @@ export function render(ctx) {
 
 function editSale(ctx, tradeId, saleId) {
   const st = ctx.store.state; const t = A.tradeById(st, tradeId); const s = t.sales.find((x) => x.id === saleId); const sym = A.symbolOf(st, t);
-  const date = datePicker({ iso: s.date, label: 'Sell date' }), qty = h('input', { value: D.edit(D.d(s.qty)), style: { textAlign: 'right' }, 'aria-label': 'Quantity sold' }), price = h('input', { value: D.edit(D.d(s.price)), style: { textAlign: 'right' }, 'aria-label': 'Sell price' }), comm = h('input', { value: s.commission === '' ? '' : D.edit(D.d(s.commission)), style: { textAlign: 'right' }, 'aria-label': 'Sell commission' });
+  const date = datePicker({ iso: s.date, label: 'Sell date' }), qty = h('input', { value: D.edit(D.d(s.qty)), style: { textAlign: 'right' }, 'aria-label': 'Shares sold' }), price = h('input', { value: D.edit(D.d(s.price)), style: { textAlign: 'right' }, 'aria-label': 'Sell price' }), comm = h('input', { value: s.commission === '' ? '' : D.edit(D.d(s.commission)), style: { textAlign: 'right' }, 'aria-label': 'Sell commission' });
   dialog({ title: `Edit sale of ${sym} · ${t.id}`, wide: true, ok: 'Save', body: h('div', { style: { display: 'grid', gap: '12px' } },
-    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Sell date', date), field('Quantity sold', qty), field('Sell price', price), field('Sell commission', comm)),
+    h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Sell date', date), field('Shares sold', qty), field('Sell price', price), field('Sell commission', comm)),
     h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => { closeTopDialog(); editTrade(ctx, t.id); } }, 'Edit buy data…'),
       h('button', { class: 'btn quiet-dng', onClick: async () => {
         const ok = await dialog({ title: `Reopen ${sym}: remove this sale?`, ok: 'Remove sale', body: para(`The ${qtyTxt(D.d(s.qty))} shares become open again and the sale moves to the Trash for 15 days. Capital and statistics change.`, '') });
