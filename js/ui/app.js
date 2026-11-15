@@ -27,7 +27,7 @@ const ROUTES = {
   'close-trade': { title: 'Close trade', eyebrow: 'Exit', lead: 'Sell shares and see the result before anything is saved.', mod: tradeForms, fn: 'renderClose', parent: 'open', own: true },
   history: { title: 'History', eyebrow: 'Learn', lead: 'What your closed trades say about how you trade, and where to look next.', mod: history },
   capital: { title: 'Capital', eyebrow: 'Money', lead: 'What changed your capital and why.', mod: capital },
-  lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and errors used by your trades.', mod: lists },
+  lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and mistakes used by your trades.', mod: lists },
   data: { title: 'Import / Export', eyebrow: 'Safety centre', lead: 'Export, backups, restore and import of your journal.', mod: data },
   settings: { title: 'Settings', eyebrow: 'System', lead: 'Limits for marks, labels and saving. They only change what you see; they never block anything.', mod: settings },
   dashboard: { title: 'Dashboard', mod: dashboard, own: true },

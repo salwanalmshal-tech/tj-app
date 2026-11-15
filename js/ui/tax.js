@@ -65,12 +65,12 @@ export function render(ctx) {
     h('div', { class: 'tw' }, h('table', { class: 'cap-table' },
       h('thead', null, h('tr', null,
         h('th', null, 'Symbol'),
-        th('Shares bought', 'Total shares bought that were sold in this period, across all buy lines of this symbol.'),
-        th('Avg buy price', 'Weighted average buy price of the shares sold in this period.'),
-        th('Avg sell price', 'Weighted average sell price of the shares sold in this period.'),
+        th('Shares bought', 'Total shares bought that were sold in this period, across all trades of this symbol.'),
+        th('Average buy price', 'Weighted average buy price of the shares sold in this period.'),
+        th('Average sell price', 'Weighted average sell price of the shares sold in this period.'),
         th('Commission', 'Buy and sell commission together, for the shares sold in this period.'),
         th('Dividends', 'Dividends with a pay date inside this period, for this symbol.'),
-        th('Net P&L', 'Total net result (after commission) of the shares sold in this period.'))),
+        th('Net result', 'Total net result (after commission) of the shares sold in this period.'))),
       h('tbody', null,
         rows.map((r) => h('tr', null,
           h('td', null, r.symbol),
@@ -83,7 +83,7 @@ export function render(ctx) {
         h('tr', { style: { fontWeight: '700' } }, h('td', null, 'Total'), h('td', { class: 'r' }), h('td', { class: 'r' }), h('td', { class: 'r' }),
           h('td', { class: 'r' }, totals.commission ? usd(totals.commission) : '–'), h('td', { class: 'r' }, totals.dividends ? usd(totals.dividends) : '–'), h('td', { class: 'r ' + toneCls(totals.net) }, susd(totals.net))))));
 
-  const table2 = !open.length ? h('div', { class: 'msg dim' }, 'No open positions were bought in this period.') :
+  const table2 = !open.length ? h('div', { class: 'msg dim' }, 'No open trades were bought in this period.') :
     h('div', { class: 'tw' }, h('table', { class: 'cap-table' },
       h('thead', null, h('tr', null, h('th', null, 'Symbol'), h('th', null, 'Buy date'), h('th', { class: 'r' }, 'Shares'), h('th', { class: 'r' }, 'Buy price'))),
       h('tbody', null, open.map((r) => h('tr', null, h('td', null, r.symbol), h('td', null, dmy(r.buyDate)), h('td', { class: 'r' }, qtyTxt(r.shares)), h('td', { class: 'r' }, priceTxt(r.buyPrice)))))));
@@ -108,6 +108,6 @@ export function render(ctx) {
       h('span', { style: { flexGrow: '1' } }),
       h('span', { class: 'note' }, 'From'), fromDp, h('span', { class: 'note' }, 'To'), toDp)),
     h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Sold in this period', infoBtn('Sold in this period', 'The sell date decides which sales fall in the period. Grouped by symbol; a stock with a dividend in the period gets a row even if none of it was sold.')), h('div', { class: 'pb' }, table1)),
-    h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Still open — bought in this period', infoBtn('Still open', 'Open lines bought in this period, shown separately. Not counted in the total above.')), h('div', { class: 'pb' }, table2)),
+    h('section', { class: 'panel' }, h('div', { class: 'ph' }, 'Still open — bought in this period', infoBtn('Still open', 'Open trades bought in this period, shown separately. Not counted in the total above.')), h('div', { class: 'pb' }, table2)),
     h('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, exportBtn));
 }

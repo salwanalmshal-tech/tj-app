@@ -10,9 +10,9 @@ const susd = (a) => (a === null || a === undefined ? '–' : (a > 0n ? '+$' : a 
 // After a capital change: if the saved capital at open of some trades no longer matches, ask (D2: never silent).
 export async function askRecalc(ctx) {
   const diffs = A.capitalDiffs(ctx.store.state); if (!diffs.length) return;
-  const ok = await dialog({ title: `Recalculate the capital at open of ${diffs.length} trade${diffs.length === 1 ? '' : 's'}?`, wide: true, ok: 'Recalculate', cancel: 'Keep old values',
-    body: h('div', null, para('These trades were opened after the date of your change. Recalculating changes their position size %, risk % and result % of capital. Keeping the old values leaves them as they are.'),
-      changeTable(diffs.map((x) => Object.assign([x.id + ' ' + x.symbol, money(D.d(x.before)), money(D.d(x.after))], { changed: true })), ['Trade', 'Capital at open now', 'Recalculated'])) });
+  const ok = await dialog({ title: `Calculate the capital when opened again for ${diffs.length} trade${diffs.length === 1 ? '' : 's'}?`, wide: true, ok: 'Calculate again', cancel: 'Keep old values',
+    body: h('div', null, para('These trades were opened after the date of your change. Calculating again changes their position size, risk and share of capital. Keeping the old values leaves them as they are.'),
+      changeTable(diffs.map((x) => Object.assign([x.id + ' ' + x.symbol, money(D.d(x.before)), money(D.d(x.after))], { changed: true })), ['Trade', 'Capital when opened now', 'Calculated again'])) });
   // noUndo: this recalc is a side effect of whatever change triggered it (delete, add, import, restore).
   // It must not take over the one-step Undo slot, or a "Restore"/"Undo" toast for that earlier change
   // would end up undoing this recalc instead (#20).
@@ -71,12 +71,12 @@ export function render(ctx) {
   // hero
   wrap.append(h('section', { class: 'cap-hero' },
     h('div', null,
-      h('div', { class: 'eyebrow' }, 'Capital (closed trades)', infoBtn('Capital (closed trades)', 'Start capital + deposits − withdrawals + dividends + net result of every sale. Open positions are not included.')),
+      h('div', { class: 'eyebrow' }, 'Capital (closed trades)', infoBtn('Capital (closed trades)', 'Start capital + deposits − withdrawals + dividends + net result of every sale. Open trades are not in it.')),
       h('div', { class: 'cap-big' }, usd(capNow)),
       h('div', { class: 'cap-start' }, 'Started with ', h('b', null, usd(D.d(start.amount))), ' on ' + dmy(start.date) + ' · ', h('button', { class: 'linkbtn', disabled: ctx.readOnly, onClick: editStart }, 'Edit start capital'))),
     h('div', { class: 'cap-side' },
       h('div', { class: 'cap-res ' + tone(sales) }, h('b', null, susd(sales)), ' from closed trades'),
-      h('div', { class: 'cap-res ' + tone(progress ?? 0n) }, h('b', null, spct(progress)), ' on invested capital', infoBtn('On invested capital', '(Net result of sales + dividends) ÷ (start capital + all deposits). Withdrawals are never counted as a loss.')))));
+      h('div', { class: 'cap-res ' + tone(progress ?? 0n) }, h('b', null, spct(progress)), ' on money put in', infoBtn('Result vs money put in', 'Your sale results and dividends, next to everything you put in (start capital and deposits). Withdrawals never count as a loss.')))));
 
   // the sum: start + deposits/withdrawals + dividends + closed trades = capital
   const term = (icon, label, v, cls = '') => h('div', { class: 'cap-term' }, h('span', { class: 'ci ' + cls }, icon), h('div', null, h('span', null, label), h('b', { class: cls }, v)));
@@ -159,14 +159,14 @@ export function render(ctx) {
   wrap.append(h('div', { class: 'cap-grid' },
     h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, 'Capital activity'), filt),
       h('div', { class: 'tw' }, h('table', { class: 'cap-table' }, h('thead', null, h('tr', null, h('th', null, 'Date'), h('th', null, 'Event'), h('th', null, 'Details'), h('th', { class: 'r' }, 'Amount (USD)'), h('th'))), tbody)),
-      h('div', { class: 'cap-note' }, 'ⓘ Deposits, withdrawals and dividends change capital only. They never count as win or loss and do not change open positions.')),
+      h('div', { class: 'cap-note' }, 'ⓘ Deposits, withdrawals and dividends change capital only. They never count as win or loss and do not change open trades.')),
     h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, 'Breakdown'), h('span', { class: 'stag' }, 'Current')),
       h('div', { class: 'scb brk' }, br('Start capital', usd(D.d(start.amount))), br('Deposits', susd(deps), tone(deps)), br('Withdrawals', susd(wds), tone(wds)), br('Dividends', susd(divT), tone(divT)), br('Closed trades', susd(sales), tone(sales)),
         h('div', { class: 'brk-row total' }, h('span', null, 'Capital (closed trades)'), h('b', null, usd(capNow)))))));
 
   // ---- recalculation of capital at open (only when something differs) ----
   const diffs = A.capitalDiffs(st);
-  if (diffs.length) wrap.append(h('div', { class: 'msg warn', role: 'status' }, `◆ The capital at open of ${diffs.length} trade${diffs.length === 1 ? '' : 's'} no longer matches your capital history. `, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: async () => { const ok = await dialog({ title: 'Recalculate capital at open?', wide: true, ok: 'Recalculate', body: changeTable(diffs.map((x) => Object.assign([x.id + ' ' + x.symbol, money(D.d(x.before)), money(D.d(x.after))], { changed: true }))) }); if (ok) ctx.act((d) => A.recalcCapital(d), { label: 'capital at open', now: true }); } }, 'Review…')));
+  if (diffs.length) wrap.append(h('div', { class: 'msg warn', role: 'status' }, `◆ The capital when opened of ${diffs.length} trade${diffs.length === 1 ? '' : 's'} no longer matches your capital history. `, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: async () => { const ok = await dialog({ title: 'Calculate the capital when opened again?', wide: true, ok: 'Calculate again', body: changeTable(diffs.map((x) => Object.assign([x.id + ' ' + x.symbol, money(D.d(x.before)), money(D.d(x.after))], { changed: true }))) }); if (ok) ctx.act((d) => A.recalcCapital(d), { label: 'capital at open', now: true }); } }, 'Review…')));
 
   // ---- stock split ----
   return wrap;
@@ -176,13 +176,13 @@ async function splitDialog(ctx) {
   const st = ctx.store.state; const withOpen = st.stocks.filter((s) => st.trades.some((t) => t.stockId === s.id && C.openQty(t) > 0n));
   const sel = h('select', { 'aria-label': 'Stock' }, withOpen.map((s) => h('option', { value: s.id }, s.symbol))), rn = h('input', { value: '2', style: { textAlign: 'right' }, 'aria-label': 'New shares' }), ro = h('input', { value: '1', style: { textAlign: 'right' }, 'aria-label': 'Old shares' }), date = datePicker({ iso: ctx.today(), label: 'Split date' });
   let p = null;
-  const go = await dialog({ title: 'Stock split', ok: 'Preview split', body: h('div', null, para('Changes the quantity and prices of the open trades of this stock. Results and R do not change.', 'note'),
+  const go = await dialog({ title: 'Stock split', ok: 'Preview split', body: h('div', null, para('Changes the shares and prices of the open trades of this stock. Results and R do not change.', 'note'),
     h('div', { class: 'grid', style: { gridTemplateColumns: '1.2fr 1fr 1fr 1.4fr', marginTop: '8px' } }, field('Stock', sel), field('New shares', rn), field('for old shares', ro), field('Split date', date))),
     onOk: () => { const iso = date.getISO(); if (!iso) return 'Enter a valid split date (dd-mm-yyyy).'; p = A.splitPreview(st, sel.value, rn.value, ro.value, iso); if (!p.ok) return p.error; if (!p.data.rows.length) return p.data.skipped.length ? 'All open trades of this stock were bought on or after the split date, so they are already at the new price. Nothing to convert.' : 'This stock has no open trades to convert.'; p.iso = iso; return true; } });
   if (!go) return;
   const sym = A.stockById(st, sel.value).symbol;
   const ok = await dialog({ title: `Apply the ${rn.value}:${ro.value} split of ${sym}?`, wide: true, ok: 'Apply split', body: h('div', null, para('Open trades are converted, including the sold part of partly sold trades, so quantities and prices stay consistent. Results and R do not change.'),
-    changeTable(p.data.rows.flatMap((r) => [Object.assign([`${r.trade.id} quantity`, qtyTxt(r.qtyBefore), qtyTxt(r.qtyAfter)], { changed: true }), Object.assign([`${r.trade.id} buy price`, priceTxt(r.priceBefore), priceTxt(r.priceAfter)], { changed: true })])),
+    changeTable(p.data.rows.flatMap((r) => [Object.assign([`${r.trade.id} shares`, qtyTxt(r.qtyBefore), qtyTxt(r.qtyAfter)], { changed: true }), Object.assign([`${r.trade.id} buy price`, priceTxt(r.priceBefore), priceTxt(r.priceAfter)], { changed: true })])),
     p.data.skipped.length ? h('div', { class: 'msg info', style: { marginTop: '10px' } }, `● Not changed: ${p.data.skipped.map((t) => `${t.id} (bought ${dmy(t.buyDate)})`).join(', ')} — bought on or after the split date, so already at the new price. Last price, highest price and EMA10 of ${sym} also stay as they are, because they are shared with ${p.data.skipped.length === 1 ? 'that line' : 'those lines'}.`) : null) });
   if (ok) { const r = ctx.act((d) => A.applySplit(d, sel.value, rn.value, ro.value, p.iso), { label: 'split ' + sym, now: true }); toast(r.ok ? `${sym} split applied.` : r.error); }
 }

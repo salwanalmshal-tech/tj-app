@@ -351,10 +351,10 @@ function starsF(f,onChange){
   const mk=(k,lab,first)=>{const s=document.createElement('select');s.setAttribute('aria-label',lab);
     [['',first],...(k==='starsFrom'?[['none','Not rated']]:[]),...STEPS.map(n=>[String(n),String(n).replace('.',',')])].forEach(([v,l])=>{const o=new Option(l,v);o.selected=String(f[k]??'')===v;s.add(o);});
     s.onchange=()=>{f[k]=s.value;if(k==='starsFrom'&&s.value==='none')f.starsTo='';onChange();};return s;};
-  const a=mk('starsFrom','Stars from','Stars: any'),b=mk('starsTo','Stars to','any');if(f.starsFrom==='none')b.disabled=true;
+  const a=mk('starsFrom','Setup rating from','Setup rating: any'),b=mk('starsTo','Setup rating to','any');if(f.starsFrom==='none')b.disabled=true;
   w.append(a,document.createTextNode('to'),b);return w;
 }
-const starsChip=(f)=>f.starsFrom==='none'?'Stars: not rated':(f.starsFrom!==''&&f.starsFrom!==undefined)||(f.starsTo!==''&&f.starsTo!==undefined)?`Stars ${f.starsFrom!==''&&f.starsFrom!==undefined?'from '+String(f.starsFrom).replace('.',','):''} ${f.starsTo!==''&&f.starsTo!==undefined?'to '+String(f.starsTo).replace('.',','):''}`.replace(/\s+/g,' ').trim():'';
+const starsChip=(f)=>f.starsFrom==='none'?'Setup rating: not rated':(f.starsFrom!==''&&f.starsFrom!==undefined)||(f.starsTo!==''&&f.starsTo!==undefined)?`Setup rating ${f.starsFrom!==''&&f.starsFrom!==undefined?'from '+String(f.starsFrom).replace('.',','):''} ${f.starsTo!==''&&f.starsTo!==undefined?'to '+String(f.starsTo).replace('.',','):''}`.replace(/\s+/g,' ').trim():'';
 let showMore=false;
 
 let view='report',sort={k:'sellDate',d:-1},page=0,openRow=null;const PAGE=25;
@@ -526,7 +526,7 @@ function detailRow4(t){
   return `<tr class="dt"><td colspan="${COLS4.length}"><div class="dgrid">
     <div><span>Bought</span><b>${dmy(t.buyDate)} · ${fx(t.qty,0)} × $${fx(t.buy,2)}</b></div><div><span>Average sell price</span><b>$${fx(t.avgSell,2)}</b></div>
     <div><span>Initial stop</span><b>${t.init===null?'No stop':`$${fx(t.init,2)} · ${fx(t.sdPct,1)} % · ${t.sd}`}</b></div><div><span>How you bought</span><b>${t.how}</b></div>
-    <div><span>Commissions</span><b>$${fx(t.comm,2)}</b></div><div><span>Capital at open</span><b>$${fx(t.capAtOpen,2)}</b></div></div>
+    <div><span>Commissions</span><b>$${fx(t.comm,2)}</b></div><div><span>Capital when opened</span><b>$${fx(t.capAtOpen,2)}</b></div></div>
     <button class="tfmore" type="button" data-facts="${t.id}" aria-expanded="${factsOpen===t.id}"><span class="tri" aria-hidden="true">${factsOpen===t.id?'▾':'▸'}</span> More: how much of the move did I keep · did I move a stop down</button>
     ${factsOpen===t.id?factsHtml(t):''}
     ${t.comment?`<p style="margin:12px 0 0;max-width:80ch">💬 ${esc(t.comment)}</p>`:''}

@@ -3,7 +3,7 @@ import * as A from '../actions.js';
 
 // Layout 2026-11-06 (his Lists example + Q12): tabs Stocks / Setups / Errors with counts, search, filters, sortable columns,
 // a missing-info filter, count and pages; one "…" menu per row (Edit, Archive/Restore, Delete). Rules J1–J3 unchanged.
-const NAMES = { stocks: ['Stocks', 'symbol', 'stock'], setups: ['Setups', 'name', 'setup'], errors: ['Errors', 'name', 'error'] };
+const NAMES = { stocks: ['Stocks', 'symbol', 'stock'], setups: ['Setups', 'name', 'setup'], errors: ['Mistakes', 'name', 'mistake'] };
 const LEADS = { stocks: 'Your stocks with sector, industry and exchange. Typing a symbol in Open trade fills these in.', setups: 'Reusable trade setups. Usually a short list.', errors: 'Trading mistakes you want to recognize across your journal.' };
 const PAGE = 25;
 const V = { tab: 'stocks', q: '', sector: '', exch: '', status: 'active', sort: { stocks: ['trades', -1], setups: ['trades', -1], errors: ['trades', -1] }, page: 0 };
@@ -124,7 +124,7 @@ function edit(ctx, list, it) {
 }
 async function archive(ctx, list, it) {
   const key = NAMES[list][1];
-  if (!it.archived) { const probe = A.archiveListItem(structuredClone(ctx.store.state), list, it.id, true); if (!probe.ok) return dialog({ title: `${it[key]} still has an open position`, body: para('Close it first, then archive. Nothing was changed.', ''), info: true }); }
+  if (!it.archived) { const probe = A.archiveListItem(structuredClone(ctx.store.state), list, it.id, true); if (!probe.ok) return dialog({ title: `${it[key]} still has an open trade`, body: para('Close it first, then archive. Nothing was changed.', ''), info: true }); }
   const r = ctx.act((d) => A.archiveListItem(d, list, it.id, !it.archived), { label: it.archived ? 'restore ' + it[key] : 'archive ' + it[key], now: true }); if (!r.ok) toast(r.error);
 }
 async function del(ctx, list, it, usage) {

@@ -90,7 +90,7 @@ const CARD = {
     const cap = C.capitalNow(st); const pr = C.progress(st); const cur = C.capitalCurve(st);
     return h('div', { class: 'd-card wide' },
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', flex: '1 1 auto', minWidth: '0' } },
-        head(grip, 'Capital (closed trades)', 'Start capital + deposits − withdrawals + dividends + the net result of every sale. Open positions are not in it.'),
+        head(grip, 'Capital (closed trades)', 'Start capital + deposits − withdrawals + dividends + the net result of every sale. Open trades are not in it.'),
         h('span', { class: 'v big' }, usd(cap)),
         h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' } },
           h('span', { class: 'd-tag ' + (tone(pr.result) || 'pos') }, (pr.result < 0n ? '▼ ' : '▲ ') + susd(pr.result) + ' from sales and dividends'),
@@ -103,13 +103,13 @@ const CARD = {
     const max = Math.max(1e-9, ...rows.map((r) => Math.abs(num(r.pl))));
     const top = [...rows].sort((a, b) => Math.abs(num(b.pl)) - Math.abs(num(a.pl))).slice(0, 3);
     return h('div', { class: 'd-card' },
-      head(grip, 'Open P&L', 'Result of your open positions at their last prices. Not in Capital until you sell.'),
+      head(grip, 'Open P&L', 'What all open trades would win or lose if sold at the last price. Not in Capital until you sell.'),
       h('span', { class: 'v ' + tone(tot) }, susd(tot)),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, top.map((r, i) =>
         h('div', { style: { display: 'grid', gridTemplateColumns: '44px 1fr 62px', gap: '6px', alignItems: 'center', fontSize: '11px' } },
           h('b', null, r.sym), h('span', { class: 'd-track', style: { height: '5px' } }, fill((Math.abs(num(r.pl)) / max) * 100, r.pl < 0n ? 'var(--neg)' : 'var(--pos)', { delay: i * 0.1 + 's' })),
           h('span', { class: tone(r.pl), style: { textAlign: 'right' } }, susd(r.pl))))),
-      h('span', { class: 'q' }, !ex.rows.length ? 'No open positions' : `${ex.rows.length} open stock${ex.rows.length === 1 ? '' : 's'}` + (rows.length > 3 ? ` · top 3 shown` : '') + (noLast ? ` · ${noLast} without last price not included` : '')));
+      h('span', { class: 'q' }, !ex.rows.length ? 'No open trades' : `${ex.rows.length} open stock${ex.rows.length === 1 ? '' : 's'}` + (rows.length > 3 ? ` · top 3 shown` : '') + (noLast ? ` · ${noLast} without last price not included` : '')));
   },
   loss(st, today, ex, grip) {
     const L = C.lossIfAllStopsHit(st);
@@ -211,8 +211,8 @@ function periodPicker(ctx, st, today) {
 const BLOCK = {
   exposure(ctx, st, today, ex, grip) {
     const b = h('section', { class: 'd-block wide' });
-    b.append(blockHead(grip, 'Exposure — your open positions', h('span', { class: 'd-q' }, `% of estimated account ${usd(ex.account)} · tap a stock`)));
-    if (!ex.rows.length) { b.append(h('div', { class: 'd-q', style: { padding: '8px 18px 18px' } }, 'No open positions.')); return b; }
+    b.append(blockHead(grip, 'Exposure — your open trades', h('span', { class: 'd-q' }, `Next to your account estimate ${usd(ex.account)} · tap a stock`)));
+    if (!ex.rows.length) { b.append(h('div', { class: 'd-q', style: { padding: '8px 18px 18px' } }, 'No open trades.')); return b; }
     const secColor = new Map(ex.sectors.map((x, i) => [x.key, COLORS[i % COLORS.length]]));
     const sel = V.ex >= 0 && V.ex < ex.rows.length ? ex.rows[V.ex] : null;
     const R = 78, CIRC = 2 * Math.PI * R; let off = 0;
@@ -228,7 +228,7 @@ const BLOCK = {
     const max = Math.max(1e-9, ...ex.rows.map((r) => num(r.value)));
     const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '0' } },
       h('div', { class: 'd-exrow', style: { display: 'grid', gridTemplateColumns: cols, gap: '12px', padding: '0 10px 6px' } },
-        ['Stock', 'Value', '$', 'Account', 'If stop hit'].map((t, i) => h('span', { class: 'eyebrow', style: { textAlign: i > 1 ? 'right' : 'left' } }, t))),
+        ['Stock', 'Value', '$', 'Share of account', 'If stop hit'].map((t, i) => h('span', { class: 'eyebrow', style: { textAlign: i > 1 ? 'right' : 'left' } }, t))),
       ex.rows.map((r, i) => h('button', { class: 'd-row d-exrow' + (V.ex === i ? ' on' : ''), style: { gridTemplateColumns: cols }, 'aria-pressed': String(V.ex === i), onClick: () => { V.ex = V.ex === i ? -1 : i; ctx.redraw(); } },
         h('span', { style: { display: 'flex', flexDirection: 'column', minWidth: '0' } },
           h('b', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, h('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: secColor.get(r.sector) } }), r.sym),
@@ -387,7 +387,7 @@ const BLOCK = {
     b.append(h('div', { class: 'd-soft', style: { margin: '12px 18px 18px', padding: '12px 14px', display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '10px' } },
       h('div', null, h('div', { class: 'eyebrow' }, g.name), h('div', { class: tone(g.net), style: { fontSize: '18px', fontWeight: '800' } }, susd(g.net))),
       h('div', null, h('div', { class: 'eyebrow' }, 'Win rate'), h('div', { style: { fontSize: '18px', fontWeight: '800' } }, g.winRate === null ? '–' : D.fmt(g.winRate, 0) + ' %'), h('div', { class: 'd-q' }, `${g.won} won · ${g.lost} lost` + (g.zero ? ` · ${g.zero} at 0` : ''))),
-      h('div', null, h('div', { class: 'eyebrow' }, 'Per trade'), h('div', { class: tone(g.avgR), style: { fontSize: '18px', fontWeight: '800' } }, g.avgR === null ? '–' : (g.avgR > 0n ? '+' : g.avgR < 0n ? '−' : '') + D.fmt(D.abs(g.avgR), 2) + ' R'), h('div', { class: 'd-q' }, 'average R'))));
+      h('div', null, h('div', { class: 'eyebrow' }, 'Average per trade'), h('div', { class: tone(g.avgR), style: { fontSize: '18px', fontWeight: '800' } }, g.avgR === null ? '–' : (g.avgR > 0n ? '+' : g.avgR < 0n ? '−' : '') + D.fmt(D.abs(g.avgR), 2) + ' R'), h('div', { class: 'd-q' }, 'in R (risk)'))));
     return b;
   },
 };

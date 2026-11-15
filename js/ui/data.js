@@ -19,7 +19,7 @@ const stampName = () => new Date().toISOString().slice(0, 10);
 // Layout 2026-11-06 (after his "Safety Centre" example): a left menu with five sections; every action and rule stays as agreed
 // (import kinds, checks, backups first, typed DELETE, Trash 15 days, change log never erased).
 let lastSection = 'overview';
-const SECTIONS = [['overview', 'Overview', 'Main actions'], ['backups', 'Backups', 'Recovery points'], ['excel', 'Excel copies', 'Readable copies'], ['trash', 'Trash and activity', 'Deleted items and log']];
+const SECTIONS = [['overview', 'Overview', 'Main actions'], ['backups', 'Backups', 'Recovery points'], ['excel', 'Excel copies', 'Readable copies'], ['trash', 'Trash and change log', 'Deleted items and the list of changes']];
 const card = (title, tag, ...kids) => h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, title), tag ? h('span', { class: 'stag' }, tag) : null), h('div', { class: 'scb' }, kids));
 const task = (eyebrow, title, text, tone, ...buttons) => h('section', { class: 'task ' + (tone || '') }, h('div', { class: 'te' }, eyebrow), h('h3', null, title), h('p', null, text), h('div', { class: 'row' }, buttons));
 const when = (iso) => dmy(iso.slice(0, 10)) + ' · ' + new Date(iso).toTimeString().slice(0, 5);
@@ -120,7 +120,7 @@ async function importExcel(ctx, file, mode = 'new') {
   const ok = await dialog({ title: 'New start: replace all data with this file?', wide: true, danger: true, ok: 'Replace all data', confirmWord: 'DELETE', body: h('div', null,
     h('p', { style: { margin: '0 0 8px' } }, 'The file contains: ', h('b', null, `${s.trades} trades (${s.open} open, ${s.closed} closed), ${s.sales} sales, ${s.flows} deposits/withdrawals, ${s.dividends} dividends, ${s.stocks} stocks.`)),
     h('p', { class: 'sub', style: { margin: '0 0 8px' } }, `This removes what is in the program now: ${st.trades.length} trades, ${st.dividends.length} dividends, ${st.capital.flows.length} capital lines and your saved layouts. Your settings stay as they are. A full backup is made first.`),
-    h('div', { class: 'msg warn', style: { margin: '0 0 8px' } }, '◆ Also emptied, with no way back: the Trash, the change log, the stop-loss history, and which History trades you have already seen.'),
+    h('div', { class: 'msg warn', style: { margin: '0 0 8px' } }, '◆ Also emptied, with no way back: the Trash, the change log, the stop history, and which History trades you have already seen.'),
     result.ignoredSheets.length ? h('p', { class: 'note' }, 'Ignored sheets: ' + result.ignoredSheets.join(', ')) : null,
     result.warnings.length ? h('div', null, h('b', null, `${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'} (still imported):`), list(result.warnings, 'note')) : null),
     onOk: async () => {
@@ -204,7 +204,7 @@ function backupPane(ctx) {
 }
 
 // ------------------------------------------------------------- trash
-const TRASH_KIND = { trade: 'Trade', dividend: 'Dividend', flow: 'Capital line', stocks: 'Stock', setups: 'Setup', errors: 'Error', sales: 'Sales' };
+const TRASH_KIND = { trade: 'Trade', dividend: 'Dividend', flow: 'Capital line', stocks: 'Stock', setups: 'Setup', errors: 'Mistake', sales: 'Sales' };
 function trashLabel(st, e) {
   const i = e.item;
   if (e.kind === 'trade') return `${i.id} ${A.symbolOf(st, i)} · ${dmy(i.buyDate)}`;
@@ -222,7 +222,7 @@ function trashPane(ctx) {
   const log = st.changeLog.slice(-100).reverse();
   const logEl = h('details', { class: 'logbox' }, h('summary', null, h('b', null, `${st.changeLog.length} entr${st.changeLog.length === 1 ? 'y' : 'ies'}`), h('span', null, ' · show the latest 100')),
     h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['When', 'What', 'Details'].map((x) => h('th', null, x)))), h('tbody', null, log.map((l) => h('tr', null, h('td', null, dmy(l.ts.slice(0, 10)) + ' ' + l.ts.slice(11, 16)), h('td', null, l.type), h('td', { class: 'mut' }, Object.entries(l).filter(([k]) => !['ts', 'type'].includes(k)).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · '))))))));
-  return [card('Trash', '15 days', trash), card('Change log', 'Trade changes', h('p', { class: 'snote' }, 'A record of trade changes: opening a trade, edits to quantity/buy price/commission/buy date, Initial stop, sales and their edits, removing a sale, deleting a trade, and stock splits. Deposits, withdrawals, dividends, start capital, settings and your lists (stocks/setups/errors) are not recorded here. Current stop changes are kept in a separate history that is not shown on any screen yet.'), logEl),
+  return [card('Trash', '15 days', trash), card('Change log', 'Trade changes', h('p', { class: 'snote' }, 'A record of trade changes: opening a trade, edits to shares/buy price/commission/buy date, Initial stop, sales and their edits, removing a sale, deleting a trade, and stock splits. Deposits, withdrawals, dividends, start capital, settings and your lists (stocks/setups/errors) are not recorded here. Current stop changes are kept in a separate history that is not shown on any screen yet.'), logEl),
     task('Why this matters', 'Recover mistakes and understand changes', 'The Trash protects recently deleted items. The change log shows when and how a trade changed.', 'green')];
 }
 

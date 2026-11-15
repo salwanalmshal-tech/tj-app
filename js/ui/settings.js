@@ -13,8 +13,8 @@ let lastSection = 'rules';
 export const goSection = (k) => { lastSection = k; };
 
 const SECTIONS = [
-  ['Trading', [['rules', 'Trading rules', 'Stops, EMA10 and reports'], ['risk', 'Risk and position size', 'Capital at risk and allocation']]],
-  ['Journal', [['results', 'Results and labels', 'R labels and stop distance'], ['history', 'History marks', 'Closed-trade highlighting']]],
+  ['Trading', [['rules', 'Trading rules', 'Stops, EMA10 and earnings'], ['risk', 'Risk and position size', 'Capital at risk and allocation']]],
+  ['Journal', [['results', 'Results and labels', 'Result labels and stop distance'], ['history', 'History marks', 'Closed-trade highlighting']]],
   ['System', [['saving', 'Saving and backup', 'Autosave and Excel copies'], ['account', 'Account and data', 'Version, file and connection']]],
 ];
 
@@ -53,18 +53,18 @@ export function render(ctx) {
       row({ path: 'stopAboveBuy.raiseAbove', label: 'Raise stop · stop above buy price', sub: 'Profit is protected; review the stop once the price runs.', chip: 'Raise stop', tone: 'warn' }),
       row({ path: 'stopAboveBuy.closeWithin', label: 'Close to stop · stop above buy price', chip: 'Close to stop', tone: 'warn' }),
       row({ path: 'highestToStop', label: 'Stop far below highest price', sub: 'Highest price is more than this above the stop.', chip: 'Stop far below highest price', tone: 'warn' })),
-    card('Price and report signals', 'Daily monitoring',
+    card('Price and earnings signals', 'Daily monitoring',
       row({ path: 'emaNear', label: 'Near EMA10', sub: 'Last price less than this above EMA10. Below EMA10 is always red.', chip: 'Near EMA10', tone: 'warn' }),
-      row({ path: 'reportedAgoDays', kind: 'int', unit: 'days', label: 'Show “Reported N days ago”', sub: 'Quiet reminder after a report.', chip: 'Reported N days ago', tone: 'plain' }),
-      row({ path: 'reportStaleDays', kind: 'int', unit: 'days', label: 'Report date too old', sub: 'No new report date entered after this many days.', chip: 'Needs attention', tone: 'warn' })),
+      row({ path: 'reportedAgoDays', kind: 'int', unit: 'days', label: 'Show “Earnings were N days ago”', sub: 'Quiet reminder after the earnings date.', chip: 'Earnings were N days ago', tone: 'plain' }),
+      row({ path: 'reportStaleDays', kind: 'int', unit: 'days', label: 'Earnings date too old', sub: 'No new earnings date entered after this many days.', chip: 'Needs attention', tone: 'warn' })),
   ];
   const risk = [
-    card('Risk at stop', '% of capital at open',
+    card('Risk at stop', 'Share of capital when opened',
       h('div', { class: 'zones' },
         zone({ tone: 'blue', name: 'Normal', body: derived(() => 'up to ' + val('riskWarn') + ' %'), note: 'No mark.' }),
-        zone({ tone: 'amber', name: 'Orange', body: h('span', { class: 'zt' }, 'above ', num('riskWarn', 'num', '%', 'Risk at stop, orange above')), note: 'Risk of Capital shown orange.' }),
-        zone({ tone: 'red', name: 'Red', body: h('span', { class: 'zt' }, 'above ', num('riskRed', 'num', '%', 'Risk at stop, red above')), note: 'Risk of Capital shown red.' }))),
-    card('Position size', '% of estimated account',
+        zone({ tone: 'amber', name: 'Orange', body: h('span', { class: 'zt' }, 'above ', num('riskWarn', 'num', '%', 'Risk at stop, orange above')), note: 'Risk shown orange.' }),
+        zone({ tone: 'red', name: 'Red', body: h('span', { class: 'zt' }, 'above ', num('riskRed', 'num', '%', 'Risk at stop, red above')), note: 'Risk shown red.' }))),
+    card('Position size', 'Next to your account estimate',
       h('div', { class: 'zones' },
         zone({ tone: 'blue', name: 'Small', body: h('span', { class: 'zt' }, num('posSmallFrom', 'num', '', 'Small position from'), '–', num('posSmallTo', 'num', '%', 'Small position up to')), note: 'Position size shown blue.' }),
         zone({ tone: 'green', name: 'Normal', body: derived(() => 'below ' + val('posNear') + ' %'), note: 'Position size green.' }),
@@ -72,8 +72,8 @@ export function render(ctx) {
         zone({ tone: 'red', name: 'Too big', body: h('span', { class: 'zt' }, 'above ', num('posTooBig', 'num', '%', 'Position size, red above')), note: 'Position size red.' }))),
     card('Stop compared with the buy price', 'Card marks',
       row({ path: 'stopFarBelowBuy', label: 'Stop far below buy price', sub: derived(() => `Only when the stop is more than ${val('stopFarBelowBuy')} % below the buy price AND the risk at stop is above ${val('stopFarBelowBuyRisk')} %.`), why: 'One rule with two settings: it shows only when both are true.', chip: 'Stop far below buy price', tone: 'warn' }),
-      row({ path: 'stopFarBelowBuyRisk', label: '… and risk at stop above', unit: '% cap.', chip: 'Both must be true', tone: 'plain' }),
-      row({ path: 'profitLocked', label: 'Profit locked in', sub: 'Stop more than this above the buy price. Also keeps a near report calm.', chip: 'Profit locked in', tone: 'pos' })),
+      row({ path: 'stopFarBelowBuyRisk', label: '… and risk at stop above', unit: '% of capital', chip: 'Both must be true', tone: 'plain' }),
+      row({ path: 'profitLocked', label: 'Profit locked in', sub: 'Stop more than this above the buy price. Also keeps a near earnings date calm.', chip: 'Profit locked in', tone: 'pos' })),
   ];
 
   // R labels and stop distance labels: name and limit can both be changed
@@ -92,7 +92,7 @@ export function render(ctx) {
       zone({ tone: tones.at(-1), name: other, body: derived(() => (k === 'rCategories' ? 'below ' : 'above ') + lastLim() + (unit === 'R' ? ' R' : ' %')), note: elseNote }));
   };
   const results = [
-    card('Trade result · R multiple', 'Outcome scale',
+    card('Trade result · R (risk)', 'Outcome scale',
       h('p', { class: 'snote' }, 'A trade gets the first label whose R it reaches, from the top.'),
       labelZones('rCategories', 'rCategoryElse', 'R', 'from', C.R_TONES, 'Anything lower.')),
     card('Stop distance', 'Buy price to Initial stop',
@@ -101,15 +101,15 @@ export function render(ctx) {
     card('How labels work', 'Display only', h('p', { class: 'snote', style: { margin: 0 } }, 'Labels turn numbers into the same words everywhere in the journal. They never change a calculation, the win rate or the statistics.')),
   ];
   const history = [
-    card('Result per trade', '% of capital at open',
-      h('p', { class: 'snote' }, 'Shown in History\'s "% capital" column: ▼ red for a loss past the limit, ▲ green for a gain past the limit.'),
+    card('Result per trade', 'Share of capital when opened',
+      h('p', { class: 'snote' }, 'Shown in History\'s "Share of capital" column: ▼ red for a loss past the limit, ▲ green for a gain past the limit.'),
       row({ path: 'histLoss', label: 'Loss to highlight', sub: 'Closed trades that lost more than this of the capital.', chip: 'Loss above', tone: 'neg' }),
       row({ path: 'histGain', label: 'Gain to highlight', sub: 'Closed trades that gained more than this of the capital.', chip: 'Gain above', tone: 'pos' })),
     card('Result per stock', 'Coming with the Dashboard', h('p', { class: 'snote', style: { margin: 0 } }, 'Results grouped by stock will live on the Dashboard (not built yet). These limits are hidden here until then; nothing is lost.')),
   ];
   const saving = [
     card('Saving', 'Automatic',
-      row({ path: 'saveDelaySec', kind: 'int', unit: 'sec', label: 'Save after your last edit', sub: 'Only for the Setup, Mistake and Stars edits in History\'s trade details, which save as you change them, with no Save button. Everywhere else, saving happens the moment you press Save.', chip: 'Automatic save', tone: 'plain' }),
+      row({ path: 'saveDelaySec', kind: 'int', unit: 'sec', label: 'Save after your last edit', sub: 'Only for the Setup, Mistake and Setup rating edits in History\'s trade details, which save as you change them, with no Save button. Everywhere else, saving happens the moment you press Save.', chip: 'Automatic save', tone: 'plain' }),
       row({ path: 'bigJumpPct', label: 'Unusual last price jump', sub: 'Typed prices that jump more than this ask first.', chip: 'Save anyway?', tone: 'warn' })),
     card('Excel copy', 'Safety copy',
       row({ path: 'excelCopyDays', kind: 'int', unit: 'days', label: 'Make an Excel copy every', sub: 'Saved in the Backups folder in your Drive, for reading in Excel. Restoring always uses the JSON backups.', chip: 'Excel copy', tone: 'plain' }),
