@@ -308,3 +308,26 @@ test('Highest price of a closed trade: typed later in History, checked against t
   assert.match(A.setClosedHighest(st, open.id, '60').error, /still open/);
   assert.equal(A.setClosedHighest(st, 'T-9999', '60').ok, false);
 });
+
+// ---- 1.5.7: marks are recognised by a fixed code, never by their shown words
+test('Marks: every mark has a fixed code, and rewording a mark never changes filters, groups or status', async () => {
+  const M = await import('../js/marks.js');
+  const st = emptyState(); A.setStartCapital(st, { amount: '6000', date: '2026-01-01' });
+  const mk = (b, o) => { const t = A.openTrade(st, { symbol: o.s, buyDate: '2026-10-01', qty: o.q ?? '10', buyPrice: b, initialStop: String(b * 0.95), buyCommission: '' }).data; Object.assign(t, o.set); return t; };
+  const trades = [
+    mk(50, { s: 'A1', set: { currentStop: '49', last: '48', highest: '55', ema10: '47', nextReport: '2026-11-16' } }),
+    mk(50, { s: 'A2', set: { currentStop: '48', last: '48.3', highest: '52', ema10: '47' } }),
+    mk(50, { s: 'A3', set: { currentStop: '47.5', last: '60', highest: '62', ema10: '61', nextReport: '2026-11-15' } }),
+    mk(50, { s: 'A4', set: { currentStop: '', last: '', highest: '', ema10: '' } }),
+  ];
+  const codes = new Set();
+  for (const t of trades) {
+    const marks = M.lineMarks(st, t, '2026-11-15', C.estimatedAccount(st));
+    for (const m of marks) { assert.equal(typeof m.code, 'string'); assert.ok(m.code.length > 0); codes.add(m.code); }
+    const before = { cats: [...M.attention(marks)].sort(), status: M.lineStatus(marks), card: M.cardStatus(marks) };
+    // reword every mark completely: the program must behave exactly the same
+    const reworded = marks.map((m) => ({ ...m, text: 'Some new words ' + Math.random(), why: 'x', say: 'y' }));
+    assert.deepEqual({ cats: [...M.attention(reworded)].sort(), status: M.lineStatus(reworded), card: M.cardStatus(reworded) }, before);
+  }
+  for (const c of ['atstop', 'close', 'raise', 'missing-stop', 'missing-last', 'missing-highest', 'missing-ema', 'report-today', 'report-tomorrow', 'below-ema']) assert.ok(codes.has(c), c);
+});

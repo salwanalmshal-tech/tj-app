@@ -16,7 +16,7 @@ const spct = (a, dp = 1) => (a === null || a === undefined ? '–' : (a > 0n ? '
 const rTxt = (r) => (r === null || r === undefined ? '–' : (r > 0n ? '+' : '') + D.fmt(r, 2) + ' R');
 const STATUS_TEXT = { act: 'Act now', rev: 'Review', ok: 'On plan' };
 const ORDER = { act: 0, rev: 1, ok: 2 };
-const isMissing = (marks) => marks.some((m) => m.text.startsWith('Missing'));
+const isMissing = (marks) => marks.some((m) => m.code.startsWith('missing-')); // by the fixed code (1.5.7)
 let filter = 'all'; // all | attention | missing
 
 export function lines(st, today) {
@@ -208,16 +208,17 @@ const CS_ORDER = { red: 0, orange: 1, green: 2 };
 const CS_WORD = { red: 'Warning', orange: 'Attention', green: 'Healthy' };
 const SIZE_FULL = 15; // the size line is full at 15 % of the account
 // which value on the card a mark highlights
-const HL = { 'Missing: stop': 'stop', 'Raise stop': 'stop', 'Stop far below highest price': 'stop', 'Stop far below buy price': 'stop',
-  'At or below stop': 'last', 'Close to stop': 'last', 'Missing: last price': 'last', 'Missing: highest price': 'hi',
-  'Below EMA10': 'ema', 'Near EMA10': 'ema', 'Missing: EMA10': 'ema', 'Missing: Initial stop': 'init',
-  'Position too big': 'size', 'Near size limit': 'size', 'Small position': 'size' };
-const hlKey = (text) => HL[text] ?? (text.startsWith('Report') ? 'rep' : text.startsWith('Risk above') ? 'risk' : null);
+// keyed by the mark's fixed code (1.5.7), never by its shown words
+const HL = { 'missing-stop': 'stop', raise: 'stop', 'high-far': 'stop', 'stop-far-buy': 'stop',
+  atstop: 'last', close: 'last', 'missing-last': 'last', 'missing-highest': 'hi',
+  'below-ema': 'ema', 'near-ema': 'ema', 'missing-ema': 'ema', 'missing-initial': 'init',
+  'pos-big': 'size', 'pos-near': 'size', 'pos-small': 'size' };
+const hlKey = (code) => HL[code] ?? (code.startsWith('report') ? 'rep' : code.startsWith('risk-') ? 'risk' : null);
 const HL_RANK = { r: 2, o: 1, b: 0 };
 function highlights(marks) {
   const out = {};
   for (const m of marks) {
-    const k = hlKey(m.text); const c = m.level === 'crit' || m.level === 'neg' ? 'r' : m.level === 'warn' ? 'o' : m.level === 'info' ? 'b' : null;
+    const k = hlKey(m.code); const c = m.level === 'crit' || m.level === 'neg' ? 'r' : m.level === 'warn' ? 'o' : m.level === 'info' ? 'b' : null;
     if (!k || !c) continue;
     // #24: "Small position" (info level) must get its own colour (blue), matching Settings, instead of falling
     // through to the default green used for "Normal" - that silent fallback was the original bug.
