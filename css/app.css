@@ -1062,3 +1062,7 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .dlg-body{flex:1 1 auto;min-height:0;overflow:auto}
 /* 1.7.3: the Swap button (top right, shows on hover) never covers the block header's own buttons */
 .d-block>.d-bh{padding-right:44px}
+/* 1.7.3: By stock / By sector switch in the Exposure block */
+.seg-mini{display:inline-flex;gap:4px}
+.fgrid.fgrid3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:560px){.fgrid.fgrid3{grid-template-columns:1fr}}

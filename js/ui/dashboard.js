@@ -39,7 +39,7 @@ export const BLOCKS = ['exposure', 'months', 'curve', 'setups'];
 export function ordered(saved, def) { const ok = (saved || []).filter((k) => def.includes(k)); return [...ok, ...def.filter((k) => !ok.includes(k))]; }
 
 // view choices (not saved in the data file): the period of the month/setup blocks and what is selected
-const V = { preset: null, from: null, to: null, sel: null, ex: -1, su: 0, pinMsg: false };
+const V = { preset: null, from: null, to: null, sel: null, ex: -1, exBy: 'stock', exSec: null, su: 0, pinMsg: false };
 
 export function render(ctx) {
   const st = ctx.store.state; const today = ctx.today(); const year = today.slice(0, 4);
@@ -218,28 +218,45 @@ const BLOCK = {
   exposure(ctx, st, today, ex, grip) {
     const b = h('section', { class: 'd-block wide' });
     // 1.7.3 (his request): a clear way back to all stocks after tapping one
-    const sel = V.ex >= 0 && V.ex < ex.rows.length ? ex.rows[V.ex] : null;
-    const showAll = () => { V.ex = -1; ctx.redraw(); };
+    // 1.7.3 (his choice A): the same table per stock or per sector
+    const bySec = V.exBy === 'sector';
+    const secRows = ex.sectors.map((x) => { const rs = ex.rows.filter((r) => r.sector === x.key); const noStop = rs.filter((r) => r.loss === null).length;
+      return { key: x.key, value: x.value, pct: x.pct, syms: rs.map((r) => r.sym), loss: noStop === rs.length ? null : rs.reduce((a, r) => a + (r.loss ?? 0n), 0n), noStop }; });
+    if (V.exSec !== null && !secRows.some((x) => x.key === V.exSec)) V.exSec = null;
+    const sel = bySec ? null : V.ex >= 0 && V.ex < ex.rows.length ? ex.rows[V.ex] : null;
+    const selSec = bySec && V.exSec !== null ? secRows.find((x) => x.key === V.exSec) : null;
+    const picked = sel || selSec;
+    const showAll = () => { V.ex = -1; V.exSec = null; ctx.redraw(); };
+    const mode = (k, label) => h('button', { class: 'chip', 'aria-pressed': String(V.exBy === k), onClick: () => { V.exBy = k; V.ex = -1; V.exSec = null; ctx.redraw(); } }, label);
     b.append(blockHead(grip, 'Exposure — your open trades', h('span', { style: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
-      h('span', { class: 'd-q' }, `Next to your account estimate ${usd(ex.account)} · ${sel ? 'tap it again for all' : 'tap a stock'}`),
-      sel ? h('button', { class: 'chip', 'aria-label': 'Show all stocks', onClick: showAll }, '× Show all') : null)));
+      h('span', { class: 'd-q' }, `Next to your account estimate ${usd(ex.account)} · ${picked ? 'tap it again for all' : bySec ? 'tap a sector' : 'tap a stock'}`),
+      picked ? h('button', { class: 'chip', 'aria-label': bySec ? 'Show all sectors' : 'Show all stocks', onClick: showAll }, '× Show all') : null,
+      h('span', { class: 'seg-mini', role: 'group', 'aria-label': 'Show the table' }, mode('stock', 'By stock'), mode('sector', 'By sector')))));
     if (!ex.rows.length) { b.append(h('div', { class: 'd-q', style: { padding: '8px 18px 18px' } }, 'No open trades.')); return b; }
     const secColor = new Map(ex.sectors.map((x, i) => [x.key, COLORS[i % COLORS.length]]));
     const R = 78, CIRC = 2 * Math.PI * R; let off = 0;
     const ring = s('svg', { viewBox: '0 0 200 200', role: 'img', 'aria-label': `${D.fmt(ex.totalPct ?? 0n, 1)} percent of the account in the market`, style: { width: '200px', height: '200px', transform: 'rotate(-90deg)' } },
       s('circle', { cx: 100, cy: 100, r: R, fill: 'none', stroke: '#EEF2F6', 'stroke-width': 20 }),
-      ex.sectors.map((x) => { const len = Math.max(0, (num(x.pct) / 100) * CIRC - 2); const on = !sel || sel.sector === x.key;
-        const c = s('circle', { class: 'd-ring', cx: 100, cy: 100, r: R, fill: 'none', stroke: secColor.get(x.key), 'stroke-width': sel && on ? 26 : 20, 'stroke-dasharray': `${len} ${CIRC}`, 'stroke-dashoffset': -off, opacity: on ? 1 : 0.25 });
+      ex.sectors.map((x) => { const len = Math.max(0, (num(x.pct) / 100) * CIRC - 2); const on = !picked || (sel ? sel.sector : selSec.key) === x.key;
+        const c = s('circle', { class: 'd-ring', cx: 100, cy: 100, r: R, fill: 'none', stroke: secColor.get(x.key), 'stroke-width': picked && on ? 26 : 20, 'stroke-dasharray': `${len} ${CIRC}`, 'stroke-dashoffset': -off, opacity: on ? 1 : 0.25 });
         off += (num(x.pct) / 100) * CIRC; return c; }));
     const center = h('div', { style: { position: 'absolute', inset: '0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', textAlign: 'center' } },
-      h('span', { style: { fontSize: '26px', fontWeight: '800', letterSpacing: '-.03em' } }, sel ? D.fmt(sel.pct ?? 0n, 1) + ' %' : D.fmt(ex.totalPct ?? 0n, 1) + ' %'),
-      h('span', { class: 'd-q', style: { maxWidth: '120px' } }, sel ? `${sel.sym} · ${sel.sector}` : `in market · ${D.fmt(D.sub(D.d('100'), ex.totalPct ?? 0n), 1)} % cash`));
+      h('span', { style: { fontSize: '26px', fontWeight: '800', letterSpacing: '-.03em' } }, picked ? D.fmt(picked.pct ?? 0n, 1) + ' %' : D.fmt(ex.totalPct ?? 0n, 1) + ' %'),
+      h('span', { class: 'd-q', style: { maxWidth: '120px' } }, sel ? `${sel.sym} · ${sel.sector}` : selSec ? `${selSec.key} · ${selSec.syms.length} ${selSec.syms.length === 1 ? 'stock' : 'stocks'}` : `in market · ${D.fmt(D.sub(D.d('100'), ex.totalPct ?? 0n), 1)} % cash`));
     const cols = '160px minmax(0,1fr) 80px 66px 92px';
-    const max = Math.max(1e-9, ...ex.rows.map((r) => num(r.value)));
+    const max = Math.max(1e-9, ...(bySec ? secRows : ex.rows).map((r) => num(r.value)));
     const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '0' } },
       h('div', { class: 'd-exrow', style: { display: 'grid', gridTemplateColumns: cols, gap: '12px', padding: '0 10px 6px' } },
-        ['Stock', 'Value', '$', 'Share of account', 'If stop hit'].map((t, i) => h('span', { class: 'eyebrow', style: { textAlign: i > 1 ? 'right' : 'left' } }, t))),
-      ex.rows.map((r, i) => h('button', { class: 'd-row d-exrow' + (V.ex === i ? ' on' : ''), style: { gridTemplateColumns: cols }, 'aria-pressed': String(V.ex === i), onClick: () => { V.ex = V.ex === i ? -1 : i; ctx.redraw(); } },
+        [bySec ? 'Sector' : 'Stock', 'Value', '$', 'Share of account', 'If stop hit'].map((t, i) => h('span', { class: 'eyebrow', style: { textAlign: i > 1 ? 'right' : 'left' } }, t))),
+      bySec ? secRows.map((r, i) => h('button', { class: 'd-row d-exrow' + (V.exSec === r.key ? ' on' : ''), style: { gridTemplateColumns: cols }, 'aria-pressed': String(V.exSec === r.key), onClick: () => { V.exSec = V.exSec === r.key ? null : r.key; ctx.redraw(); } },
+        h('span', { style: { display: 'flex', flexDirection: 'column', minWidth: '0' } },
+          h('b', { style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: '0' } }, h('span', { style: { width: '8px', height: '8px', borderRadius: '2px', flex: '0 0 auto', background: secColor.get(r.key) } }), h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.key)),
+          h('span', { class: 'd-q', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.syms.join(', '))),
+        h('span', { class: 'd-track' }, fill((num(r.value) / max) * 100, secColor.get(r.key), { delay: i * 0.08 + 's' })),
+        h('span', { style: { textAlign: 'right', fontWeight: '650' } }, usd(r.value)),
+        h('span', { style: { textAlign: 'right' } }, D.fmt(r.pct ?? 0n, 1) + ' %'),
+        h('span', { class: 'neg', style: { textAlign: 'right', fontWeight: '650' }, title: r.noStop ? `${r.noStop} without a stop, not counted` : '' }, r.loss === null ? 'No stop' : susd(r.loss) + (r.noStop ? ' *' : ''))))
+      : ex.rows.map((r, i) => h('button', { class: 'd-row d-exrow' + (V.ex === i ? ' on' : ''), style: { gridTemplateColumns: cols }, 'aria-pressed': String(V.ex === i), onClick: () => { V.ex = V.ex === i ? -1 : i; ctx.redraw(); } },
         h('span', { style: { display: 'flex', flexDirection: 'column', minWidth: '0' } },
           h('b', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, h('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: secColor.get(r.sector) } }), r.sym),
           h('span', { class: 'd-q', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.sector + (r.noLast ? ' · buy price, no last price' : ''))),

@@ -355,8 +355,9 @@ function detail(ctx, id) {
     marks.length ? h('div', { class: 'mlist' }, marks.map((x) => h('div', { class: 'mitem ' + x.level }, h('b', null, (x.icon ? x.icon + ' ' : '') + (x.say ?? x.text)), x.why ? h('span', null, ' · ' + x.why) : null))) : h('div', { class: 'calm' }, '✓ On plan. Nothing to decide today.'),
     h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Update today'), h('p', { class: 'lead' }, 'Your daily values. Leave a field empty to clear it.'))),
       h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
-        h('div', { class: 'fgrid' }, numField('last', 'Last price'), numField('currentStop', 'Current stop'),
-          numField('ema10', 'EMA10'), numField('highest', 'Highest price'), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Earnings date'), h('div', { class: 'box' }, rep))),
+        // 1.7.3 (his wish): the daily values first (Last, Highest, EMA10); Current stop moves next to the Earnings date (they change now and then)
+        h('div', { class: 'fgrid fgrid3' }, numField('last', 'Last price'), numField('highest', 'Highest price'), numField('ema10', 'EMA10')),
+        h('div', { class: 'fgrid' }, numField('currentStop', 'Current stop'), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Earnings date'), h('div', { class: 'box' }, rep))),
         h('label', { class: 'of' }, h('span', { class: 'l' }, 'Comment'), com), sharedNote, msg,
         h('div', { class: 'row' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly, onClick: save }, 'Save'), h('button', { class: 'btn big', onClick: close }, 'Cancel'),
           h('button', { class: 'btn sm', style: { marginLeft: 'auto' }, disabled: ctx.readOnly, onClick: correctHi }, 'Correct highest price…')))),
