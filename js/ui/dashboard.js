@@ -129,9 +129,9 @@ const CARD = {
       h('span', { class: 'v neg' }, susd(L.loss)),
       parts.length ? h('div', { style: { display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', gap: '2px' } },
         parts.map(([, v], i) => h('span', { class: 'd-fill', style: { width: (num(v) / tot) * 100 + '%', background: shades[Math.min(i, 3)], animationDelay: i * 0.1 + 's' } }))) : null,
-      h('span', { class: 'q' }, 'From today · ' + spct(L.pctOfAccount) + ' of account estimate' + (parts.length ? ' · ' + parts.slice(0, 3).map(([sym, v]) => `${sym} ${Math.round((num(v) / tot) * 100)} %`).join(' · ') : '') + (L.missing ? ` · ${L.missing} trade${L.missing === 1 ? '' : 's'} without stop or last price not counted` : '')),
+      h('span', { class: 'q' }, spct(L.pctOfAccount) + ' of account estimate' + (parts.length ? ' · ' + parts.slice(0, 3).map(([sym, v]) => `${sym} ${Math.round((num(v) / tot) * 100)} %`).join(' · ') : '') + (L.missing ? ` · ${L.missing} trade${L.missing === 1 ? '' : 's'} without stop or last price not counted` : '')),
       // 1.7.3 (his wish): the same from each trade's Highest price
-      (() => { const fh = C.lossFromHighest(st); return h('span', { class: 'q', style: { borderTop: '1px solid var(--line)', paddingTop: '6px' } }, h('b', { class: fh.loss < 0n ? 'neg' : '' }, susd(fh.loss)), ' from highest price · ' + spct(fh.pctOfAccount) + ' of account estimate'); })());
+      (() => { const fh = C.lossFromHighest(st); return h('span', { class: 'm-corner' }, 'From highest price ', h('span', null, fh.pctOfAccount === null ? '–' : D.fmt(D.abs(fh.pctOfAccount), 1) + ' %'), h('b', { class: fh.loss < 0n ? 'neg' : '' }, susd(fh.loss))); })());
   },
   progress(st, today, ex, grip) {
     const pr = C.progress(st); const cur = C.capitalCurve(st);
