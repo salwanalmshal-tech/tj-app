@@ -1066,3 +1066,8 @@ input.hcount{accent-color:var(--accent);margin:0 8px 0 0;vertical-align:middle;c
 .seg-mini{display:inline-flex;gap:4px}
 .fgrid.fgrid3{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media (max-width:560px){.fgrid.fgrid3{grid-template-columns:1fr}}
+/* 1.7.3: a bit more room between the daily row and the Current stop row */
+.fgrid.fgrid3+.fgrid{margin-top:8px}
+/* 1.7.3: second number in the Loss if all stops hit card (from the Highest price) */
+.metric .m-second{display:flex;flex-direction:column;gap:2px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.metric .m-second b{font-size:17px;font-weight:700}

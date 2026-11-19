@@ -66,7 +66,10 @@ export function render(ctx) {
   const METRIC = {
     capital: () => metric('Capital (closed trades)', `Start capital, plus deposits and dividends, minus withdrawals, plus the result of every sale. Open trades are not in it. Now: ${usd(capital)}.`, usd(capital), '', 'Start capital, deposits, dividends and sales'),
     openpl: () => metric('Open P&L', `What all open trades would win or lose if sold at the last price. Commissions are counted when you sell. Now: ${susd(openPL)} on ${all.length} trade${all.length === 1 ? '' : 's'}.`, susd(openPL), numClass(openPL), `${all.length} open trade${all.length === 1 ? '' : 's'}`),
-    loss: () => metric('Loss if all stops hit', `What you lose from today's prices if every open trade sells at its Current stop, next to your whole account (${usd(account)}). Trades without a stop are not counted.`, susd(loss.loss), loss.loss < 0n ? 'neg' : '', (loss.pctOfAccount === null ? '' : `${pctTxt(D.abs(loss.pctOfAccount))} of account estimate`) + (noStop ? ` · ${noStop} without stop` : '')),
+    loss: () => { const fh = C.lossFromHighest(st); const el = metric('Loss if all stops hit', `From today: what you lose from today's prices if every open trade sells at its Current stop, next to your whole account (${usd(account)}). From highest: the same, but from each trade's Highest price, so it also counts the profit already given back since the top. Trades without a stop are not counted.`, susd(loss.loss), loss.loss < 0n ? 'neg' : '', 'From today' + (loss.pctOfAccount === null ? '' : ` · ${pctTxt(D.abs(loss.pctOfAccount))} of account estimate`) + (noStop ? ` · ${noStop} without stop` : ''));
+      // 1.7.3 (his wish): the second number, from the Highest price, in the same card
+      el.append(h('span', { class: 'm-second' }, h('b', { class: fh.loss < 0n ? 'neg' : '' }, susd(fh.loss)), h('span', { class: 'd' }, 'From highest price' + (fh.pctOfAccount === null ? '' : ` · ${pctTxt(D.abs(fh.pctOfAccount))} of account estimate`))));
+      return el; },
     market: () => marketCard(inMarket, value, account),
     progress: () => { const pr = C.progress(st);
       return metric('Result vs money put in', `Your sale results and dividends, next to everything you put in (start capital and deposits). Withdrawals never count as a loss. Now: ${susd(pr.result)} on ${usd(pr.invested)}.`, pr.pct === null ? '–' : spct(pr.pct), pr.pct === null ? '' : numClass(pr.pct), `${susd(pr.result)} on ${usd(pr.invested)} put in`); },
@@ -356,7 +359,7 @@ function detail(ctx, id) {
     h('section', { class: 'card acc' }, h('div', { class: 'card-h' }, h('div', null, h('h2', null, 'Update today'), h('p', { class: 'lead' }, 'Your daily values. Leave a field empty to clear it.'))),
       h('div', { class: 'card-b', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
         // 1.7.3 (his wish): the daily values first (Last, Highest, EMA10); Current stop moves next to the Earnings date (they change now and then)
-        h('div', { class: 'fgrid fgrid3' }, numField('last', 'Last price'), numField('highest', 'Highest price'), numField('ema10', 'EMA10')),
+        h('div', { class: 'fgrid fgrid3' }, numField('last', 'Last price'), numField('ema10', 'EMA10'), numField('highest', 'Highest price')),
         h('div', { class: 'fgrid' }, numField('currentStop', 'Current stop'), h('label', { class: 'of' }, h('span', { class: 'l' }, 'Earnings date'), h('div', { class: 'box' }, rep))),
         h('label', { class: 'of' }, h('span', { class: 'l' }, 'Comment'), com), sharedNote, msg,
         h('div', { class: 'row' }, h('button', { class: 'btn pri big', disabled: ctx.readOnly, onClick: save }, 'Save'), h('button', { class: 'btn big', onClick: close }, 'Cancel'),

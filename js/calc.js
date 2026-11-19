@@ -161,6 +161,13 @@ export function lossIfAllStopsHit(state) {
   return { loss: s, pctOfAccount: (() => { const a = estimatedAccount(state); return a > 0n ? D.pct(s, a) : null; })(), missing };
 }
 
+// 1.7.3 (his wish): the same, but measured from each trade's Highest price: what you give back from the top if every stop is hit
+export function lossFromHighest(state) {
+  let s = 0n, missing = 0;
+  for (const t of openTrades(state)) { const hi = n(t.highest), stop = n(t.currentStop); if (hi === null || stop === null) { missing++; continue; } s += D.mul(D.sub(stop, hi), openQty(t)); }
+  return { loss: s, pctOfAccount: (() => { const a = estimatedAccount(state); return a > 0n ? D.pct(s, a) : null; })(), missing };
+}
+
 // ---------- quantity check (F4): bought = sold + open ----------
 export function quantityProblems(t) {
   const q = D.d(t.qty), sold = soldQty(t);
