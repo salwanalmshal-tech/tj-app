@@ -265,7 +265,7 @@ export function capitalCurve(state) {
 // ---------- "On Open positions" (1.5.1): which Dashboard number cards also show on Open positions ----------
 // He ticks up to 4 on the Dashboard; their order is the order he drags them into on Open positions.
 // Saved in the data file as layouts.dashboard.onOpen. Nothing saved yet = the four cards Open positions always had.
-export const OPEN_CARD_KEYS = ['capital', 'openpl', 'loss', 'progress', 'month', 'year', 'market'];
+export const OPEN_CARD_KEYS = ['capital', 'openpl', 'loss', 'progress', 'month', 'year', 'market', 'exposure'];
 export const OPEN_CARD_DEFAULT = ['capital', 'openpl', 'loss', 'market'];
 export const OPEN_CARD_MAX = 4;
 export function openCards(state) {
@@ -368,6 +368,8 @@ export const BUILTIN = [
   { id: 'c.month', kind: 'card', home: 'dashboard', name: 'This month', desc: 'Sales this month' },
   { id: 'c.year', kind: 'card', home: 'dashboard', name: 'This year', desc: 'Sales this year' },
   { id: 'c.market', kind: 'card', home: 'dashboard', name: 'In market / Cash', desc: 'Share of the account in open trades' },
+  // 1.7.4 (his wish): a small Exposure card; shown nowhere until he puts it on a screen
+  { id: 'c.exposure', kind: 'card', home: 'dashboard', name: 'Exposure (small)', desc: 'Small ring and the 3 biggest, by stock or sector' },
   { id: 'd.exposure', kind: 'block', home: 'dashboard', name: 'Exposure — your open trades', desc: 'Ring and table per stock' },
   { id: 'd.months', kind: 'block', home: 'dashboard', name: 'Your year, month by month', desc: 'Month bars and running total' },
   { id: 'd.curve', kind: 'block', home: 'dashboard', name: 'Capital over time', desc: 'Line since the start, deepest drop' },

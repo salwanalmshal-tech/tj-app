@@ -33,7 +33,29 @@ const monName = (k, full) => (full ? MON_FULL : MON)[Number(k.slice(5, 7)) - 1] 
 const COLORS = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)'];
 const fill = (pctW, bg, extra = {}) => h('span', { class: 'd-fill' + (extra.cls ? ' ' + extra.cls : ''), style: { width: Math.max(0, Math.min(100, pctW)) + '%', background: bg, animationDelay: extra.delay || '0s' } });
 
-export const CARDS = ['capital', 'openpl', 'loss', 'progress', 'month', 'year', 'market'];
+export const CARDS = ['capital', 'openpl', 'loss', 'progress', 'month', 'year', 'market', 'exposure'];
+
+// 1.7.4 (his choice A): the small Exposure card — a small ring (by sector), the in-market % in the middle,
+// the 3 biggest stocks or sectors with their share of the account, and a tiny Stock / Sector switch. Same numbers as the Exposure block.
+const MINI = { by: 'sector' };
+export function exposureMini(st, redraw) {
+  const ex = C.dashExposure(st);
+  const bySec = MINI.by === 'sector';
+  const secColor = new Map(ex.sectors.map((x, i) => [x.key, COLORS[i % COLORS.length]]));
+  const items = (bySec ? ex.sectors.map((x) => ({ name: x.key, pct: x.pct, color: secColor.get(x.key) })) : ex.rows.map((r) => ({ name: r.sym, pct: r.pct, color: secColor.get(r.sector) })))
+    .sort((a, b) => num(b.pct ?? 0n) - num(a.pct ?? 0n));
+  const R = 24, C2 = 2 * Math.PI * R; let at = 0;
+  const ring = s('svg', { viewBox: '0 0 60 60', role: 'img', 'aria-label': `${D.fmt(ex.totalPct ?? 0n, 1)} percent in market`, style: { width: '60px', height: '60px', transform: 'rotate(-90deg)', flex: '0 0 auto' } },
+    s('circle', { cx: 30, cy: 30, r: R, fill: 'none', stroke: '#E6EBF1', 'stroke-width': 7 }),
+    ex.sectors.map((x) => { const part = Math.max(0, num(x.pct ?? 0n)) / 100; const el = s('circle', { cx: 30, cy: 30, r: R, fill: 'none', stroke: secColor.get(x.key), 'stroke-width': 7, 'stroke-dasharray': `${part * C2} ${C2}`, 'stroke-dashoffset': String(-at * C2) }); at += part; return el; }));
+  const mid = h('span', { class: 'xm-mid' }, D.fmt(ex.totalPct ?? 0n, 1) + '%');
+  const sw = (k, label) => h('button', { class: 'xm-sw', 'aria-pressed': String(MINI.by === k), onClick: (e) => { e.stopPropagation(); MINI.by = k; redraw(); } }, label);
+  const list = items.length ? h('div', { class: 'xm-list' }, items.slice(0, 3).map((x) => h('div', { class: 'xm-row' }, h('span', { class: 'xm-dot', style: { background: x.color } }), h('span', { class: 'xm-name', title: x.name }, x.name), h('b', null, D.fmt(x.pct ?? 0n, 1) + ' %'))),
+    items.length > 3 ? h('span', { class: 'xm-more' }, `+${items.length - 3} more`) : null) : h('span', { class: 'd-q' }, 'No open trades.');
+  return { why: `How much of your account estimate (${usd(ex.account)}) is in each ${bySec ? 'sector' : 'stock'} at the last price. The middle of the ring = everything in the market. The full table is in the Exposure block.`,
+    sw: h('span', { class: 'xm-sws', role: 'group', 'aria-label': 'Show' }, sw('stock', 'Stock'), sw('sector', 'Sector')),
+    body: h('div', { class: 'xm-body' }, h('span', { class: 'xm-ring' }, ring, mid), list) };
+}
 export const BLOCKS = ['exposure', 'months', 'curve', 'setups'];
 // His saved order, with anything new (or unknown) put back in the standard place.
 export function ordered(saved, def) { const ok = (saved || []).filter((k) => def.includes(k)); return [...ok, ...def.filter((k) => !ok.includes(k))]; }
@@ -65,7 +87,7 @@ export function render(ctx) {
   if (canDrag) wrap.append(h('div', { class: 'd-note' }, 'Drag mode — grab a card or a block and move it. Cards move among the cards, blocks among the blocks. Your order is saved.'));
 
   const ex = C.dashExposure(st);
-  const cards = h('div', { class: 'd-cards' + (canDrag ? ' d-dragmode' : '') }, cardOrder.map((id, i) => { const k = id.slice(2); const c = CARD[k](st, today, ex, grip); c.dataset.id = id; c.style.animationDelay = (i * 0.05) + 's';
+  const cards = h('div', { class: 'd-cards' + (canDrag ? ' d-dragmode' : '') }, cardOrder.map((id, i) => { const k = id.slice(2); const c = CARD[k](st, today, ex, grip, ctx); c.dataset.id = id; c.style.animationDelay = (i * 0.05) + 's';
     c.append(swapButton(ctx, 'dashboard', id)); return c; }));
   const blocks = h('div', { class: 'd-blocks' + (canDrag ? ' d-dragmode' : '') }, blockOrder.map((id, i) => { const b = blockElFor(ctx, id, { grip, today, ex }); if (!b) return null; b.dataset.id = id; b.style.animationDelay = (0.1 + i * 0.05) + 's';
     b.classList.add('pl-blk'); b.append(swapButton(ctx, 'dashboard', id)); return b; }).filter(Boolean));
@@ -165,6 +187,11 @@ const CARD = {
           background: m.has ? (m.net > 0n ? (m.month === nowK ? '#8CC2A8' : 'var(--pos)') : m.net < 0n ? 'var(--neg)' : 'var(--faint)') : m.month > nowK ? 'transparent' : '#EEF2F6',
           border: m.month > nowK ? '1.5px dashed var(--field)' : 'none', animation: m.has ? `d-grow .9s ${i * 0.05}s cubic-bezier(.2,.8,.2,1) both` : 'none' } }))),
       h('span', { class: 'q' }, `${spct(p)} of capital on ${late ? dmy(st.capital.start.date) + ' (start)' : '1 Jan'} · ${green} of ${done} month${done === 1 ? '' : 's'} green`));
+  },
+  exposure(st, today, ex, grip, ctx) {
+    const m = exposureMini(st, () => ctx.redraw());
+    const hd = head(grip, 'Exposure', m.why); hd.append(m.sw);
+    return h('div', { class: 'd-card xm' }, hd, m.body);
   },
   market(st, today, ex, grip) {
     const p = ex.totalPct === null ? 0 : Math.max(0, Math.min(100, num(ex.totalPct)));

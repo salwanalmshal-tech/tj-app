@@ -8,7 +8,7 @@ import * as M from '../marks.js';
 import * as A from '../actions.js';
 import { diffDays } from '../dates.js';
 import { editTrade } from './tradeforms.js';
-import { dragItems } from './dashboard.js';
+import { dragItems, exposureMini } from './dashboard.js';
 import { swapButton, blockEl as placedBlock } from './place.js';
 
 export const usd = (a) => (a === null || a === undefined ? '–' : (a < 0n ? '−$' : '$') + money(D.abs(a)));
@@ -71,6 +71,8 @@ export function render(ctx) {
       el.append(h('span', { class: 'm-corner' }, 'From highest price ', h('span', null, fh.pctOfAccount === null ? '–' : pctTxt(D.abs(fh.pctOfAccount))), h('b', { class: fh.loss < 0n ? 'neg' : '' }, susd(fh.loss))));
       return el; },
     market: () => marketCard(inMarket, value, account),
+    // 1.7.4 (his wish): the small Exposure card, same size as the other number cards
+    exposure: () => { const m = exposureMini(st, () => ctx.redraw()); const hd = h('span', { class: 'eyebrow' }, 'Exposure', infoBtn('Exposure', m.why)); hd.append(m.sw); return h('div', { class: 'metric xm' }, hd, m.body); },
     progress: () => { const pr = C.progress(st);
       return metric('Result vs money put in', `Your sale results and dividends, next to everything you put in (start capital and deposits). Withdrawals never count as a loss. Now: ${susd(pr.result)} on ${usd(pr.invested)}.`, pr.pct === null ? '–' : spct(pr.pct), pr.pct === null ? '' : numClass(pr.pct), `${susd(pr.result)} on ${usd(pr.invested)} put in`); },
     month: () => { const k = today.slice(0, 7); const v = C.monthResult(st, k); const cap = C.periodBaseCapital(st, k + '-01', today);
