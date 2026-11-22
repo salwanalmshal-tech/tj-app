@@ -276,10 +276,11 @@ export function sourceView(st, src, today) {
     return { kind: 'scanner', title: src.name, sub: runLabel(st, run, today), rows: cur.rows, dropped, N: 1, runs: [run], cols: cur.cols, run, prev,
       picker: { value: run.id, options: runs.map((r) => ({ value: r.id, label: runLabel(st, r, today) + ` · ${r.rows.length}` })) }, hasNewDrop: !!prev };
   }
-  if (src.kind === 'compare') {
-    const c = (st.scans?.compares || []).find((x) => x.id === src.id); if (!c) return empty;
+  if (src.kind === 'compare' || src.kind === 'quick') {
+    // 'quick' (1.8.8): scanners ticked in the Sources picker, compared at once without saving
+    const c = src.kind === 'quick' ? { name: src.scanners.join(' + '), scanners: src.scanners } : (st.scans?.compares || []).find((x) => x.id === src.id); if (!c) return empty;
     const names = c.scanners.filter((n) => scannerRuns(st, n).length); const dates = compareDates(st, names);
-    if (names.length < 2 || !dates.length) return { ...empty, kind: 'compare', title: c.name, missing: c.scanners.filter((n) => !names.includes(n)) };
+    if (names.length < 2 || !dates.length) return { ...empty, kind: 'compare', quick: src.kind === 'quick', scanners: c.scanners, title: c.name, missing: c.scanners.filter((n) => !names.includes(n)) };
     const date = dates.includes(src.date) ? src.date : dates[0]; const runs = pickOn(st, names, date);
     const ov = overlap(st, runs.map((r) => r.id), today); const N = ov.runs.length;
     const inAll = new Set(ov.rows.filter((r) => r.n === N).map((r) => r.t));
@@ -290,7 +291,7 @@ export function sourceView(st, src, today) {
       const gone = [...prevAll].filter((t) => !inAll.has(t)); dropped = buildRows(st, po.runs, gone, today).rows;
     }
     for (const r of ov.rows) r.isNew = !!prevAll && r.n === N && !prevAll.has(r.t);
-    return { kind: 'compare', title: c.name, sub: `${ov.inAll} in all ${N} · ${date === today ? 'today' : date.slice(8, 10) + '-' + date.slice(5, 7) + '-' + date.slice(0, 4)}`, rows: ov.rows, dropped, N, runs: ov.runs, cols: ov.cols, inAll: ov.inAll,
+    return { kind: 'compare', quick: src.kind === 'quick', scanners: c.scanners, title: c.name, sub: `${ov.inAll} in all ${N} · ${date === today ? 'today' : date.slice(8, 10) + '-' + date.slice(5, 7) + '-' + date.slice(0, 4)}`, rows: ov.rows, dropped, N, runs: ov.runs, cols: ov.cols, inAll: ov.inAll,
       picker: { value: date, options: dates.map((d) => ({ value: d, label: d === today ? 'today' : d.slice(8, 10) + '-' + d.slice(5, 7) + '-' + d.slice(0, 4) })) }, hasNewDrop: !!prevDate, missing: c.scanners.filter((n) => !names.includes(n)) };
   }
   if (src.kind === 'ready' || src.kind === 'list') {

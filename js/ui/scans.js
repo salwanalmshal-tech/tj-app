@@ -8,12 +8,13 @@ import * as C from '../calc.js';
 import * as A from '../actions.js';
 import * as SC from '../scans.js';
 
-const V = { src: null, srcOpen: false, q: 'all', view: 'chart', sel: null, f: SC.emptyFilter(), fOpen: false, selMode: false, ticked: new Set(), lfold: {} };
+const V = { src: null, pickOpen: false, cmpTick: new Set(), q: 'all', view: 'chart', sel: null, f: SC.emptyFilter(), fOpen: false, selMode: false, ticked: new Set(), lfold: {} };
 let CTX = null;
 let LAST = { rows: [], v: null };
 
 const isTyping = (el) => !!el && (el.closest?.('input, textarea, select, [contenteditable="true"]'));
 const dialogOpen = () => !!document.querySelector('.scrim, .sc-menu');
+const menuHidden = () => { try { return localStorage.getItem('tj-scans-nomenu') === '1'; } catch { return false; } };
 const tvUrl = (r) => 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(r.full && r.full.includes(':') ? r.full : r.t);
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
@@ -26,7 +27,7 @@ if (typeof document !== 'undefined') {
   });
   document.addEventListener('keydown', (e) => {
     if (!CTX || CTX.route !== 'scans' || isTyping(e.target) || dialogOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
-    const k = e.key; const rows = LAST.rows; if (k === '?') { e.preventDefault(); keysHelp(); return; } if (!rows.length) return;
+    const k = e.key; const rows = LAST.rows; if (k === '?') { e.preventDefault(); keysHelp(); return; } if (k === 's' || k === 'S') { e.preventDefault(); V.pickOpen = !V.pickOpen; CTX.redraw(); return; } if (!rows.length) return;
     const i = Math.max(0, rows.findIndex((r) => r.t === V.sel));
     if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); const j = Math.min(rows.length - 1, Math.max(0, i + (k === 'ArrowDown' ? 1 : -1))); V.sel = rows[j].t; CTX.redraw(); return; }
     const cur = rows[i]; if (!cur) return; const key = k.toLowerCase();
@@ -34,6 +35,7 @@ if (typeof document !== 'undefined') {
     else if (key === 'w') { e.preventDefault(); setStatus(CTX, cur, 'watch'); }
     else if (key === 'r') { e.preventDefault(); rejectDialog(CTX, cur); }
     else if (key === 'l') { e.preventDefault(); addToListDialog(CTX, [cur]); }
+    else if (key === 's') { e.preventDefault(); V.pickOpen = true; CTX.redraw(); }
     else if (k === 'Enter') { e.preventDefault(); window.open(tvUrl(cur), '_blank', 'noopener'); }
   });
 }
@@ -49,7 +51,13 @@ function host() {
   new MutationObserver(() => requestAnimationFrame(placeChart)).observe(document.getElementById('root') || document.body, { childList: true, subtree: true });
   return HOST;
 }
+function fitHeight() {
+  const body = document.querySelector('.sc-body'); if (!body) return;
+  if (innerWidth < 900) { body.style.height = ''; return; }
+  const top = body.getBoundingClientRect().top + window.scrollY; body.style.height = Math.max(460, innerHeight - top - 14) + 'px';
+}
 function placeChart() {
+  fitHeight();
   if (!HOST) return; const ph = document.getElementById('sc-chart-ph');
   if (!ph || !CTX || CTX.route !== 'scans') { HOST.style.display = 'none'; return; }
   const r = ph.getBoundingClientRect();
@@ -69,13 +77,10 @@ function showChart(symbol) {
 export function render(ctx) {
   CTX = ctx; const st = ctx.store.state; const today = ctx.today();
   const sc = st.scans; const groups = SC.runsByScanner(st);
-  if (!validSrc(st, V.src)) { V.src = groups.length ? { kind: 'scanner', name: groups[0].scanner } : sc.lists.length ? { kind: 'list', id: sc.lists[0].id } : null; V.q = V.src ? 'all' : V.q; V.sel = null; }
-  const head = h('header', { class: 'pg-head sc-head' }, h('div', null, h('div', { class: 'eyebrow' }, 'Trade'), h('h1', null, 'Scans')),
-    h('div', { class: 'sc-headbtns' },
-      h('div', { class: 'seg sc-pages', role: 'group', 'aria-label': 'View' }, [['chart', 'Chart'], ['table', 'Table']].map(([k, l]) => h('button', { type: 'button', class: V.view === k ? 'on' : '', 'aria-pressed': String(V.view === k), onClick: () => { V.view = k; ctx.redraw(); } }, l))),
-      h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => pasteFromButton(ctx) }, 'Paste scan'),
-      h('button', { class: 'btn sm', onClick: () => collectHelp() }, 'Get TJ Collect'), h('button', { class: 'btn sm', 'aria-label': 'Keyboard keys', onClick: () => keysHelp() }, 'Keys ?')));
-  if (!V.src) return h('div', { class: 'scans' }, head, emptyState(ctx));
+  document.body.classList.toggle('tj-nomenu', menuHidden());
+  if (!validSrc(st, V.src)) { V.src = groups.length ? { kind: 'scanner', name: groups[0].scanner } : sc.lists.length ? { kind: 'list', id: sc.lists[0].id } : null; V.q = 'all'; V.sel = null; }
+  if (!V.src) return h('div', { class: 'scans' }, h('header', { class: 'pg-head sc-head' }, h('div', null, h('div', { class: 'eyebrow' }, 'Trade'), h('h1', null, 'Scans')),
+    h('div', { class: 'sc-headbtns' }, h('button', { class: 'btn sm', onClick: () => collectHelp() }, 'Get TJ Collect'), h('button', { class: 'btn sm', onClick: () => keysHelp() }, 'Keys ?'))), emptyState(ctx));
   const v = SC.sourceView(st, V.src, today);
   if (!SC.quickShown(v, V.q)) V.q = v.kind === 'compare' ? 'inall' : 'all';
   const info = tradeInfo(st);
@@ -83,24 +88,22 @@ export function render(ctx) {
   LAST = { rows: fr.rows, v };
   if (!fr.rows.some((r) => r.t === V.sel)) V.sel = fr.rows[0]?.t ?? null;
   const sel = fr.rows.find((r) => r.t === V.sel) || null;
-  const bar = sourceBar(ctx, st, v);
-  const drawer = V.srcOpen ? sourcesPanel(ctx, st, groups, today) : null;
-  let main;
-  if (V.view === 'table') main = tablePanel(ctx, st, v, fr, info, today);
-  else main = [listPanel(ctx, st, v, fr, info, today), chartPanel(ctx, st, v, sel, info, today)];
+  const main = V.view === 'table' ? tablePanel(ctx, st, v, fr, info, today) : [listPanel(ctx, st, v, fr, info, today), chartPanel(ctx, st, v, sel, info, today)];
   if (V.view === 'chart' && sel) setTimeout(() => showChart(sel.full && sel.full.includes(':') ? sel.full : sel.t), 0); else setTimeout(placeChart, 0);
-  setTimeout(() => document.querySelector('.sc-li.on')?.scrollIntoView({ block: 'nearest' }), 0);
-  return h('div', { class: 'scans' }, head, bar, h('div', { class: 'sc-body ' + V.view + (drawer ? ' withsrc' : '') }, drawer, main));
+  setTimeout(() => { placeChart(); document.querySelector('.sc-li.on')?.scrollIntoView({ block: 'nearest' }); }, 0);
+  return h('div', { class: 'scans full' }, toolbar(ctx, st, v), filterExtras(ctx, v.cols), V.pickOpen ? picker(ctx, st, groups, today) : null,
+    h('div', { class: 'sc-body ' + V.view }, main));
 }
 function validSrc(st, s) {
   if (!s) return false; const sc = st.scans;
   if (s.kind === 'scanner') return sc.runs.some((r) => r.scanner === s.name);
   if (s.kind === 'compare') return (sc.compares || []).some((c) => c.id === s.id);
+  if (s.kind === 'quick') return s.scanners.filter((n) => sc.runs.some((r) => r.scanner === n)).length >= 2;
   if (s.kind === 'list') return sc.lists.some((l) => l.id === s.id);
   if (s.kind === 'ready') return SC.readyLists(st).some((l) => l.id === s.id);
   return false;
 }
-function openSrc(ctx, s) { V.src = s; V.q = s.kind === 'compare' ? 'inall' : 'all'; V.sel = null; V.ticked = new Set(); if (innerWidth < 900) V.srcOpen = false; ctx.redraw(); }
+function openSrc(ctx, s) { V.src = s; V.q = s.kind === 'compare' || s.kind === 'quick' ? 'inall' : 'all'; V.sel = null; V.ticked = new Set(); V.pickOpen = false; ctx.redraw(); }
 
 function emptyState(ctx) {
   return h('section', { class: 'card sc-empty' }, h('h2', null, 'Start with your first scan'),
@@ -144,26 +147,43 @@ function popMenu(anchor, label, items) {
 }
 const dots = (label, items, ctx) => h('button', { type: 'button', class: 'sc-dots', 'aria-label': 'More for ' + label, disabled: ctx.readOnly, onClick: (e) => { e.stopPropagation(); popMenu(e.currentTarget, label, items()); } }, '⋯');
 
-// ---------------------------------------------------------------- the bar: Sources button, what is open, date picker
-function sourceBar(ctx, st, v) {
-  const kindName = { scanner: 'Scanner', compare: 'Comparison', ready: 'Ready-made', list: 'My list' }[v.kind] || '';
+// ---------------------------------------------------------------- the one slim toolbar (1.8.8)
+function toolbar(ctx, st, v) {
+  const kindName = { scanner: 'Scanner', compare: v.quick ? 'Compare' : 'Comparison', ready: 'Ready-made', list: 'My list' }[v.kind] || '';
   const picker = v.picker ? h('select', { class: 'sc-pick', 'aria-label': v.kind === 'compare' ? 'Day' : 'Scan', onChange: (e) => { V.src = { ...V.src, [v.kind === 'compare' ? 'date' : 'run']: e.target.value }; V.sel = null; ctx.redraw(); } },
     v.picker.options.map((o) => h('option', { value: o.value, selected: o.value === v.picker.value }, o.label))) : null;
-  const own = v.kind === 'list' || v.kind === 'ready';
-  return h('div', { class: 'sc-bar' },
-    h('button', { type: 'button', class: 'btn sm sc-srcbtn' + (V.srcOpen ? ' pri' : ''), 'aria-expanded': String(V.srcOpen), onClick: () => { V.srcOpen = !V.srcOpen; ctx.redraw(); } }, '▤ Sources'),
-    h('div', { class: 'sc-now' }, h('span', { class: 'eyebrow' }, kindName), h('b', { class: 'sc-nowt', title: v.title }, v.title), v.sub && !picker ? h('span', { class: 'note' }, v.sub) : null),
-    picker, v.kind === 'compare' ? h('span', { class: 'note' }, v.sub) : null,
-    v.missing?.length ? h('span', { class: 'sc-tag earn', title: 'These scanners have no scans yet: ' + v.missing.join(', ') }, 'Missing: ' + v.missing.join(', ')) : null,
+  const n = SC.filterCount(V.f) + (V.f.status !== 'all' ? 1 : 0);
+  const q = h('input', { type: 'search', class: 'sc-q', value: V.f.q, placeholder: 'Find', 'aria-label': 'Find a ticker', 'data-keep': 'sc-q',
+    onInput: (e) => { V.f = { ...V.f, q: e.target.value }; ctx.redraw(); const el = document.querySelector('[data-keep="sc-q"]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } } });
+  const hidden = menuHidden();
+  return h('div', { class: 'sc-tool' },
+    h('button', { type: 'button', class: 'sc-ibtn', 'aria-label': hidden ? 'Show the program menu' : 'Hide the program menu', title: hidden ? 'Show the program menu' : 'Hide the program menu for a bigger chart', onClick: () => { try { localStorage.setItem('tj-scans-nomenu', hidden ? '0' : '1'); } catch { /* fine */ } ctx.redraw(); } }, hidden ? '⇥' : '⇤'),
+    h('button', { type: 'button', class: 'sc-srcpick' + (V.pickOpen ? ' open' : ''), 'aria-expanded': String(V.pickOpen), title: 'Sources (S)', onClick: (e) => { e.stopPropagation(); V.pickOpen = !V.pickOpen; ctx.redraw(); } },
+      h('span', { class: 'sc-srck' }, kindName), h('b', null, v.title), h('span', { class: 'sc-srcn' }, v.kind === 'compare' ? `${v.inAll ?? 0} in all` : plural(v.rows.length, 'stock')), h('span', { 'aria-hidden': 'true' }, ' ▾')),
+    picker,
+    v.quick ? h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => saveQuickDialog(ctx, v) }, 'Save this comparison') : null,
+    v.missing?.length ? h('span', { class: 'sc-tag earn', title: 'No scans yet: ' + v.missing.join(', ') }, 'Missing: ' + v.missing.join(', ')) : null,
+    h('div', { class: 'sc-quick', role: 'group', 'aria-label': 'Quick views' }, SC.QUICK.filter(([k]) => SC.quickShown(v, k)).map(([k, label]) =>
+      h('button', { type: 'button', class: 'sc-qv' + (V.q === k ? ' on' : '') + (k === 'dropped' ? ' drop' : ''), 'aria-pressed': String(V.q === k), onClick: () => { V.q = k; V.sel = null; ctx.redraw(); } }, label, h('span', { class: 'sc-n' }, SC.quickRows(v, k).length)))),
     h('span', { class: 'spacer' }),
-    own && v.list ? h('button', { class: 'btn sm pri', disabled: !v.list.items.length, onClick: () => downloadOne(ctx, v.list) }, 'Download for TradingView') : null,
-    dots(v.title, () => sourceMenu(ctx, st, v), ctx));
+    q, h('button', { type: 'button', class: 'btn sm sc-fbtn' + (n ? ' active' : ''), 'aria-expanded': String(V.fOpen), onClick: () => { V.fOpen = !V.fOpen; ctx.redraw(); } }, n ? `Filter · ${n}` : 'Filter'),
+    h('div', { class: 'seg sc-pages', role: 'group', 'aria-label': 'View' }, [['chart', 'Chart'], ['table', 'Table']].map(([k, l]) => h('button', { type: 'button', class: V.view === k ? 'on' : '', 'aria-pressed': String(V.view === k), onClick: () => { V.view = k; ctx.redraw(); } }, l))),
+    (v.kind === 'list' || v.kind === 'ready') && v.list ? h('button', { class: 'btn sm', title: 'Download for TradingView', disabled: !v.list.items.length, onClick: () => downloadOne(ctx, v.list) }, '⤓ TradingView') : null,
+    h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => pasteFromButton(ctx) }, 'Paste scan'),
+    dots(v.title, () => [...sourceMenu(ctx, st, v), { label: 'Get TJ Collect…', cls: 'sep', fn: () => collectHelp() }, { label: 'Keys…', fn: () => keysHelp() }], ctx));
+}
+async function saveQuickDialog(ctx, v) {
+  const nm = h('input', { value: v.title.slice(0, 60), maxlength: '60', 'aria-label': 'Name' }); setTimeout(() => nm.select(), 0); let made = null;
+  await dialog({ title: 'Save this comparison', ok: 'Save', body: h('div', { style: { display: 'grid', gap: '8px' } }, field('Name', nm), para('It stays under Comparisons and always uses the newest scan of each scanner.', 'note')),
+    onOk: () => { const r = ctx.act((d) => A.addScanCompare(d, nm.value, v.scanners), { label: 'save comparison', now: true }); if (r.ok) made = r.data.id; return r.ok ? true : r.error; } });
+  if (made) openSrc(ctx, { kind: 'compare', id: made });
 }
 function sourceMenu(ctx, st, v) {
   if (v.kind === 'scanner') return [
     { label: 'Rename scanner…', fn: () => renameScannerDialog(ctx, v.title) },
     { label: `Delete this scan (${v.picker.options.find((o) => o.value === v.run.id)?.label.split(' · ')[0]})…`, cls: 'rej', fn: () => deleteRunDialog(ctx, v.run) },
     { label: 'Delete scanner…', cls: 'rej', fn: () => deleteScannerDialog(ctx, v.title) }];
+  if (v.kind === 'compare' && v.quick) return [{ label: 'Save this comparison…', fn: () => saveQuickDialog(ctx, v) }, { label: `Add the ${v.inAll ?? 0} in all to a list…`, fn: () => addToListDialog(ctx, v.rows.filter((r) => r.n === v.N)) }];
   if (v.kind === 'compare') { const c = st.scans.compares.find((x) => x.id === V.src.id); return [
     { label: 'Edit comparison…', fn: () => compareDialog(ctx, c) },
     { label: `Add the ${v.inAll ?? 0} in all to a list…`, fn: () => addToListDialog(ctx, v.rows.filter((r) => r.n === v.N)) },
@@ -181,58 +201,67 @@ function listMenu(ctx, st, l) {
     { label: 'Delete list…', cls: 'rej', fn: () => deleteListDialog(ctx, l) }];
 }
 
-// ---------------------------------------------------------------- Sources panel
-function sourcesPanel(ctx, st, groups, today) {
+// ---------------------------------------------------------------- Sources picker (1.8.8): 3 columns, tick scanners to compare
+let PICK_CLOSE = null;
+function picker(ctx, st, groups, today) {
   const sc = st.scans; const on = (s) => V.src && V.src.kind === s.kind && (s.kind === 'scanner' ? V.src.name === s.name : V.src.id === s.id);
+  V.cmpTick = new Set([...V.cmpTick].filter((n) => groups.some((g) => g.scanner === n)));
   const row = (s, label, n, menu, extra) => h('div', { class: 'sc-srow' + (on(s) ? ' on' : '') },
-    h('button', { type: 'button', class: 'sc-sname', 'aria-pressed': String(on(s)), title: label, onClick: () => openSrc(ctx, s) }, label), extra || null, h('span', { class: 'sc-n' }, n), menu || null);
-  const ready = SC.readyLists(st);
+    h('button', { type: 'button', class: 'sc-sname', title: label, onClick: () => openSrc(ctx, s) }, label), extra || null, h('span', { class: 'sc-n' }, n), menu || null);
+  const ready = SC.readyLists(st); const loose = sc.lists.filter((l) => !l.folder);
+  const stale = (l) => (A.staleInList(st, l).length ? h('span', { class: 'sc-stale', title: 'Stocks rejected or bought since you added them' }, '!') : null);
   const folderBlock = (f) => {
     const ls = sc.lists.filter((l) => l.folder === f.id); const folded = !!V.lfold[f.id];
     return h('div', { class: 'sc-folder' },
       h('div', { class: 'sc-fhead' },
-        h('button', { type: 'button', class: 'sc-fold', 'aria-expanded': String(!folded), 'aria-label': (folded ? 'Open ' : 'Fold ') + f.name, onClick: () => { V.lfold[f.id] = !folded; ctx.redraw(); } }, folded ? '▸' : '▾'),
+        h('button', { type: 'button', class: 'sc-fold', 'aria-expanded': String(!folded), 'aria-label': (folded ? 'Open ' : 'Fold ') + f.name, onClick: (e) => { e.stopPropagation(); V.lfold[f.id] = !folded; ctx.redraw(); } }, folded ? '▸' : '▾'),
         h('b', { class: 'sc-fname', title: f.name }, f.name), h('span', { class: 'sc-n' }, plural(ls.length, 'list')),
         dots(f.name, () => [
           { label: 'Download as one watchlist', fn: () => downloadSections(ctx, f.name, ls) },
           { label: 'New list in this folder…', fn: () => newListDialog(ctx, f.id) },
           { label: 'Rename…', fn: () => nameDialog(ctx, 'Rename folder', f.name, (d, x) => A.renameScanFolder(d, f.id, x)) },
           { label: 'Delete folder…', cls: 'rej', fn: () => deleteFolderDialog(ctx, f, ls) }], ctx)),
-      folded ? null : ls.length ? ls.map((l) => row({ kind: 'list', id: l.id }, l.name, l.items.length, dots(l.name, () => listMenu(ctx, ctx.store.state, l), ctx), A.staleInList(st, l).length ? h('span', { class: 'sc-stale', title: 'Stocks rejected or bought since you added them' }, '!') : null)) : h('p', { class: 'note sc-indent' }, 'No lists yet.'));
+      folded ? null : ls.length ? ls.map((l) => row({ kind: 'list', id: l.id }, l.name, l.items.length, dots(l.name, () => listMenu(ctx, ctx.store.state, l), ctx), stale(l))) : h('p', { class: 'note sc-indent' }, 'No lists yet.'));
   };
-  const loose = sc.lists.filter((l) => !l.folder);
-  return h('aside', { class: 'card sc-src', 'aria-label': 'Sources' },
-    h('div', { class: 'sc-shd' }, h('h3', null, 'Scanners')),
-    groups.length ? groups.map((g) => row({ kind: 'scanner', name: g.scanner }, g.scanner, g.runs[0].rows.length, dots(g.scanner, () => [
-      { label: 'Rename…', fn: () => renameScannerDialog(ctx, g.scanner) }, { label: 'Delete scanner…', cls: 'rej', fn: () => deleteScannerDialog(ctx, g.scanner) }], ctx),
-      h('span', { class: 'note sc-when' }, g.runs[0].date === today ? 'today' : dmy(g.runs[0].date)))) : h('p', { class: 'note' }, 'Press Ctrl + V to add a scan.'),
-    h('div', { class: 'sc-shd' }, h('h3', null, 'Comparisons'), h('button', { class: 'btn sm', disabled: ctx.readOnly || groups.length < 2, title: groups.length < 2 ? 'Add scans of at least 2 scanners first' : '', onClick: () => compareDialog(ctx, null) }, '+ New')),
-    (sc.compares || []).length ? sc.compares.map((c) => { const vv = SC.sourceView(st, { kind: 'compare', id: c.id }, today); return row({ kind: 'compare', id: c.id }, c.name, vv.inAll ?? 0, dots(c.name, () => [
-      { label: 'Edit…', fn: () => compareDialog(ctx, c) }, { label: 'Delete…', cls: 'rej', fn: () => deleteCompareDialog(ctx, c) }], ctx)); })
-      : h('p', { class: 'note' }, groups.length < 2 ? 'With 2 or more scanners you can compare them here.' : 'Make one to see the stocks your scanners have in common, every day.'),
-    h('div', { class: 'sc-shd' }, h('h3', null, 'Ready-made')),
-    ready.map((l) => row({ kind: 'ready', id: l.id }, l.name, l.items.length)),
-    h('div', { class: 'sc-shd' }, h('h3', null, 'My lists'), h('div', { class: 'row' },
-      h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => newFolderDialog(ctx) }, '+ Folder'), h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => newListDialog(ctx, null) }, '+ List'),
-      sc.lists.length ? h('button', { class: 'btn sm', 'aria-label': 'Download several lists', onClick: () => downloadManyDialog(ctx) }, '⤓') : null)),
-    !sc.folders.length && !loose.length ? h('p', { class: 'note' }, 'A folder becomes one TradingView watchlist; its lists become the sections.') : null,
-    sc.folders.map(folderBlock), loose.length && sc.folders.length ? h('div', { class: 'eyebrow sc-indent' }, 'Not in a folder') : null,
-    loose.map((l) => row({ kind: 'list', id: l.id }, l.name, l.items.length, dots(l.name, () => listMenu(ctx, ctx.store.state, l), ctx), A.staleInList(st, l).length ? h('span', { class: 'sc-stale', title: 'Stocks rejected or bought since you added them' }, '!') : null)));
+  const ticked = [...V.cmpTick];
+  const panel = h('div', { class: 'sc-picker card', role: 'dialog', 'aria-label': 'Sources', onClick: (e) => e.stopPropagation() },
+    h('div', { class: 'sc-pcol' }, h('h3', null, 'Scanners'),
+      groups.length ? groups.map((g) => h('div', { class: 'sc-srow' + (on({ kind: 'scanner', name: g.scanner }) ? ' on' : '') },
+        h('input', { type: 'checkbox', 'aria-label': 'Tick ' + g.scanner + ' to compare', checked: V.cmpTick.has(g.scanner), onChange: (e) => { if (e.target.checked) V.cmpTick.add(g.scanner); else V.cmpTick.delete(g.scanner); ctx.redraw(); } }),
+        h('button', { type: 'button', class: 'sc-sname', title: g.scanner, onClick: () => openSrc(ctx, { kind: 'scanner', name: g.scanner }) }, g.scanner),
+        h('span', { class: 'note sc-when' }, g.runs[0].date === today ? 'today' : dmy(g.runs[0].date)), h('span', { class: 'sc-n' }, g.runs[0].rows.length),
+        dots(g.scanner, () => [{ label: 'Rename…', fn: () => renameScannerDialog(ctx, g.scanner) }, { label: 'Delete scanner…', cls: 'rej', fn: () => deleteScannerDialog(ctx, g.scanner) }], ctx)))
+        : h('p', { class: 'note' }, 'Press Ctrl + V on this page to add a scan.'),
+      h('button', { class: 'btn sc-cmpbtn' + (ticked.length >= 2 ? ' pri' : ''), disabled: ticked.length < 2, onClick: () => openSrc(ctx, { kind: 'quick', scanners: ticked }) }, ticked.length >= 2 ? `Compare ticked (${ticked.length})` : 'Tick 2 or more to compare')),
+    h('div', { class: 'sc-pcol' }, h('h3', null, 'Comparisons'),
+      (sc.compares || []).length ? sc.compares.map((c) => row({ kind: 'compare', id: c.id }, c.name, SC.sourceView(st, { kind: 'compare', id: c.id }, today).inAll ?? 0, dots(c.name, () => [
+        { label: 'Edit…', fn: () => compareDialog(ctx, c) }, { label: 'Delete…', cls: 'rej', fn: () => deleteCompareDialog(ctx, c) }], ctx)))
+        : h('p', { class: 'note' }, 'Tick scanners on the left and press Compare. Then “Save this comparison” keeps it here, always with the newest scans.')),
+    h('div', { class: 'sc-pcol' }, h('h3', null, 'Lists'),
+      ready.map((l) => row({ kind: 'ready', id: l.id }, l.name, l.items.length, null, h('span', { class: 'sc-ready', 'aria-hidden': 'true' }, '★'))),
+      h('div', { class: 'sc-psep' }),
+      sc.folders.map(folderBlock), loose.length && sc.folders.length ? h('div', { class: 'eyebrow sc-indent' }, 'Not in a folder') : null,
+      loose.map((l) => row({ kind: 'list', id: l.id }, l.name, l.items.length, dots(l.name, () => listMenu(ctx, ctx.store.state, l), ctx), stale(l))),
+      h('div', { class: 'row sc-pbtns' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => newFolderDialog(ctx) }, '+ Folder'), h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => newListDialog(ctx, null) }, '+ List'),
+        sc.lists.length ? h('button', { class: 'btn sm', onClick: () => downloadManyDialog(ctx) }, '⤓ Several') : null)),
+    h('button', { type: 'button', class: 'sc-pclose', 'aria-label': 'Close sources', onClick: () => { V.pickOpen = false; ctx.redraw(); } }, '×'));
+  // close when clicking outside it or pressing Escape
+  if (PICK_CLOSE) { document.removeEventListener('mousedown', PICK_CLOSE, true); document.removeEventListener('keydown', PICK_CLOSE, true); }
+  PICK_CLOSE = (e) => {
+    if (!V.pickOpen || dialogOpen()) return;
+    if (e.type === 'keydown' ? e.key === 'Escape' : !e.target.closest?.('.sc-picker, .sc-srcpick, .sc-menu, .scrim')) { V.pickOpen = false; document.removeEventListener('mousedown', PICK_CLOSE, true); document.removeEventListener('keydown', PICK_CLOSE, true);
+      // close without a full redraw, so the click that closed it still reaches what was clicked
+      document.querySelector('.sc-picker')?.remove(); const b = document.querySelector('.sc-srcpick'); b?.classList.remove('open'); b?.setAttribute('aria-expanded', 'false'); }
+  };
+  setTimeout(() => { document.addEventListener('mousedown', PICK_CLOSE, true); document.addEventListener('keydown', PICK_CLOSE, true); }, 0);
+  return panel;
 }
 
 // ---------------------------------------------------------------- quick views + filter (shared by list and table)
-function quickRow(ctx, v) {
-  const n = (q) => SC.quickRows(v, q).length;
-  return h('div', { class: 'sc-quick', role: 'group', 'aria-label': 'Quick views' }, SC.QUICK.filter(([q]) => SC.quickShown(v, q)).map(([q, label]) =>
-    h('button', { type: 'button', class: 'sc-qv' + (V.q === q ? ' on' : '') + (q === 'dropped' ? ' drop' : ''), 'aria-pressed': String(V.q === q), onClick: () => { V.q = q; V.sel = null; ctx.redraw(); } }, label, h('span', { class: 'sc-n' }, n(q)))));
-}
 function clearFilter() { V.f = SC.emptyFilter(); }
 function setF(ctx, patch) { V.f = { ...V.f, ...patch }; ctx.redraw(); }
-function filterRow(ctx, cols) {
-  const SN = { all: 'Any status', new: 'Not decided', watch: 'Watching', near: 'Near buy', rej: 'Rejected' };
-  const n = SC.filterCount(V.f) + (V.f.status !== 'all' ? 1 : 0);
-  const q = h('input', { type: 'search', class: 'sc-q', value: V.f.q, placeholder: 'Find a ticker', 'aria-label': 'Find a ticker', 'data-keep': 'sc-q',
-    onInput: (e) => { V.f = { ...V.f, q: e.target.value }; ctx.redraw(); const el = document.querySelector('[data-keep="sc-q"]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } } });
+const SN = { all: 'Any status', new: 'Not decided', watch: 'Watching', near: 'Near buy', rej: 'Rejected' };
+function filterExtras(ctx, cols) {
   const chips = []; const chip = (text, off) => h('span', { class: 'sc-fchip' }, text, h('button', { type: 'button', 'aria-label': 'Remove filter ' + text, onClick: () => { off(); ctx.redraw(); } }, '×'));
   if (V.f.status !== 'all') chips.push(chip('Status: ' + SN[V.f.status], () => { V.f = { ...V.f, status: 'all' }; }));
   if (V.f.q) chips.push(chip('Ticker has “' + V.f.q + '”', () => { V.f = { ...V.f, q: '' }; }));
@@ -241,9 +270,8 @@ function filterRow(ctx, cols) {
   if (V.f.traded) chips.push(chip('Traded before', () => { V.f = { ...V.f, traded: false }; }));
   if (V.f.noOpen) chips.push(chip('No open positions', () => { V.f = { ...V.f, noOpen: false }; }));
   V.f.rules.forEach((ru, i) => chips.push(chip(`${ru.col} ${ru.op === 'has' ? 'has' : ru.op === '>=' ? '≥' : '≤'} ${ru.val}`, () => { V.f = { ...V.f, rules: V.f.rules.filter((_, j) => j !== i) }; })));
-  return h('div', { class: 'sc-filter' },
-    h('div', { class: 'sc-frow' }, q, h('button', { type: 'button', class: 'btn sm sc-fbtn' + (n ? ' active' : ''), 'aria-expanded': String(V.fOpen), onClick: () => { V.fOpen = !V.fOpen; ctx.redraw(); } }, n ? `Filter · ${n}` : 'Filter', h('span', { 'aria-hidden': 'true' }, V.fOpen ? ' ▴' : ' ▾'))),
-    V.fOpen ? filterPanel(ctx, cols, SN) : null,
+  if (!V.fOpen && !chips.length) return null;
+  return h('div', { class: 'sc-filter' }, V.fOpen ? filterPanel(ctx, cols, SN) : null,
     chips.length ? h('div', { class: 'sc-fchips', 'aria-label': 'Filters that are on' }, chips, h('button', { type: 'button', class: 'linkish', onClick: () => { clearFilter(); ctx.redraw(); } }, 'Clear all')) : null);
 }
 function filterPanel(ctx, cols, SN) {
@@ -279,7 +307,7 @@ function listPanel(ctx, st, v, fr, info, today) {
   const filtered = SC.filterCount(V.f) + (V.f.status !== 'all' ? 1 : 0) + (V.f.q ? 1 : 0);
   const top = h('div', { class: 'sc-lhd' }, h('span', { class: 'note' }, filtered ? h('b', { class: 'sc-filtered' }, `Showing ${fr.rows.length} of ${fr.total} · filtered`) : plural(fr.rows.length, 'stock')),
     h('button', { class: 'linkish', onClick: () => { V.selMode = !V.selMode; V.ticked = new Set(); ctx.redraw(); } }, V.selMode ? 'Done' : 'Select'));
-  const parts = [quickRow(ctx, v), filterRow(ctx, v.cols), top]; if (V.selMode) parts.push(selectBar(ctx, fr));
+  const parts = [top]; if (V.selMode) parts.push(selectBar(ctx, fr));
   if (!fr.rows.length) { parts.push(emptyRows(ctx, v, fr)); return h('section', { class: 'card sc-list' }, parts); }
   parts.push(h('div', { class: 'sc-lis', role: 'listbox', 'aria-label': 'Stocks' }, fr.rows.map((r) => {
     const x = info.get(r.t);
@@ -306,15 +334,15 @@ function chartPanel(ctx, st, v, r, info, today) {
   return h('section', { class: 'card sc-chart', 'aria-label': 'Chart of ' + r.t },
     h('div', { class: 'sc-chd' },
       h('div', { class: 'sc-cht' }, h('b', { class: 'sc-big' }, r.t), h('span', { class: 'note' }, (r.full?.includes(':') ? r.full.split(':')[0] : '') + (r.rs !== null ? ` · RS ${r.rs}` : '')),
-        v.kind === 'compare' && r.n ? h('span', { class: 'note' }, ` · found in ${r.n} of ${v.N}`) : null, ...marks(st, r, info, today)),
+        v.kind === 'compare' && r.n ? h('span', { class: 'note' }, ` · in ${r.n} of ${v.N}`) : null, ...marks(st, r, info, today),
+        h('span', { class: 'sc-actnote note' }, m ? `· ${SC.STATUS[m.st]} since ${dmy(m.date)}${m.st === 'rej' && reasonNames(st, m) ? ' · ' + reasonNames(st, m) : ''}` : '', lists.length ? ` · in ${lists.map((l) => l.name).join(', ')}` : '')),
       h('a', { class: 'btn sm', href: tvUrl(r), target: '_blank', rel: 'noopener' }, 'Open in TradingView ↗')),
     h('div', { id: 'sc-chart-ph', class: 'sc-chart-ph', 'data-symbol': r.full?.includes(':') ? r.full : r.t }, h('span', { class: 'note' }, 'Loading the TradingView chart…')),
     h('div', { class: 'sc-act' },
       btn('W', 'Watching', 'watch'), btn('N', 'Near buy', 'near'), btn('R', 'Rejected', 'rej'),
       h('button', { type: 'button', class: 'sc-sbtn list', disabled: ctx.readOnly, onClick: () => addToListDialog(ctx, [r]) }, 'Add to list', h('kbd', null, 'L')),
-      h('span', { class: 'sc-actnote note' }, m ? `${SC.STATUS[m.st]} since ${dmy(m.date)}${m.st === 'rej' && reasonNames(st, m) ? ' · ' + reasonNames(st, m) : ''}` : 'Not decided', lists.length ? ` · in ${lists.map((l) => l.name).join(', ')}` : '')),
-    h('div', { class: 'sc-keys' }, keyCols.length ? keyCols.map((c) => h('span', null, h('span', { class: 'note' }, c + ' '), h('b', null, r.vals?.[c] || '–'))) : h('span', { class: 'note' }, 'No scanner columns for this stock.'),
-      v.cols.length ? h('button', { type: 'button', class: 'sc-iconbtn', 'aria-label': 'Choose the key values', title: 'Choose the key values', onClick: () => keyColsDialog(ctx, v.cols, keyCols) }, '⚙') : null));
+      h('div', { class: 'sc-keys' }, keyCols.map((c) => h('span', null, h('span', { class: 'note' }, c + ' '), h('b', null, r.vals?.[c] || '–'))),
+        v.cols.length ? h('button', { type: 'button', class: 'sc-iconbtn', 'aria-label': 'Choose the key values', title: 'Choose the key values', onClick: () => keyColsDialog(ctx, v.cols, keyCols) }, '⚙') : null)));
 }
 function keyColsOf(st, cols) {
   const saved = (st.scans.keyCols || []).filter((c) => cols.includes(c)); if (st.scans.keyCols) return saved;
@@ -329,10 +357,9 @@ function keyColsDialog(ctx, cols, shown) {
 // ---------------------------------------------------------------- Table view (all columns, for screening by numbers)
 function tablePanel(ctx, st, v, fr, info, today) {
   const shown = shownCols(st, v.cols); const filtered = SC.filterCount(V.f) + (V.f.status !== 'all' ? 1 : 0) + (V.f.q ? 1 : 0);
-  const parts = [h('div', { class: 'sc-tbtop' }, quickRow(ctx, v), h('div', { class: 'row' },
+  const parts = [h('div', { class: 'sc-tbtop' }, h('span', { class: 'note' }, plural(fr.rows.length, 'stock')), h('div', { class: 'row' },
       h('button', { class: 'btn sm' + (V.selMode ? ' pri' : ''), onClick: () => { V.selMode = !V.selMode; V.ticked = new Set(); ctx.redraw(); } }, V.selMode ? 'Done selecting' : 'Select'),
       h('button', { class: 'btn sm', onClick: () => colsDialog(ctx, v.cols, shown) }, 'Columns'))),
-    filterRow(ctx, v.cols),
     filtered ? h('div', { class: 'note sc-tbnote' }, h('b', { class: 'sc-filtered' }, `Showing ${fr.rows.length} of ${fr.total} · filtered`)) : null];
   if (V.selMode) parts.push(selectBar(ctx, fr));
   if (!fr.rows.length) { parts.push(emptyRows(ctx, v, fr)); return h('section', { class: 'card sc-mid' }, parts); }

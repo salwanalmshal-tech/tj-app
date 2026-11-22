@@ -173,3 +173,9 @@ test('the page safety rule lets only TradingView\'s chart frame in (besides Goog
   assert.deepEqual(fr, ['https://accounts.google.com', 'https://www.tradingview-widget.com']);
   assert.equal(new URL(SC.chartUrl('NYSE:AAA', 'https://x/')).origin, 'https://www.tradingview-widget.com');
 });
+test('quick comparison (ticked scanners, not saved) works like a saved one', () => {
+  const st = fresh();
+  A.addScanRun(st, { scanner: 'S', date: '2026-11-22', rows: [r2('NYSE:AAA'), r2('NYSE:BBB')] }); A.addScanRun(st, { scanner: 'T', date: '2026-11-22', rows: [r2('NYSE:AAA')] });
+  const v = SC.sourceView(st, { kind: 'quick', scanners: ['S', 'T'] }, '2026-11-22');
+  assert.equal(v.kind, 'compare'); assert.equal(v.quick, true); assert.deepEqual(SC.quickRows(v, 'inall').map((r) => r.t), ['AAA']); assert.equal(v.title, 'S + T');
+});
