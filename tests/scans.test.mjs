@@ -164,5 +164,5 @@ test('sources: lists show their stocks with scanner values; stocks never scanned
   const l = A.addScanList(st, 'Tier A').data; A.addToScanList(st, l.id, [{ t: 'AAA', full: 'NYSE:AAA' }, { t: 'ZZZ', full: 'NASDAQ:ZZZ' }], { date: '2026-11-22' });
   const v = SC.sourceView(st, { kind: 'list', id: l.id }, '2026-11-22');
   assert.deepEqual(v.rows.map((r) => r.t).sort(), ['AAA', 'ZZZ']); assert.equal(v.rows.find((r) => r.t === 'AAA').vals['Perf % 3M'], '40%'); assert.equal(v.rows.find((r) => r.t === 'ZZZ').full, 'NASDAQ:ZZZ');
-  const cfg = SC.chartConfig('NYSE:AAA'); assert.equal(cfg.interval, 'D'); assert.equal(cfg.studies.length, 2); assert.equal(cfg.symbol, 'NYSE:AAA');
+  const u = new URL(SC.chartUrl('NYSE:AAA')); assert.equal(u.searchParams.get('symbol'), 'NYSE:AAA'); assert.equal(u.searchParams.get('interval'), 'D'); assert.equal(JSON.parse(u.searchParams.get('studies')).length, 2);
 });

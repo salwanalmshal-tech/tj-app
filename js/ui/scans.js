@@ -60,9 +60,8 @@ function showChart(symbol) {
   clearTimeout(SYM_TIMER);
   SYM_TIMER = setTimeout(() => {
     HOST_SYM = symbol; HOST.textContent = '';
-    const box = h('div', { class: 'tradingview-widget-container', style: { height: '100%', width: '100%' } }, h('div', { class: 'tradingview-widget-container__widget', style: { height: '100%', width: '100%' } }));
-    const s = document.createElement('script'); s.type = 'text/javascript'; s.src = SC.CHART_SRC; s.async = true; s.textContent = JSON.stringify(SC.chartConfig(symbol));
-    box.append(s); HOST.append(box); HOST.dataset.symbol = symbol;
+    HOST.append(h('iframe', { src: SC.chartUrl(symbol), title: 'TradingView chart of ' + symbol, allowtransparency: 'true', allowfullscreen: 'true', style: { width: '100%', height: '100%', border: '0', display: 'block' } }));
+    HOST.dataset.symbol = symbol;
   }, HOST_SYM ? 300 : 0);
 }
 
