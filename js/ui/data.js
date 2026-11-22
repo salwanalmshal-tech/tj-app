@@ -204,13 +204,14 @@ function backupPane(ctx) {
 }
 
 // ------------------------------------------------------------- trash
-const TRASH_KIND = { trade: 'Trade', dividend: 'Dividend', flow: 'Capital line', stocks: 'Stock', setups: 'Setup', errors: 'Mistake', sales: 'Sales' };
+const TRASH_KIND = { trade: 'Trade', dividend: 'Dividend', flow: 'Capital line', stocks: 'Stock', setups: 'Setup', errors: 'Mistake', sales: 'Sales', rejects: 'Reject reason', scanRun: 'Scan run' };
 function trashLabel(st, e) {
   const i = e.item;
   if (e.kind === 'trade') return `${i.id} ${A.symbolOf(st, i)} · ${dmy(i.buyDate)}`;
   if (e.kind === 'dividend') return `${A.stockById(st, i.stockId)?.symbol ?? '?'} ${dmy(i.payDate)} ${D.fmt(D.d(i.amount), 2)}`;
   if (e.kind === 'flow') return `${i.type} ${dmy(i.date)} ${D.fmt(D.d(i.amount), 2)}`;
   if (e.kind === 'sales') return `${i.sales.length} sale(s) of ${i.tradeId}`;
+  if (e.kind === 'scanRun') return `${i.scanner} · ${dmy(i.date)} · ${i.rows.length} stocks`;
   return i.symbol || i.name || '';
 }
 function trashPane(ctx) {

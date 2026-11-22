@@ -20,17 +20,19 @@ import * as settings from './settings.js';
 import * as tax from './tax.js';
 import * as dashboard from './dashboard.js';
 import * as reports from './reports.js';
+import * as scans from './scans.js';
 import { registerScreens } from './place.js';
 registerScreens({ dashboard, history, reports });
 
 // own: the screen draws its own page header (redesigned screens); otherwise the shell draws eyebrow + title.
 const ROUTES = {
   open: { title: 'Open positions', mod: openPos, own: true },
+  scans: { title: 'Scans', mod: scans, own: true },
   'open-trade': { title: 'Open trade', mod: tradeForms, fn: 'renderOpen', parent: 'open', own: true },
   'close-trade': { title: 'Close trade', eyebrow: 'Exit', lead: 'Sell shares and see the result before anything is saved.', mod: tradeForms, fn: 'renderClose', parent: 'open', own: true },
   history: { title: 'History', eyebrow: 'Learn', lead: 'What your closed trades say about how you trade, and where to look next.', mod: history },
   capital: { title: 'Capital', eyebrow: 'Money', lead: 'What changed your capital and why.', mod: capital },
-  lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and mistakes used by your trades.', mod: lists },
+  lists: { title: 'Lists', eyebrow: 'Records', lead: 'Stocks, setups and mistakes used by your trades, and your reject reasons for Scans.', mod: lists },
   data: { title: 'Import / Export', eyebrow: 'Safety centre', lead: 'Export, backups, restore and import of your journal.', mod: data },
   settings: { title: 'Settings', eyebrow: 'System', lead: 'Limits for marks, labels and saving. They only change what you see; they never block anything.', mod: settings },
   dashboard: { title: 'Dashboard', mod: dashboard, own: true },
@@ -38,7 +40,7 @@ const ROUTES = {
   tax: { title: 'Tax report', eyebrow: 'Learn', lead: 'Trades sold in a period (sell date), ready for your tax return.', mod: tax },
 };
 const MENU = [
-  ['Trade', [['open', 'Open positions']]],
+  ['Trade', [['open', 'Open positions'], ['scans', 'Scans']]],
   ['Learn', [['dashboard', 'Dashboard'], ['history', 'History'], ['report', 'Reports'], ['tax', 'Tax report']]],
   ['Records', [['capital', 'Capital'], ['lists', 'Lists']]],
   ['System', [['data', 'Import / Export'], ['settings', 'Settings']]],

@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.7.4';
+export const APP_VERSION = '1.8.0';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -30,6 +30,7 @@ export function defaultSettings() {
     bigJumpPct: '20',
     // share calculator in Open trade: the risk % he accepts per trade. Empty = start from his own "orange above" risk limit (riskWarn).
     calcRiskPct: '',
+    scanKeepDays: 90, // 1.8.0: Scans — full scan runs kept this many days, then only date, scanner and tickers
     // Performance verdicts (plan step 2): the 5 limits of each scale, lowest first. Start values = his Excel Calculator.
     verdictWin: ['0.5', '1', '1.5', '2.5', '4'], verdictLoss: ['0.5', '0.75', '1', '1.25', '1.5'], verdictRatio: ['1', '1.5', '2', '3', '5'],
   };
@@ -55,7 +56,15 @@ export function emptyState(now = new Date().toISOString()) {
     trash: [], changeLog: [], stopHistory: [], splits: [],
     reports: exampleReports(), layouts: {}, columnTemplates: {},
     historySeen: null, reminders: {},
+    // 1.8.0 Scans tab: dated scan runs grouped by scanner, one status per stock (kept across scans), his reject reasons
+    scans: { runs: [], marks: {}, showCols: null },
+    rejects: defaultRejects(),
   };
+}
+
+// 1.8.0: the reject reason chips he starts with (his choice A); he adds, renames and archives them in Lists
+export function defaultRejects() {
+  return [['rj-ext', 'Extended'], ['rj-vol', 'Weak volume'], ['rj-earn', 'Earnings soon'], ['rj-sma50', 'Below SMA 50'], ['rj-base', 'Bad base'], ['rj-rs', 'Low RS']].map(([id, name]) => ({ id, name, archived: false }));
 }
 
 export function nextId(state, prefix = 'x') { state.counters.id += 1; return prefix + state.counters.id.toString(36); }
@@ -85,7 +94,7 @@ export function dataProblems(data) {
   const stocks = arr(data.stocks, 'Stocks'); const ids = new Set(stocks.map((x) => x?.id));
   // IDs are only letters, digits, - _ . (they are used inside the page and to find things again)
   const ID = /^[A-Za-z0-9_.-]{1,40}$/;
-  for (const [list, name] of [['stocks', 'Stock'], ['setups', 'Setup'], ['errors', 'Mistake']]) for (const x of arr(data[list], name + 's')) if (!x || !ID.test(String(x.id))) out.push(`${name} "${x?.id ?? ''}": not a valid ID`);
+  for (const [list, name] of [['stocks', 'Stock'], ['setups', 'Setup'], ['errors', 'Mistake'], ['rejects', 'Reject reason']]) for (const x of arr(data[list], name + 's')) if (!x || !ID.test(String(x.id))) out.push(`${name} "${x?.id ?? ''}": not a valid ID`);
   for (const t of arr(data.trades, 'Trades')) {
     const w = `Trade ${t?.id ?? '?'}`; if (!t || typeof t !== 'object') { out.push('A trade is empty'); continue; }
     if (!ID.test(String(t.id))) out.push(`${w}: not a valid trade ID`);
@@ -101,6 +110,15 @@ export function dataProblems(data) {
   if (cap.start) { num(cap.start.amount, 'Start capital'); date(cap.start.date, 'Start capital date'); }
   for (const f of arr(cap.flows, 'Deposits and withdrawals')) { num(f?.amount, 'Deposit/withdrawal amount', { pos: true }); date(f?.date, 'Deposit/withdrawal date'); }
   for (const dv of arr(data.dividends, 'Dividends')) { num(dv?.amount, 'Dividend amount'); date(dv?.payDate, 'Dividend date'); }
+  // 1.8.0 Scans: runs need an ID, a date and a list of stocks; statuses need a known status (bad scan data can never stop the program)
+  if (data.scans !== undefined) {
+    if (!data.scans || typeof data.scans !== 'object') out.push('Scans are not readable');
+    else {
+      for (const r of arr(data.scans.runs, 'Scan runs')) { if (!r || !ID.test(String(r.id))) { out.push('A scan run has no valid ID'); continue; } date(r.date, `Scan run ${r.id} date`); arr(r.rows, `Scan run ${r.id} stocks`); }
+      const m = data.scans.marks; if (m !== undefined && (typeof m !== 'object' || Array.isArray(m) || m === null)) out.push('Scan statuses are not readable');
+      else for (const [k, v] of Object.entries(m || {})) if (!v || !['watch', 'near', 'rej'].includes(v.st)) out.push(`Scan status of ${k} is not valid`);
+    }
+  }
   return out;
 }
 // Migration hook: each future structure change is one step. Returns the (possibly upgraded) data.

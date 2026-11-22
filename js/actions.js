@@ -1,5 +1,6 @@
 // All changes to the data go through these actions. Each one works on a copy and returns { ok, error?, data? }.
 // Nothing is changed when an action fails. Money values are stored as exact text.
+import * as SC from './scans.js';
 import * as D from './decimal.js';
 import * as C from './calc.js';
 import { nextId, nextSeq, nextTradeId } from './model.js';
@@ -78,7 +79,9 @@ export function deleteDividend(st, id) {
 }
 
 // ---------- lists ----------
-const LISTS = { stocks: 'stock', setups: 'setup', errors: 'error' };
+const LISTS = { stocks: 'stock', setups: 'setup', errors: 'error', rejects: 'reason' };
+// 1.8.0: reject reasons are 'used' by the scan statuses that carry them
+const rejectUse = (st, id) => Object.values(st.scans?.marks || {}).filter((m) => (m.reasons || []).includes(id)).length;
 export function addListItem(st, list, name, extra = {}) {
   const nm = String(name ?? '').trim(); if (!nm) return err('Enter a name.');
   const key = list === 'stocks' ? 'symbol' : 'name';
@@ -88,12 +91,14 @@ export function addListItem(st, list, name, extra = {}) {
   st[list].push(it); return ok(it);
 }
 export function listUsage(st, list, id) { // total references (trades + dividends), used only to decide "is this still in use"
+  if (list === 'rejects') return rejectUse(st, id);
   const f = list === 'stocks' ? 'stockId' : list === 'setups' ? 'setupId' : 'errorId';
   return st.trades.filter((t) => t[f] === id).length + (list === 'stocks' ? st.dividends.filter((d) => d.stockId === id).length : 0);
 }
 // #14: trades and dividends counted separately, so the "Trades" column and the delete warning say exactly
 // what they mean, instead of one number that silently mixes two different kinds of entry.
 export function listUsageDetail(st, list, id) {
+  if (list === 'rejects') return { trades: 0, dividends: 0, stocks: rejectUse(st, id) };
   const f = list === 'stocks' ? 'stockId' : list === 'setups' ? 'setupId' : 'errorId';
   const trades = st.trades.filter((t) => t[f] === id).length;
   const dividends = list === 'stocks' ? st.dividends.filter((d) => d.stockId === id).length : 0;
@@ -106,6 +111,7 @@ export function renameListItem(st, list, id, newName, { merge = false } = {}) {
   const other = st[list].find((x) => x.id !== id && x[key].toLowerCase() === nm.toLowerCase());
   if (other && !merge) return err('exists', { exists: other });
   if (other && merge) { // move all links to the existing item in one step, then remove the old one
+    if (list === 'rejects') { for (const m of Object.values(st.scans?.marks || {})) if ((m.reasons || []).includes(id)) m.reasons = [...new Set(m.reasons.map((x) => (x === id ? other.id : x)))]; st[list] = st[list].filter((x) => x.id !== id); return ok({ merged: other }); }
     const f = list === 'stocks' ? 'stockId' : list === 'setups' ? 'setupId' : 'errorId';
     for (const t of st.trades) if (t[f] === id) t[f] = other.id;
     if (list === 'stocks') for (const d of st.dividends) if (d.stockId === id) d.stockId = other.id;
@@ -333,10 +339,10 @@ export function deleteTrade(st, id) {
 }
 export function restoreFromTrash(st, index) {
   const e = st.trash[index]; if (!e) return err('Not found.');
-  const back = { trade: () => st.trades.push(e.item), dividend: () => st.dividends.push(e.item), flow: () => st.capital.flows.push(e.item), stocks: () => st.stocks.push(e.item), setups: () => st.setups.push(e.item), errors: () => st.errors.push(e.item), sales: () => { const t = tradeById(st, e.item.tradeId); if (!t) return false; t.sales.push(...e.item.sales); } };
+  const back = { trade: () => st.trades.push(e.item), dividend: () => st.dividends.push(e.item), flow: () => st.capital.flows.push(e.item), rejects: () => st.rejects.push(e.item), scanRun: () => { st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.runs.push(e.item); }, stocks: () => st.stocks.push(e.item), setups: () => st.setups.push(e.item), errors: () => st.errors.push(e.item), sales: () => { const t = tradeById(st, e.item.tradeId); if (!t) return false; t.sales.push(...e.item.sales); } };
   if (!back[e.kind]) return err('This item cannot be restored.');
   // review fix 2026-11-09: the same checks as everywhere else, before anything comes back
-  const nameKey = { stocks: 'symbol', setups: 'name', errors: 'name' }[e.kind];
+  const nameKey = { stocks: 'symbol', setups: 'name', errors: 'name', rejects: 'name' }[e.kind];
   if (nameKey && st[e.kind].some((x) => String(x[nameKey]).toUpperCase() === String(e.item[nameKey]).toUpperCase())) return err(`“${e.item[nameKey]}” is already in the list again, so the deleted one cannot come back.`);
   if ((e.kind === 'trade' || e.kind === 'dividend') && !st.stocks.some((x) => x.id === e.item.stockId)) return err('Its stock was deleted from the list. Restore the stock first.');
   if (e.kind === 'trade' && st.trades.some((x) => x.id === e.item.id)) return err('A trade with the same ID exists.');
@@ -495,3 +501,34 @@ export function orderReportsList(st, screen, ids) {
   if (!C.SCREENS.includes(screen) || !Array.isArray(ids) || new Set(ids).size !== ids.length) return err('Unknown list.');
   st.layouts ??= {}; st.layouts.reportsList = { ...(st.layouts.reportsList || {}), [screen]: [...ids] }; return ok(ids);
 }
+
+
+// ---------- 1.8.0 Scans ----------
+// One scan run = one paste from the TJ Collect bookmark (or plain tickers). Runs are kept per scanner and date.
+// mode 'replace' removes today's earlier run of the same scanner first (he chose to be asked when that happens).
+export function addScanRun(st, { scanner, date, cols = [], rows, shown = null }, { replace = false, today = date } = {}) {
+  const name = String(scanner ?? '').trim(); if (!name) return err('Give the scanner a name.');
+  if (name.length > 60) return err('The scanner name is too long (60 characters at most).');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return err('The scan date is not valid.');
+  const good = (rows || []).filter((r) => SC.validSymbol(r.s)); if (!good.length) return err('There are no stocks in this scan.');
+  st.scans ??= { runs: [], marks: {}, showCols: null };
+  if (replace) st.scans.runs = st.scans.runs.filter((r) => !(r.scanner === name && r.date === date));
+  const run = { id: nextId(st, 'sr'), scanner: name, date, seq: nextSeq(st), cols: cols.slice(0, 60), rows: good.map((r) => ({ s: r.s.toUpperCase(), v: (r.v || []).slice(0, cols.length) })), shown: shown || null, trimmed: false };
+  st.scans.runs.push(run);
+  const trimmed = SC.trimOld(st, today, Number(st.settings.scanKeepDays) || 90);
+  return ok({ run, trimmed });
+}
+export const scanRunExists = (st, scanner, date) => (st.scans?.runs || []).some((r) => r.scanner === String(scanner).trim() && r.date === date);
+export function deleteScanRun(st, id) {
+  const i = (st.scans?.runs || []).findIndex((r) => r.id === id); if (i < 0) return err('Not found.');
+  st.trash.push({ kind: 'scanRun', deletedAt: new Date().toISOString(), item: st.scans.runs[i] }); st.scans.runs.splice(i, 1); return ok();
+}
+// status per stock (ticker without exchange), kept across scans
+export function setScanMark(st, ticker, { status, reasons = [], other = '', date }) {
+  const t = SC.tickerOf(ticker); if (!t) return err('No stock.');
+  if (!['watch', 'near', 'rej'].includes(status)) return err('Unknown status.');
+  const known = new Set((st.rejects || []).map((r) => r.id));
+  const m = { st: status, date, reasons: status === 'rej' ? [...new Set(reasons)].filter((r) => known.has(r)) : [], other: status === 'rej' ? String(other || '').trim().slice(0, 120) : '' };
+  st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.marks[t] = m; return ok(m);
+}
+export function setScanCols(st, cols) { st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.showCols = cols.slice(0, 12); return ok(); }

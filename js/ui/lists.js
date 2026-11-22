@@ -3,10 +3,10 @@ import * as A from '../actions.js';
 
 // Layout 2026-11-06 (his Lists example + Q12): tabs Stocks / Setups / Errors with counts, search, filters, sortable columns,
 // a missing-info filter, count and pages; one "…" menu per row (Edit, Archive/Restore, Delete). Rules J1–J3 unchanged.
-const NAMES = { stocks: ['Stocks', 'symbol', 'stock'], setups: ['Setups', 'name', 'setup'], errors: ['Mistakes', 'name', 'mistake'] };
-const LEADS = { stocks: 'Your stocks with sector, industry and exchange. Typing a symbol in Open trade fills these in.', setups: 'Reusable trade setups. Usually a short list.', errors: 'Trading mistakes you want to recognize across your journal.' };
+const NAMES = { stocks: ['Stocks', 'symbol', 'stock'], setups: ['Setups', 'name', 'setup'], errors: ['Mistakes', 'name', 'mistake'], rejects: ['Reject reasons', 'name', 'reject reason'] };
+const LEADS = { stocks: 'Your stocks with sector, industry and exchange. Typing a symbol in Open trade fills these in.', setups: 'Reusable trade setups. Usually a short list.', errors: 'Trading mistakes you want to recognize across your journal.', rejects: 'Why you reject a stock in Scans. They are the chips you pick when you press R, and can be counted later.' };
 const PAGE = 25;
-const V = { tab: 'stocks', q: '', sector: '', exch: '', status: 'active', sort: { stocks: ['trades', -1], setups: ['trades', -1], errors: ['trades', -1] }, page: 0 };
+const V = { tab: 'stocks', q: '', sector: '', exch: '', status: 'active', sort: { stocks: ['trades', -1], setups: ['trades', -1], errors: ['trades', -1], rejects: ['name', 1] }, page: 0 };
 const missingInfo = (it) => !it.sector || !it.industry || !it.exchange;
 
 export function render(ctx) {
@@ -27,7 +27,7 @@ function table(ctx, st, list, key) {
   if (list === 'stocks' && V.exch) rows = rows.filter((it) => (it.exchange || '') === V.exch);
   // sort
   const [sk, sd] = V.sort[list];
-  const val = (it) => (sk === 'trades' ? usage.get(it.id).trades : (it[sk] || '').toLowerCase());
+  const val = (it) => (sk === 'trades' ? (list === 'rejects' ? usage.get(it.id).stocks : usage.get(it.id).trades) : (it[sk] || '').toLowerCase());
   rows.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * sd || a[key].localeCompare(b[key]); });
   const pages = Math.max(1, Math.ceil(rows.length / PAGE)); if (V.page >= pages) V.page = pages - 1;
   const shown = rows.slice(V.page * PAGE, V.page * PAGE + PAGE);
@@ -45,7 +45,7 @@ function table(ctx, st, list, key) {
     sel(V.status, [['active', 'Active'], ...(list === 'stocks' ? [['missing', `Missing info · ${nMissing}`]] : []), ['archived', 'Archived'], ['all', 'All']], (v) => { V.status = v; }, 'Status')));
 
   // table
-  const cols = list === 'stocks' ? [['symbol', 'Symbol'], ['sector', 'Sector'], ['industry', 'Industry'], ['exchange', 'Exchange'], ['trades', 'Trades'], [null, 'Status'], [null, '']] : [['name', 'Name'], ['trades', 'Trades'], [null, 'Status'], [null, '']];
+  const cols = list === 'stocks' ? [['symbol', 'Symbol'], ['sector', 'Sector'], ['industry', 'Industry'], ['exchange', 'Exchange'], ['trades', 'Trades'], [null, 'Status'], [null, '']] : [['name', 'Name'], ['trades', list === 'rejects' ? 'Used by' : 'Trades'], [null, 'Status'], [null, '']];
   const th = ([k, t]) => k ? h('th', { class: 'sortable' + (k === sk ? ' on' : ''), 'aria-sort': k === sk ? (sd > 0 ? 'ascending' : 'descending') : 'none' },
     h('button', { type: 'button', onClick: () => { V.sort[list] = [k, k === sk ? -sd : k === 'trades' ? -1 : 1]; ctx.redraw(); } }, t, h('span', { class: 'sa' }, k === sk ? (sd > 0 ? '▲' : '▼') : '↕'))) : h('th', null, t);
   const miss = h('span', { class: 'lmiss' }, 'Missing');
@@ -53,7 +53,7 @@ function table(ctx, st, list, key) {
   const body = shown.map((it) => {
     const n = usage.get(it.id);
     const status = h('span', { class: 'lst ' + (it.archived ? 'arch' : 'act') }, it.archived ? 'Archived' : 'Active');
-    const trades = h('span', { class: 'ltr' + (n.trades ? '' : ' zero') }, (n.trades === 1 ? '1 trade' : n.trades + ' trades') + (n.dividends ? ` · ${n.dividends === 1 ? '1 dividend' : n.dividends + ' dividends'}` : ''));
+    const trades = list === 'rejects' ? h('span', { class: 'ltr' + (n.stocks ? '' : ' zero') }, n.stocks === 1 ? '1 stock' : n.stocks + ' stocks') : h('span', { class: 'ltr' + (n.trades ? '' : ' zero') }, (n.trades === 1 ? '1 trade' : n.trades + ' trades') + (n.dividends ? ` · ${n.dividends === 1 ? '1 dividend' : n.dividends + ' dividends'}` : ''));
     const menu = rowMenu(ctx, list, it, n);
     return list === 'stocks'
       ? h('tr', { class: it.archived ? 'arch' : '' }, h('td', null, h('b', { class: 'lsym' }, it.symbol)), h('td', null, cell(it.sector)), h('td', null, cell(it.industry)), h('td', null, cell(it.exchange)), h('td', null, trades), h('td', null, status), h('td', { class: 'r' }, menu))
@@ -129,6 +129,7 @@ async function archive(ctx, list, it) {
 }
 async function del(ctx, list, it, usage) {
   const key = NAMES[list][1];
+  if (usage.stocks) return dialog({ title: `${it[key]} is in use`, body: para(`${usage.stocks === 1 ? '1 rejected stock uses' : usage.stocks + ' rejected stocks use'} it. Archive it instead: it stays on those stocks but disappears from the chips.`, ''), info: true });
   if (usage.trades || usage.dividends) return dialog({ title: `${it[key]} is in use`, body: para(`${usageText(usage)} use it. Archive it instead: archived items stay in old trades but disappear from the pick lists.`, ''), info: true });
   const ok = await dialog({ title: `Delete ${it[key]}?`, danger: true, ok: 'Delete', body: para('It moves to the Trash for 15 days.', '') }); if (!ok) return;
   const r = ctx.act((d) => A.deleteListItem(d, list, it.id), { label: 'delete ' + it[key], now: true }); if (r.ok) toast(`${it[key]} moved to the Trash.`, 'Restore', () => ctx.store.undo()); else toast(r.error);

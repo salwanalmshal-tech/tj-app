@@ -15,7 +15,7 @@ export const goSection = (k) => { lastSection = k; };
 const SECTIONS = [
   ['Trading', [['rules', 'Trading rules', 'Stops, EMA10 and earnings'], ['risk', 'Risk and position size', 'Capital at risk and allocation']]],
   ['Journal', [['results', 'Results and labels', 'Result labels and stop distance'], ['history', 'History marks', 'Closed-trade highlighting'], ['verdicts', 'Performance verdicts', 'Words for your average R (risk)']]],
-  ['System', [['saving', 'Saving and backup', 'Autosave and Excel copies'], ['account', 'Account and data', 'Version, file and connection']]],
+  ['System', [['saving', 'Saving and backup', 'Autosave, Excel copies and scans'], ['account', 'Account and data', 'Version, file and connection']]],
 ];
 
 export function render(ctx) {
@@ -148,6 +148,8 @@ export function render(ctx) {
     card('Excel copy', 'Safety copy',
       row({ path: 'excelCopyDays', kind: 'int', unit: 'days', label: 'Make an Excel copy every', sub: 'Saved in the Backups folder in your Drive, for reading in Excel. Restoring always uses the JSON backups.', chip: 'Excel copy', tone: 'plain' }),
       row({ path: 'excelCopyKeep', kind: 'int', unit: 'copies', label: 'Keep the newest', sub: 'Older Excel copies are deleted; JSON backups are not.', chip: 'Older removed', tone: 'plain' })),
+    card('Scans', 'Keep',
+      row({ path: 'scanKeepDays', kind: 'int', unit: 'days', label: 'Keep full scans for', sub: 'After this, a scan keeps only its date, scanner and tickers. Your statuses on the stocks and scans linked to a trade are always kept.', chip: 'Short scan', tone: 'plain' })),
   ];
   const kv = (k, v) => h('div', { class: 'srow kv' }, h('div', { class: 'sl' }, h('span', null, k)), h('b', null, v));
   const account = [
@@ -168,6 +170,7 @@ export function render(ctx) {
     for (const t of tables) { ns[t.k] = []; for (const r of t.rows) { const v = D.parse(r.li.value); if (v === null) return fail('A label limit is not a number.'); if (!r.nm.value.trim()) return fail('A label name is empty.'); ns[t.k].push([D.toStr(v), r.nm.value.trim()]); } ns[t.e] = t.other.value.trim(); }
     if (ns.excelCopyDays < 1 || ns.excelCopyDays > 365) return fail('Make an Excel copy every 1 to 365 days.');
     if (ns.excelCopyKeep < 1 || ns.excelCopyKeep > 52) return fail('Keep between 1 and 52 Excel copies.');
+    if (!(ns.scanKeepDays >= 14 && ns.scanKeepDays <= 3650)) return fail('Keep full scans between 14 and 3650 days.');
     if (ns.saveDelaySec > 120) return fail('Waiting more than 120 seconds before saving is too long.');
     // review fix 2026-11-09: limits that contradict each other would make some marks or labels never appear
     const num = (x) => D.d(String(x));
