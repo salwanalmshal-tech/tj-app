@@ -167,3 +167,9 @@ test('sources: lists show their stocks with scanner values; stocks never scanned
   const u = new URL(SC.chartUrl('NYSE:AAA', 'https://x.github.io/tj-app/')); const cfg = JSON.parse(decodeURIComponent(u.hash.slice(1)));
   assert.equal(u.host, 'www.tradingview-widget.com'); assert.equal(cfg.symbol, 'NYSE:AAA'); assert.equal(cfg.interval, 'D'); assert.equal(cfg.studies.length, 2); assert.equal(cfg['page-uri'], 'x.github.io/tj-app/');
 });
+test('the page safety rule lets only TradingView\'s chart frame in (besides Google sign-in)', async () => {
+  const fs = await import('node:fs'); const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const fr = html.match(/frame-src ([^;]*)/)[1].trim().split(/\s+/);
+  assert.deepEqual(fr, ['https://accounts.google.com', 'https://www.tradingview-widget.com']);
+  assert.equal(new URL(SC.chartUrl('NYSE:AAA', 'https://x/')).origin, 'https://www.tradingview-widget.com');
+});
