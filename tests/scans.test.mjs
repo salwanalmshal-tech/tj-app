@@ -165,7 +165,7 @@ test('sources: lists show their stocks with scanner values; stocks never scanned
   const v = SC.sourceView(st, { kind: 'list', id: l.id }, '2026-11-22');
   assert.deepEqual(v.rows.map((r) => r.t).sort(), ['AAA', 'ZZZ']); assert.equal(v.rows.find((r) => r.t === 'AAA').vals['Perf % 3M'], '40%'); assert.equal(v.rows.find((r) => r.t === 'ZZZ').full, 'NASDAQ:ZZZ');
   const u = new URL(SC.chartUrl('NYSE:AAA', 'https://x.github.io/tj-app/')); const cfg = JSON.parse(decodeURIComponent(u.hash.slice(1)));
-  assert.equal(u.host, 'www.tradingview-widget.com'); assert.equal(cfg.symbol, 'NYSE:AAA'); assert.equal(cfg.interval, 'D'); assert.equal(cfg.studies.length, 2); assert.equal(cfg['page-uri'], 'x.github.io/tj-app/');
+  assert.equal(u.host, 'www.tradingview-widget.com'); assert.equal(cfg.symbol, 'NYSE:AAA'); assert.equal(cfg.interval, 'D'); assert.equal(cfg.studies.length, 2); assert.equal(cfg['page-uri'], 'x.github.io/tj-app/'); assert.equal(cfg.studies_overrides['moving average.plot.color'], '#000000');
 });
 test('the page safety rule lets only TradingView\'s chart frame in (besides Google sign-in)', async () => {
   const fs = await import('node:fs'); const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
