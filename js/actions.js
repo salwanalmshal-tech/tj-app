@@ -339,7 +339,7 @@ export function deleteTrade(st, id) {
 }
 export function restoreFromTrash(st, index) {
   const e = st.trash[index]; if (!e) return err('Not found.');
-  const back = { trade: () => st.trades.push(e.item), dividend: () => st.dividends.push(e.item), flow: () => st.capital.flows.push(e.item), rejects: () => st.rejects.push(e.item), scanRun: () => { st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.runs.push(e.item); }, stocks: () => st.stocks.push(e.item), setups: () => st.setups.push(e.item), errors: () => st.errors.push(e.item), sales: () => { const t = tradeById(st, e.item.tradeId); if (!t) return false; t.sales.push(...e.item.sales); } };
+  const back = { trade: () => st.trades.push(e.item), dividend: () => st.dividends.push(e.item), flow: () => st.capital.flows.push(e.item), rejects: () => st.rejects.push(e.item), scanRun: () => { st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.runs.push(e.item); }, scanner: () => { const sc = scansOf(st); if (sc.runs.some((r) => r.scanner === e.item.scanner)) return false; sc.runs.push(...e.item.runs); }, scanList: () => { const sc = scansOf(st); if (sc.lists.some((l) => same(l.name, e.item.name))) return false; if (e.item.folder && !sc.folders.some((f) => f.id === e.item.folder)) e.item.folder = null; sc.lists.push(e.item); }, scanFolder: () => { const sc = scansOf(st); if (sc.folders.some((f) => same(f.name, e.item.folder.name)) || e.item.lists.some((l) => sc.lists.some((x) => same(x.name, l.name)))) return false; sc.folders.push(e.item.folder); sc.lists.push(...e.item.lists); }, stocks: () => st.stocks.push(e.item), setups: () => st.setups.push(e.item), errors: () => st.errors.push(e.item), sales: () => { const t = tradeById(st, e.item.tradeId); if (!t) return false; t.sales.push(...e.item.sales); } };
   if (!back[e.kind]) return err('This item cannot be restored.');
   // review fix 2026-11-09: the same checks as everywhere else, before anything comes back
   const nameKey = { stocks: 'symbol', setups: 'name', errors: 'name', rejects: 'name' }[e.kind];
@@ -348,7 +348,7 @@ export function restoreFromTrash(st, index) {
   if (e.kind === 'trade' && st.trades.some((x) => x.id === e.item.id)) return err('A trade with the same ID exists.');
   if (e.kind === 'sales') { const t = tradeById(st, e.item.tradeId); if (t && C.quantityProblems({ ...t, sales: [...t.sales, ...e.item.sales] }).length) return err(`${symbolOf(st, t)} ${t.id}: the restored sales would sell more shares than were bought. Nothing was restored.`); }
   if (e.kind === 'trade' && C.quantityProblems(e.item).length) return err('This trade sells more shares than it bought. Nothing was restored.');
-  if (back[e.kind]() === false) return err('The trade of these sales no longer exists.');
+  if (back[e.kind]() === false) return err(['scanner', 'scanList', 'scanFolder'].includes(e.kind) ? 'Something with the same name exists again, so it cannot come back. Rename that first.' : 'The trade of these sales no longer exists.');
   st.trash.splice(index, 1); return ok();
 }
 // After 15 days the Trash is emptied for good. A deleted trade is then gone everywhere (2026-11-06): its lines in the
@@ -531,4 +531,94 @@ export function setScanMark(st, ticker, { status, reasons = [], other = '', date
   const m = { st: status, date, reasons: status === 'rej' ? [...new Set(reasons)].filter((r) => known.has(r)) : [], other: status === 'rej' ? String(other || '').trim().slice(0, 120) : '' };
   st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.marks[t] = m; return ok(m);
 }
+// 1.8.0: "Not decided" in the status menu takes the status back (the stock shows as New again)
+export function clearScanMark(st, ticker) { const t = SC.tickerOf(ticker); if (!st.scans?.marks?.[t]) return err('This stock has no status.'); delete st.scans.marks[t]; return ok(); }
 export function setScanCols(st, cols) { st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.showCols = cols.slice(0, 12); return ok(); }
+
+// ---------- 1.8.1 Scans: scanners, folders, lists ----------
+const scansOf = (st) => { st.scans ??= { runs: [], marks: {}, showCols: null, lists: [], folders: [], fold: {} }; st.scans.lists ??= []; st.scans.folders ??= []; st.scans.fold ??= {}; return st.scans; };
+const cleanName = (n, what) => { const v = String(n ?? '').trim(); if (!v) return err(`Give the ${what} a name.`); if (v.length > 60) return err(`The ${what} name is too long (60 characters at most).`); return ok(v); };
+const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+export function renameScanner(st, from, to) {
+  const n = cleanName(to, 'scanner'); if (!n.ok) return n; const sc = scansOf(st);
+  if (from === n.data) return ok();
+  if (sc.runs.some((r) => r.scanner !== from && same(r.scanner, n.data))) return err(`A scanner called “${n.data}” already exists.`);
+  for (const r of sc.runs) if (r.scanner === from) r.scanner = n.data;
+  if (sc.fold[from] !== undefined) { sc.fold[n.data] = sc.fold[from]; delete sc.fold[from]; }
+  return ok();
+}
+export function deleteScanner(st, name) {
+  const sc = scansOf(st); const runs = sc.runs.filter((r) => r.scanner === name); if (!runs.length) return err('Not found.');
+  st.trash.push({ kind: 'scanner', deletedAt: new Date().toISOString(), item: { scanner: name, runs } });
+  sc.runs = sc.runs.filter((r) => r.scanner !== name); delete sc.fold[name]; return ok({ n: runs.length });
+}
+export function setScannerFold(st, name, folded) { const sc = scansOf(st); if (folded) sc.fold[name] = true; else delete sc.fold[name]; return ok(); }
+
+export function addScanFolder(st, name) {
+  const n = cleanName(name, 'folder'); if (!n.ok) return n; const sc = scansOf(st);
+  if (sc.folders.some((f) => same(f.name, n.data))) return err(`A folder called “${n.data}” already exists.`);
+  const f = { id: nextId(st, 'sf'), name: n.data }; sc.folders.push(f); return ok(f);
+}
+export function renameScanFolder(st, id, name) {
+  const n = cleanName(name, 'folder'); if (!n.ok) return n; const sc = scansOf(st); const f = sc.folders.find((x) => x.id === id); if (!f) return err('Not found.');
+  if (sc.folders.some((x) => x.id !== id && same(x.name, n.data))) return err(`A folder called “${n.data}” already exists.`);
+  f.name = n.data; return ok();
+}
+// a folder goes to the Trash together with its lists
+export function deleteScanFolder(st, id) {
+  const sc = scansOf(st); const f = sc.folders.find((x) => x.id === id); if (!f) return err('Not found.');
+  const lists = sc.lists.filter((l) => l.folder === id);
+  st.trash.push({ kind: 'scanFolder', deletedAt: new Date().toISOString(), item: { folder: f, lists } });
+  sc.folders = sc.folders.filter((x) => x.id !== id); sc.lists = sc.lists.filter((l) => l.folder !== id); return ok({ lists: lists.length });
+}
+export function addScanList(st, name, folder = null) {
+  const n = cleanName(name, 'list'); if (!n.ok) return n; const sc = scansOf(st);
+  if (folder && !sc.folders.some((f) => f.id === folder)) return err('That folder no longer exists.');
+  if (sc.lists.some((l) => same(l.name, n.data))) return err(`A list called “${n.data}” already exists.`);
+  const l = { id: nextId(st, 'sl'), name: n.data, folder: folder || null, items: [] }; sc.lists.push(l); return ok(l);
+}
+export function renameScanList(st, id, name) {
+  const n = cleanName(name, 'list'); if (!n.ok) return n; const sc = scansOf(st); const l = sc.lists.find((x) => x.id === id); if (!l) return err('Not found.');
+  if (sc.lists.some((x) => x.id !== id && same(x.name, n.data))) return err(`A list called “${n.data}” already exists.`);
+  l.name = n.data; return ok();
+}
+export function moveScanList(st, id, folder) {
+  const sc = scansOf(st); const l = sc.lists.find((x) => x.id === id); if (!l) return err('Not found.');
+  if (folder && !sc.folders.some((f) => f.id === folder)) return err('That folder no longer exists.');
+  l.folder = folder || null; return ok();
+}
+export function deleteScanList(st, id) {
+  const sc = scansOf(st); const i = sc.lists.findIndex((x) => x.id === id); if (i < 0) return err('Not found.');
+  st.trash.push({ kind: 'scanList', deletedAt: new Date().toISOString(), item: sc.lists[i] }); sc.lists.splice(i, 1); return ok();
+}
+// items: [{t, full}]. removeFrom: ids of other lists to take these stocks out of (his pop-up choice "Remove from …")
+export function addToScanList(st, id, items, { removeFrom = [], date } = {}) {
+  const sc = scansOf(st); const l = sc.lists.find((x) => x.id === id); if (!l) return err('That list no longer exists.');
+  const tks = new Set(items.map((x) => SC.tickerOf(x.t))); let added = 0;
+  for (const x of items) { const t = SC.tickerOf(x.t); if (l.items.some((y) => y.t === t)) continue; l.items.push({ t, full: String(x.full || t).toUpperCase(), added: date }); added++; }
+  for (const o of sc.lists) if (o.id !== id && removeFrom.includes(o.id)) o.items = o.items.filter((y) => !tks.has(y.t));
+  return ok({ added });
+}
+// all: take the stocks out of every list (his pop-up choice "From all lists")
+export function removeFromScanList(st, id, tickers, { all = false } = {}) {
+  const sc = scansOf(st); const tks = new Set(tickers.map(SC.tickerOf)); let n = 0;
+  for (const l of sc.lists) if (all || l.id === id) { const before = l.items.length; l.items = l.items.filter((y) => !tks.has(y.t)); n += before - l.items.length; }
+  return n ? ok({ n }) : err('Nothing to remove.');
+}
+export function moveScanItems(st, fromId, toId, tickers, { date } = {}) {
+  const sc = scansOf(st); const a = sc.lists.find((x) => x.id === fromId), b = sc.lists.find((x) => x.id === toId); if (!a || !b) return err('Not found.');
+  const tks = new Set(tickers.map(SC.tickerOf)); const move = a.items.filter((y) => tks.has(y.t));
+  for (const x of move) if (!b.items.some((y) => y.t === x.t)) b.items.push({ ...x, added: date || x.added });
+  a.items = a.items.filter((y) => !tks.has(y.t)); return ok({ n: move.length });
+}
+// stocks that are Rejected or bought (an open trade) since they were added; Clean up removes them (after his check)
+export function staleInList(st, l) {
+  const open = new Set(st.trades.filter((t) => C.openQty(t) > 0n).map((t) => (symbolOf(st, t) || '').toUpperCase()));
+  return l.items.filter((x) => st.scans?.marks?.[x.t]?.st === 'rej' || open.has(x.t)).map((x) => x.t);
+}
+export function cleanUpScanLists(st, ids) {
+  const sc = scansOf(st); let n = 0;
+  for (const l of sc.lists) if (ids.includes(l.id)) { const bad = new Set(staleInList(st, l)); const b = l.items.length; l.items = l.items.filter((x) => !bad.has(x.t)); n += b - l.items.length; }
+  return n ? ok({ n }) : err('Nothing to clean up.');
+}

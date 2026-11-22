@@ -74,30 +74,116 @@ export function runsByScanner(st) {
 // default ticks: the newest run of every scanner
 export const defaultPick = (st) => runsByScanner(st).map((g) => g.runs[0].id);
 
-export function compare(st, pickIds, today) {
-  const runs = (st.scans?.runs || []).filter((r) => pickIds.includes(r.id));
-  if (!runs.length) return { runs, rows: [], cols: [], universe: 0 };
+// rows for a set of tickers, RS ranked among every stock in the given runs (shared by "common" and "what changed")
+function buildRows(st, runs, tickers, today) {
   const sets = runs.map((r) => new Set(r.rows.map((x) => tickerOf(x.s))));
-  const common = [...sets[0]].filter((t) => sets.every((s) => s.has(t)));
-  // RS group = every stock in the ticked runs (not only the common ones), so a 90 means strong among all candidates
-  const universe = new Set(sets.flatMap((s) => [...s]));
+  const universe = new Set(sets.flatMap((x) => [...x]));
   const newestFirst = [...runs].sort((a, b) => b.date.localeCompare(a.date) || b.seq - a.seq);
   const valueOf = (t, re) => { for (const r of newestFirst) { const v = cellOf(r, t, re); if (v !== null && v !== '') return v; } return null; };
   const scores = new Map([...universe].map((t) => [t, rsScore(pctNum(valueOf(t, PERF.m3)), pctNum(valueOf(t, PERF.m6)), pctNum(valueOf(t, PERF.y1)))]));
   const ranks = rsRanks(scores);
   const cols = [...new Set(newestFirst.flatMap((r) => r.cols || []))].filter((c) => !/^symbol$/i.test(c));
-  const rows = common.map((t) => {
+  const rows = tickers.map((t) => {
     const src = newestFirst.find((r) => r.rows.some((x) => tickerOf(x.s) === t));
     const full = src.rows.find((x) => tickerOf(x.s) === t).s;
     const vals = Object.fromEntries(cols.map((c) => { for (const r of newestFirst) { const i = (r.cols || []).indexOf(c); if (i < 0) continue; const x = r.rows.find((y) => tickerOf(y.s) === t); if (x && x.v?.[i]) return [c, x.v[i]]; } return [c, '']; }));
-    const mark = st.scans?.marks?.[t] || null;
-    return { t, full: full.includes(':') ? full : (exchangeOf(full) ? full : t), rs: ranks.get(t) ?? null, vals, mark, earnings: earningsDays(valueOf(t, EARN), today), earningsText: valueOf(t, EARN) };
+    return { t, full, rs: ranks.get(t) ?? null, vals, mark: st.scans?.marks?.[t] || null, earnings: earningsDays(valueOf(t, EARN), today), earningsText: valueOf(t, EARN), chg: null };
   });
-  // his order: New first, then Watching and Near buy, then Rejected (dimmed); inside each group by RS, strongest first
-  const grp = (r) => (!r.mark ? 0 : r.mark.st === 'rej' ? 2 : 1);
-  rows.sort((a, b) => grp(a) - grp(b) || (b.rs ?? -1) - (a.rs ?? -1) || a.t.localeCompare(b.t));
-  return { runs, rows, cols, universe: universe.size };
+  return { rows, cols, universe: universe.size };
 }
+const grp = (r) => (!r.mark ? 0 : r.mark.st === 'rej' ? 2 : 1);
+const byRs = (a, b) => (b.rs ?? -1) - (a.rs ?? -1) || a.t.localeCompare(b.t);
+
+// stocks found in ALL the given runs; his order: New, then Watching and Near buy, then Rejected; inside each by RS
+export function compare(st, pickIds, today) {
+  const runs = (st.scans?.runs || []).filter((r) => pickIds.includes(r.id));
+  if (!runs.length) return { runs, rows: [], cols: [], universe: 0, mode: 'common' };
+  const sets = runs.map((r) => new Set(r.rows.map((x) => tickerOf(x.s))));
+  const common = [...sets[0]].filter((t) => sets.every((x) => x.has(t)));
+  const b = buildRows(st, runs, common, today);
+  b.rows.sort((a, c) => grp(a) - grp(c) || byRs(a, c));
+  return { runs, ...b, mode: runs.length === 1 ? 'one' : 'common' };
+}
+// 1.8.1 "What changed" (his choice A): two scans of the SAME scanner -> Joined (in the newer only), Left (in the older only), Stayed
+export function changes(st, pickIds, today) {
+  const runs = (st.scans?.runs || []).filter((r) => pickIds.includes(r.id)).sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq);
+  const older = runs[0], newer = runs[runs.length - 1];
+  const A = new Set(older.rows.map((x) => tickerOf(x.s))), B = new Set(newer.rows.map((x) => tickerOf(x.s)));
+  const tick = [...new Set([...B, ...A])];
+  const b = buildRows(st, [older, newer], tick, today);
+  for (const r of b.rows) r.chg = B.has(r.t) && !A.has(r.t) ? 'joined' : A.has(r.t) && !B.has(r.t) ? 'left' : 'stayed';
+  const order = { joined: 0, left: 1, stayed: 2 };
+  b.rows.sort((a, c) => order[a.chg] - order[c.chg] || grp(a) - grp(c) || byRs(a, c));
+  return { runs: [older, newer], ...b, mode: 'changes', older, newer };
+}
+// which view the ticked runs call for
+export function compareMode(st, pickIds) {
+  const runs = (st.scans?.runs || []).filter((r) => pickIds.includes(r.id));
+  return runs.length >= 2 && new Set(runs.map((r) => r.scanner)).size === 1 ? 'changes' : 'common';
+}
+
+// ---------- 1.8.1 filter ----------
+// number inside screener text: "71.76 USD" 71.76, "8.72 B USD" 8.72e9, "241.92 M" 2.4192e8, "−3.91%" -3.91; text gives null
+export function numOf(text) {
+  if (text === null || text === undefined) return null;
+  const s = String(text).replace(/[−–]/g, '-').replace(/[\s\u202f\u00a0,+]/g, '');
+  const m = s.match(/^(-?\d+(?:\.\d+)?)%?([KMBT])?/);
+  if (!m) return null; const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || '').toUpperCase()] || 1;
+  const v = Number(m[1]) * mult; return Number.isFinite(v) ? v : null;
+}
+export const emptyFilter = () => ({ status: 'all', q: '', rsMin: null, noEarn: false, traded: false, noOpen: false, rules: [] });
+export const STATUS_KEYS = ['all', 'new', 'watch', 'near', 'rej'];
+const statusOf = (r) => (r.mark ? r.mark.st : 'new');
+// info: { isOpen(t), traded(t) }. Status counts are taken after the other filters, so the buttons match what you would see.
+export function applyFilter(rows, f, info) {
+  const q = (f.q || '').trim().toUpperCase();
+  const pass = rows.filter((r) => {
+    if (q && !r.t.includes(q)) return false;
+    if (f.rsMin !== null && f.rsMin !== '' && !(r.rs !== null && r.rs >= Number(f.rsMin))) return false;
+    if (f.noEarn && r.earnings && r.earnings.days >= 0 && r.earnings.days <= 7) return false;
+    if (f.traded && !info.traded(r.t)) return false;
+    if (f.noOpen && info.isOpen(r.t)) return false;
+    for (const ru of f.rules || []) {
+      const v = r.vals?.[ru.col];
+      if (ru.op === 'has') { if (!String(v || '').toLowerCase().includes(String(ru.val).toLowerCase())) return false; continue; }
+      const a = numOf(v), b = numOf(ru.val); if (a === null || b === null) return false;
+      if (ru.op === '>=' && !(a >= b)) return false; if (ru.op === '<=' && !(a <= b)) return false;
+    }
+    return true;
+  });
+  const counts = Object.fromEntries(STATUS_KEYS.map((k) => [k, k === 'all' ? pass.length : pass.filter((r) => statusOf(r) === k).length]));
+  const shown = f.status === 'all' ? pass : pass.filter((r) => statusOf(r) === f.status);
+  return { rows: shown, counts, total: rows.length };
+}
+// how many filters are on (the Filter button shows it); status and search have their own place on the row
+export const filterCount = (f) => (f.rsMin !== null && f.rsMin !== '' ? 1 : 0) + (f.noEarn ? 1 : 0) + (f.traded ? 1 : 0) + (f.noOpen ? 1 : 0) + (f.rules || []).length;
+
+// ---------- 1.8.1 lists ----------
+export function fullOf(st, t) {
+  for (const r of [...(st.scans?.runs || [])].sort((a, b) => b.date.localeCompare(a.date) || b.seq - a.seq)) { const x = r.rows.find((y) => tickerOf(y.s) === t); if (x) return x.s; }
+  for (const l of st.scans?.lists || []) { const x = l.items.find((y) => y.t === t); if (x) return x.full; }
+  return t;
+}
+export const listsOf = (st, t) => (st.scans?.lists || []).filter((l) => l.items.some((x) => x.t === t));
+// ready-made lists from his statuses: Near buy (all), Near buy per scanner, Watching
+export function readyLists(st) {
+  const marks = Object.entries(st.scans?.marks || {}); const tickers = (s) => marks.filter(([, m]) => m.st === s).map(([t]) => t).sort();
+  const item = (t) => ({ t, full: fullOf(st, t) });
+  const near = tickers('near'); const out = [{ id: 'ready-near', name: 'Near buy (all)', ready: true, items: near.map(item) }];
+  for (const g of runsByScanner(st)) {
+    const inIt = new Set(g.runs.flatMap((r) => r.rows.map((x) => tickerOf(x.s)))); const n = near.filter((t) => inIt.has(t));
+    if (n.length) out.push({ id: 'ready-near-' + g.scanner, name: 'Near buy · ' + g.scanner, ready: true, items: n.map(item) });
+  }
+  out.push({ id: 'ready-watch', name: 'Watching', ready: true, items: tickers('watch').map(item) });
+  return out;
+}
+// TradingView file with sections: ###Name,EX:A,EX:B,###Name2,... (the ### line is a section, like TradingView's own export)
+const sym = (x) => (x.full && x.full.includes(':') ? x.full : x.t);
+export function tradingViewSections(sections) {
+  return sections.filter((x) => x.items.length).flatMap((x) => ['###' + String(x.name).replace(/[,#]/g, ' ').trim(), ...x.items.map(sym)]).join(',');
+}
+export const tradingViewList = (items) => items.map(sym).join(',');
+export const safeFileName = (s) => String(s).replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'list';
 
 // ---------- marks ----------
 export function earningsDays(text, today) {

@@ -75,3 +75,66 @@ test('the TJ Collect bookmark text has no % sign and is valid JavaScript', () =>
   assert.equal(SC.COLLECT_SRC.includes('%'), false); assert.equal(SC.COLLECT_SRC.includes('#'), false);
   assert.doesNotThrow(() => new Function(SC.collectHref().slice('javascript:'.length)));
 });
+test('Not decided takes the status back', () => {
+  const st = fresh(); A.setScanMark(st, 'NASDAQ:AAA', { status: 'near', date: '2026-11-22' });
+  assert.equal(A.clearScanMark(st, 'AAA').ok, true); assert.equal(st.scans.marks.AAA, undefined); assert.equal(A.clearScanMark(st, 'AAA').ok, false);
+});
+
+// ---------- 1.8.1 ----------
+const r2 = (s) => ({ s, v: [] });
+test('What changed: joined, left, stayed between two scans of one scanner', () => {
+  const st = fresh();
+  A.addScanRun(st, { scanner: 'S', date: '2026-11-20', rows: [r2('NYSE:AAA'), r2('NYSE:BBB'), r2('NYSE:OLD')] });
+  A.addScanRun(st, { scanner: 'S', date: '2026-11-22', rows: [r2('NYSE:AAA'), r2('NYSE:BBB'), r2('NASDAQ:NEW')] });
+  A.addScanRun(st, { scanner: 'T', date: '2026-11-22', rows: [r2('NYSE:AAA')] });
+  const ids = st.scans.runs.map((r) => r.id);
+  assert.equal(SC.compareMode(st, ids.slice(0, 2)), 'changes'); assert.equal(SC.compareMode(st, [ids[0], ids[2]]), 'common');
+  const c = SC.changes(st, [ids[1], ids[0]], '2026-11-22');
+  assert.deepEqual(c.rows.map((r) => r.t + ':' + r.chg), ['NEW:joined', 'OLD:left', 'AAA:stayed', 'BBB:stayed']);
+  assert.equal(c.older.date, '2026-11-20'); assert.equal(c.rows[1].full, 'NYSE:OLD');
+});
+test('filter: status counts, search, RS, earnings, rules with K/M/B numbers and text', () => {
+  const rows = [
+    { t: 'AAA', rs: 90, mark: null, earnings: { days: 3 }, vals: { 'Mkt cap': '8.72 B USD', Sector: 'Tech', 'ADR %': '4.1%' } },
+    { t: 'BBB', rs: 50, mark: { st: 'near' }, earnings: null, vals: { 'Mkt cap': '900 M USD', Sector: 'Health', 'ADR %': '6%' } },
+    { t: 'CCC', rs: null, mark: { st: 'rej' }, earnings: null, vals: { 'Mkt cap': '', Sector: 'Tech', 'ADR %': '3%' } }];
+  const info = { isOpen: (t) => t === 'BBB', traded: (t) => t === 'CCC' };
+  let r = SC.applyFilter(rows, SC.emptyFilter(), info); assert.deepEqual(r.counts, { all: 3, new: 1, watch: 0, near: 1, rej: 1 }); assert.equal(r.rows.length, 3);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), status: 'near' }, info); assert.deepEqual(r.rows.map((x) => x.t), ['BBB']); assert.equal(r.total, 3);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rsMin: 60 }, info); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), noEarn: true, noOpen: true }, info); assert.deepEqual(r.rows.map((x) => x.t), ['CCC']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rules: [{ col: 'Mkt cap', op: '>=', val: '1B' }] }, info); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rules: [{ col: 'Sector', op: 'has', val: 'tech' }, { col: 'ADR %', op: '>=', val: '4' }] }, info); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), q: 'b', traded: false }, info); assert.deepEqual(r.rows.map((x) => x.t), ['BBB']);
+  assert.equal(SC.filterCount({ ...SC.emptyFilter(), rsMin: 80, noEarn: true, rules: [{}] }), 3);
+});
+test('lists: folders, add with the "also in" choice, remove from all, move, clean up, TradingView files', () => {
+  const st = fresh();
+  const f = A.addScanFolder(st, 'Swing Dec').data; assert.equal(A.addScanFolder(st, 'swing dec').ok, false);
+  const a = A.addScanList(st, 'Tier A', f.id).data, b = A.addScanList(st, 'Earnings play', f.id).data, c = A.addScanList(st, 'Loose').data;
+  A.addToScanList(st, a.id, [{ t: 'NVDA', full: 'NASDAQ:NVDA' }, { t: 'WMT', full: 'NYSE:WMT' }], { date: '2026-11-22' });
+  A.addToScanList(st, b.id, [{ t: 'NVDA', full: 'NASDAQ:NVDA' }], { date: '2026-11-22' });
+  assert.deepEqual(SC.listsOf(st, 'NVDA').map((l) => l.name), ['Tier A', 'Earnings play']);
+  A.addToScanList(st, c.id, [{ t: 'NVDA', full: 'NASDAQ:NVDA' }], { removeFrom: [a.id], date: '2026-11-22' });
+  assert.deepEqual(SC.listsOf(st, 'NVDA').map((l) => l.name), ['Earnings play', 'Loose']);
+  A.removeFromScanList(st, b.id, ['NVDA'], { all: true }); assert.equal(SC.listsOf(st, 'NVDA').length, 0);
+  A.moveScanItems(st, a.id, b.id, ['WMT']); assert.equal(a.items.length, 0); assert.equal(b.items[0].full, 'NYSE:WMT');
+  A.setScanMark(st, 'WMT', { status: 'rej', date: '2026-11-22' }); assert.deepEqual(A.staleInList(st, b), ['WMT']);
+  assert.equal(A.cleanUpScanLists(st, [b.id]).data.n, 1); assert.equal(b.items.length, 0);
+  assert.equal(SC.tradingViewSections([{ name: 'Tier, A', items: [{ t: 'X', full: 'NYSE:X' }] }, { name: 'Empty', items: [] }, { name: 'B', items: [{ t: 'Y', full: 'Y' }] }]), '###Tier  A,NYSE:X,###B,Y');
+});
+test('delete scanner / folder go to the Trash and come back', () => {
+  const st = fresh();
+  A.addScanRun(st, { scanner: 'S', date: '2026-11-22', rows: [r2('NYSE:AAA')] }); A.addScanRun(st, { scanner: 'S', date: '2026-11-21', rows: [r2('NYSE:BBB')] });
+  assert.equal(A.renameScanner(st, 'S', 'Swing').ok, true); assert.ok(st.scans.runs.every((r) => r.scanner === 'Swing'));
+  assert.equal(A.deleteScanner(st, 'Swing').data.n, 2); assert.equal(st.scans.runs.length, 0);
+  assert.equal(A.restoreFromTrash(st, st.trash.length - 1).ok, true); assert.equal(st.scans.runs.length, 2);
+  const f = A.addScanFolder(st, 'F').data; A.addScanList(st, 'L1', f.id);
+  A.deleteScanFolder(st, f.id); assert.equal(st.scans.lists.length, 0);
+  assert.equal(A.restoreFromTrash(st, st.trash.length - 1).ok, true); assert.equal(st.scans.lists[0].folder, f.id);
+});
+test('a 1.8.0 file gets lists, folders and fold', () => {
+  const old = emptyState(); old.scans = { runs: [], marks: { AAA: { st: 'near', date: '2026-11-22', reasons: [], other: '' } }, showCols: null };
+  const m = migrate(old); assert.deepEqual(m.scans.lists, []); assert.deepEqual(m.scans.folders, []); assert.deepEqual(m.scans.fold, {}); assert.equal(m.scans.marks.AAA.st, 'near');
+  assert.deepEqual(dataProblems(m), []);
+});
