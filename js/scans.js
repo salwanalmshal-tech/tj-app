@@ -317,12 +317,10 @@ export const quickShown = (v, q) => (q === 'inall' ? v.kind === 'compare' : q ==
 // the chart: TradingView's official embed frame (the same address their embed code opens). 1.8.4 fix: the old
 // s.tradingview.com/widgetembed address is refused inside other sites ("This content is blocked"). Daily, EMA 10, SMA 20.
 export const CHART_STUDIES = [{ id: 'MAExp@tv-basicstudies', inputs: { length: 10 } }, { id: 'MASimple@tv-basicstudies', inputs: { length: 20 } }];
-// 1.8.6: his own TradingView colours (screenshot 22-11-2026): EMA 10 green-teal, SMA 20 black. The embedded chart may
-// ignore these; he checks on his screen.
-export const CHART_COLORS = { 'moving average exponential.plot.color': '#089981', 'moving average exponential.plot.linewidth': 1, 'moving average.plot.color': '#000000', 'moving average.plot.linewidth': 1 };
+// 1.8.7: colour settings removed again: the embedded chart dropped both lines when they were set (his screen 22-11-2026).
 export function chartUrl(symbol, pageUri = '') {
   const cfg = { autosize: true, symbol, interval: 'D', timezone: 'exchange', theme: 'light', style: '1', locale: 'en', withdateranges: true, hide_side_toolbar: false, allow_symbol_change: false, save_image: false, calendar: false,
-    studies: CHART_STUDIES, studies_overrides: CHART_COLORS, support_host: 'https://www.tradingview.com', 'utm_source': pageUri.replace(/^https?:\/\//, '').split('/')[0], 'utm_medium': 'widget', 'utm_campaign': 'advanced-chart', 'page-uri': pageUri.replace(/^https?:\/\//, '') };
+    studies: CHART_STUDIES, support_host: 'https://www.tradingview.com', 'utm_source': pageUri.replace(/^https?:\/\//, '').split('/')[0], 'utm_medium': 'widget', 'utm_campaign': 'advanced-chart', 'page-uri': pageUri.replace(/^https?:\/\//, '') };
   return 'https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#' + encodeURIComponent(JSON.stringify(cfg));
 }
 export const KEY_DEFAULT = [/^adr/i, /sector/i, /earning/i, /float\s*%|float %/i, /^price$/i, /^chg\s*%|change %/i];
