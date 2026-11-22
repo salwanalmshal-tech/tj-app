@@ -339,7 +339,7 @@ export function deleteTrade(st, id) {
 }
 export function restoreFromTrash(st, index) {
   const e = st.trash[index]; if (!e) return err('Not found.');
-  const back = { trade: () => st.trades.push(e.item), dividend: () => st.dividends.push(e.item), flow: () => st.capital.flows.push(e.item), rejects: () => st.rejects.push(e.item), scanRun: () => { st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.runs.push(e.item); }, scanner: () => { const sc = scansOf(st); if (sc.runs.some((r) => r.scanner === e.item.scanner)) return false; sc.runs.push(...e.item.runs); }, scanList: () => { const sc = scansOf(st); if (sc.lists.some((l) => same(l.name, e.item.name))) return false; if (e.item.folder && !sc.folders.some((f) => f.id === e.item.folder)) e.item.folder = null; sc.lists.push(e.item); }, scanFolder: () => { const sc = scansOf(st); if (sc.folders.some((f) => same(f.name, e.item.folder.name)) || e.item.lists.some((l) => sc.lists.some((x) => same(x.name, l.name)))) return false; sc.folders.push(e.item.folder); sc.lists.push(...e.item.lists); }, stocks: () => st.stocks.push(e.item), setups: () => st.setups.push(e.item), errors: () => st.errors.push(e.item), sales: () => { const t = tradeById(st, e.item.tradeId); if (!t) return false; t.sales.push(...e.item.sales); } };
+  const back = { trade: () => st.trades.push(e.item), dividend: () => st.dividends.push(e.item), flow: () => st.capital.flows.push(e.item), rejects: () => st.rejects.push(e.item), scanRun: () => { st.scans ??= { runs: [], marks: {}, showCols: null }; st.scans.runs.push(e.item); }, scanCompare: () => { const sc = scansOf(st); sc.compares ??= []; if (sc.compares.some((c) => same(c.name, e.item.name))) return false; sc.compares.push(e.item); }, scanner: () => { const sc = scansOf(st); if (sc.runs.some((r) => r.scanner === e.item.scanner)) return false; sc.runs.push(...e.item.runs); }, scanList: () => { const sc = scansOf(st); if (sc.lists.some((l) => same(l.name, e.item.name))) return false; if (e.item.folder && !sc.folders.some((f) => f.id === e.item.folder)) e.item.folder = null; sc.lists.push(e.item); }, scanFolder: () => { const sc = scansOf(st); if (sc.folders.some((f) => same(f.name, e.item.folder.name)) || e.item.lists.some((l) => sc.lists.some((x) => same(x.name, l.name)))) return false; sc.folders.push(e.item.folder); sc.lists.push(...e.item.lists); }, stocks: () => st.stocks.push(e.item), setups: () => st.setups.push(e.item), errors: () => st.errors.push(e.item), sales: () => { const t = tradeById(st, e.item.tradeId); if (!t) return false; t.sales.push(...e.item.sales); } };
   if (!back[e.kind]) return err('This item cannot be restored.');
   // review fix 2026-11-09: the same checks as everywhere else, before anything comes back
   const nameKey = { stocks: 'symbol', setups: 'name', errors: 'name', rejects: 'name' }[e.kind];
@@ -348,7 +348,7 @@ export function restoreFromTrash(st, index) {
   if (e.kind === 'trade' && st.trades.some((x) => x.id === e.item.id)) return err('A trade with the same ID exists.');
   if (e.kind === 'sales') { const t = tradeById(st, e.item.tradeId); if (t && C.quantityProblems({ ...t, sales: [...t.sales, ...e.item.sales] }).length) return err(`${symbolOf(st, t)} ${t.id}: the restored sales would sell more shares than were bought. Nothing was restored.`); }
   if (e.kind === 'trade' && C.quantityProblems(e.item).length) return err('This trade sells more shares than it bought. Nothing was restored.');
-  if (back[e.kind]() === false) return err(['scanner', 'scanList', 'scanFolder'].includes(e.kind) ? 'Something with the same name exists again, so it cannot come back. Rename that first.' : 'The trade of these sales no longer exists.');
+  if (back[e.kind]() === false) return err(['scanner', 'scanList', 'scanFolder', 'scanCompare'].includes(e.kind) ? 'Something with the same name exists again, so it cannot come back. Rename that first.' : 'The trade of these sales no longer exists.');
   st.trash.splice(index, 1); return ok();
 }
 // After 15 days the Trash is emptied for good. A deleted trade is then gone everywhere (2026-11-06): its lines in the
@@ -545,6 +545,7 @@ export function renameScanner(st, from, to) {
   if (from === n.data) return ok();
   if (sc.runs.some((r) => r.scanner !== from && same(r.scanner, n.data))) return err(`A scanner called “${n.data}” already exists.`);
   for (const r of sc.runs) if (r.scanner === from) r.scanner = n.data;
+  for (const c of sc.compares || []) c.scanners = c.scanners.map((x) => (x === from ? n.data : x));
   if (sc.fold[from] !== undefined) { sc.fold[n.data] = sc.fold[from]; delete sc.fold[from]; }
   return ok();
 }
@@ -622,3 +623,24 @@ export function cleanUpScanLists(st, ids) {
   for (const l of sc.lists) if (ids.includes(l.id)) { const bad = new Set(staleInList(st, l)); const b = l.items.length; l.items = l.items.filter((x) => !bad.has(x.t)); n += b - l.items.length; }
   return n ? ok({ n }) : err('Nothing to clean up.');
 }
+
+// ---------- 1.8.2 saved comparisons (by scanner; always the newest scans) and the key values under the chart ----------
+export function addScanCompare(st, name, scanners) {
+  const sc = scansOf(st); sc.compares ??= [];
+  const list = [...new Set(scanners)]; if (list.length < 2) return err('Tick at least 2 scanners.');
+  const n = cleanName(name || list.join(' + ').slice(0, 60), 'comparison'); if (!n.ok) return n;
+  if (sc.compares.some((c) => same(c.name, n.data))) return err(`A comparison called “${n.data}” already exists.`);
+  const c = { id: nextId(st, 'sc'), name: n.data, scanners: list }; sc.compares.push(c); return ok(c);
+}
+export function editScanCompare(st, id, name, scanners) {
+  const sc = scansOf(st); sc.compares ??= []; const c = sc.compares.find((x) => x.id === id); if (!c) return err('Not found.');
+  const list = [...new Set(scanners)]; if (list.length < 2) return err('Tick at least 2 scanners.');
+  const n = cleanName(name, 'comparison'); if (!n.ok) return n;
+  if (sc.compares.some((x) => x.id !== id && same(x.name, n.data))) return err(`A comparison called “${n.data}” already exists.`);
+  c.name = n.data; c.scanners = list; return ok();
+}
+export function deleteScanCompare(st, id) {
+  const sc = scansOf(st); sc.compares ??= []; const i = sc.compares.findIndex((x) => x.id === id); if (i < 0) return err('Not found.');
+  st.trash.push({ kind: 'scanCompare', deletedAt: new Date().toISOString(), item: sc.compares[i] }); sc.compares.splice(i, 1); return ok();
+}
+export function setScanKeyCols(st, cols) { const sc = scansOf(st); if (cols.length > 6) return err('Choose 6 at most.'); sc.keyCols = cols; return ok(); }

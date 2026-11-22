@@ -82,16 +82,17 @@ test('Not decided takes the status back', () => {
 
 // ---------- 1.8.1 ----------
 const r2 = (s) => ({ s, v: [] });
-test('What changed: joined, left, stayed between two scans of one scanner', () => {
+test('Found in: any ticked scans, most scans first, hits per scan', () => {
   const st = fresh();
-  A.addScanRun(st, { scanner: 'S', date: '2026-11-20', rows: [r2('NYSE:AAA'), r2('NYSE:BBB'), r2('NYSE:OLD')] });
+  A.addScanRun(st, { scanner: 'S', date: '2026-11-22', rows: [r2('NYSE:AAA'), r2('NYSE:BBB'), r2('NYSE:OLD')] });
   A.addScanRun(st, { scanner: 'S', date: '2026-11-22', rows: [r2('NYSE:AAA'), r2('NYSE:BBB'), r2('NASDAQ:NEW')] });
-  A.addScanRun(st, { scanner: 'T', date: '2026-11-22', rows: [r2('NYSE:AAA')] });
-  const ids = st.scans.runs.map((r) => r.id);
-  assert.equal(SC.compareMode(st, ids.slice(0, 2)), 'changes'); assert.equal(SC.compareMode(st, [ids[0], ids[2]]), 'common');
-  const c = SC.changes(st, [ids[1], ids[0]], '2026-11-22');
-  assert.deepEqual(c.rows.map((r) => r.t + ':' + r.chg), ['NEW:joined', 'OLD:left', 'AAA:stayed', 'BBB:stayed']);
-  assert.equal(c.older.date, '2026-11-20'); assert.equal(c.rows[1].full, 'NYSE:OLD');
+  A.addScanRun(st, { scanner: 'T', date: '2026-11-21', rows: [r2('NYSE:AAA'), r2('NASDAQ:NEW')] });
+  const ids = st.scans.runs.map((r) => r.id); A.setScanMark(st, 'BBB', { status: 'near', date: '2026-11-22' });
+  const o = SC.overlap(st, ids, '2026-11-22');
+  assert.deepEqual(o.runs.map((r) => r.scanner + r.seq), ['S' + st.scans.runs[0].seq, 'S' + st.scans.runs[1].seq, 'T' + st.scans.runs[2].seq]);
+  assert.deepEqual(o.rows.map((r) => `${r.t}:${r.n}`), ['AAA:3', 'NEW:2', 'BBB:2', 'OLD:1']); // NEW (not decided) before BBB (near buy) in "2 of 3"
+  assert.deepEqual(o.rows.find((r) => r.t === 'NEW').hits, [false, true, true]); assert.equal(o.inAll, 1);
+  assert.equal(SC.runLabel(st, st.scans.runs[1], '2026-11-22'), 'today (2nd)'); assert.equal(SC.runLabel(st, st.scans.runs[2], '2026-11-22'), '21-11-2026');
 });
 test('filter: status counts, search, RS, earnings, rules with K/M/B numbers and text', () => {
   const rows = [
@@ -137,4 +138,31 @@ test('a 1.8.0 file gets lists, folders and fold', () => {
   const old = emptyState(); old.scans = { runs: [], marks: { AAA: { st: 'near', date: '2026-11-22', reasons: [], other: '' } }, showCols: null };
   const m = migrate(old); assert.deepEqual(m.scans.lists, []); assert.deepEqual(m.scans.folders, []); assert.deepEqual(m.scans.fold, {}); assert.equal(m.scans.marks.AAA.st, 'near');
   assert.deepEqual(dataProblems(m), []);
+});
+
+// ---------- 1.8.2 sources ----------
+test('sources: scanner with New today / Dropped today; comparison on newest scans with day picker', () => {
+  const st = fresh();
+  A.addScanRun(st, { scanner: 'S', date: '2026-11-20', rows: [r2('NYSE:AAA'), r2('NYSE:BBB'), r2('NYSE:OLD')] });
+  A.addScanRun(st, { scanner: 'S', date: '2026-11-22', rows: [r2('NYSE:AAA'), r2('NYSE:BBB'), r2('NASDAQ:NEW')] });
+  A.addScanRun(st, { scanner: 'T', date: '2026-11-20', rows: [r2('NYSE:AAA'), r2('NYSE:OLD')] });
+  A.addScanRun(st, { scanner: 'T', date: '2026-11-22', rows: [r2('NYSE:AAA'), r2('NASDAQ:NEW')] });
+  let v = SC.sourceView(st, { kind: 'scanner', name: 'S' }, '2026-11-22');
+  assert.deepEqual(SC.quickRows(v, 'new').map((r) => r.t), ['NEW']); assert.deepEqual(SC.quickRows(v, 'dropped').map((r) => r.t), ['OLD']);
+  assert.equal(v.picker.options.length, 2); assert.equal(SC.quickShown(v, 'inall'), false);
+  const c = A.addScanCompare(st, '', ['S', 'T']).data; assert.equal(c.name, 'S + T'); assert.equal(A.addScanCompare(st, 'x', ['S']).ok, false);
+  v = SC.sourceView(st, { kind: 'compare', id: c.id }, '2026-11-22');
+  assert.equal(v.N, 2); assert.deepEqual(SC.quickRows(v, 'inall').map((r) => r.t).sort(), ['AAA', 'NEW']);
+  assert.deepEqual(SC.quickRows(v, 'new').map((r) => r.t), ['NEW']); assert.deepEqual(SC.quickRows(v, 'dropped').map((r) => r.t), ['OLD']);
+  v = SC.sourceView(st, { kind: 'compare', id: c.id, date: '2026-11-20' }, '2026-11-22');
+  assert.deepEqual(SC.quickRows(v, 'inall').map((r) => r.t).sort(), ['AAA', 'OLD']); assert.equal(v.hasNewDrop, false);
+  A.renameScanner(st, 'T', 'Tee'); assert.deepEqual(st.scans.compares[0].scanners, ['S', 'Tee']);
+  A.deleteScanCompare(st, c.id); assert.equal(st.scans.compares.length, 0); assert.equal(A.restoreFromTrash(st, st.trash.length - 1).ok, true);
+});
+test('sources: lists show their stocks with scanner values; stocks never scanned still show', () => {
+  const st = fresh(); A.addScanRun(st, { scanner: 'S', date: '2026-11-22', cols: COLS, rows: [row('NYSE:AAA', '40%', '', '')] });
+  const l = A.addScanList(st, 'Tier A').data; A.addToScanList(st, l.id, [{ t: 'AAA', full: 'NYSE:AAA' }, { t: 'ZZZ', full: 'NASDAQ:ZZZ' }], { date: '2026-11-22' });
+  const v = SC.sourceView(st, { kind: 'list', id: l.id }, '2026-11-22');
+  assert.deepEqual(v.rows.map((r) => r.t).sort(), ['AAA', 'ZZZ']); assert.equal(v.rows.find((r) => r.t === 'AAA').vals['Perf % 3M'], '40%'); assert.equal(v.rows.find((r) => r.t === 'ZZZ').full, 'NASDAQ:ZZZ');
+  const cfg = SC.chartConfig('NYSE:AAA'); assert.equal(cfg.interval, 'D'); assert.equal(cfg.studies.length, 2); assert.equal(cfg.symbol, 'NYSE:AAA');
 });

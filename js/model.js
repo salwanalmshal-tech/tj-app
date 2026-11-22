@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.8.1';
+export const APP_VERSION = '1.8.2';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -63,7 +63,7 @@ export function emptyState(now = new Date().toISOString()) {
 }
 
 // 1.8.1: his own folders and lists (folder = one TradingView watchlist, list = a section), folded scanners
-export function emptyScans() { return { runs: [], marks: {}, showCols: null, lists: [], folders: [], fold: {} }; }
+export function emptyScans() { return { runs: [], marks: {}, showCols: null, lists: [], folders: [], fold: {}, compares: [], keyCols: null }; } // 1.8.2: saved comparisons, key values under the chart
 // 1.8.0: the reject reason chips he starts with (his choice A); he adds, renames and archives them in Lists
 export function defaultRejects() {
   return [['rj-ext', 'Extended'], ['rj-vol', 'Weak volume'], ['rj-earn', 'Earnings soon'], ['rj-sma50', 'Below SMA 50'], ['rj-base', 'Bad base'], ['rj-rs', 'Low RS']].map(([id, name]) => ({ id, name, archived: false }));
@@ -118,6 +118,7 @@ export function dataProblems(data) {
     else {
       for (const r of arr(data.scans.runs, 'Scan runs')) { if (!r || !ID.test(String(r.id))) { out.push('A scan run has no valid ID'); continue; } date(r.date, `Scan run ${r.id} date`); arr(r.rows, `Scan run ${r.id} stocks`); }
       for (const l of arr(data.scans.lists ?? [], 'Scan lists')) { if (!l || !ID.test(String(l.id))) { out.push('A scan list has no valid ID'); continue; } arr(l.items, `Scan list ${l.name} stocks`); }
+      for (const c of arr(data.scans.compares ?? [], 'Scan comparisons')) if (!c || !ID.test(String(c.id)) || !Array.isArray(c.scanners)) out.push('A saved comparison is not readable');
       for (const f of arr(data.scans.folders ?? [], 'Scan folders')) if (!f || !ID.test(String(f.id))) out.push('A scan folder has no valid ID');
       const m = data.scans.marks; if (m !== undefined && (typeof m !== 'object' || Array.isArray(m) || m === null)) out.push('Scan statuses are not readable');
       else for (const [k, v] of Object.entries(m || {})) if (!v || !['watch', 'near', 'rej'].includes(v.st)) out.push(`Scan status of ${k} is not valid`);

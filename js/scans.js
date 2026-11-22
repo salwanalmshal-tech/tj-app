@@ -85,7 +85,7 @@ function buildRows(st, runs, tickers, today) {
   const cols = [...new Set(newestFirst.flatMap((r) => r.cols || []))].filter((c) => !/^symbol$/i.test(c));
   const rows = tickers.map((t) => {
     const src = newestFirst.find((r) => r.rows.some((x) => tickerOf(x.s) === t));
-    const full = src.rows.find((x) => tickerOf(x.s) === t).s;
+    const full = src ? src.rows.find((x) => tickerOf(x.s) === t).s : fullOf(st, t);
     const vals = Object.fromEntries(cols.map((c) => { for (const r of newestFirst) { const i = (r.cols || []).indexOf(c); if (i < 0) continue; const x = r.rows.find((y) => tickerOf(y.s) === t); if (x && x.v?.[i]) return [c, x.v[i]]; } return [c, '']; }));
     return { t, full, rs: ranks.get(t) ?? null, vals, mark: st.scans?.marks?.[t] || null, earnings: earningsDays(valueOf(t, EARN), today), earningsText: valueOf(t, EARN), chg: null };
   });
@@ -104,22 +104,24 @@ export function compare(st, pickIds, today) {
   b.rows.sort((a, c) => grp(a) - grp(c) || byRs(a, c));
   return { runs, ...b, mode: runs.length === 1 ? 'one' : 'common' };
 }
-// 1.8.1 "What changed" (his choice A): two scans of the SAME scanner -> Joined (in the newer only), Left (in the older only), Stayed
-export function changes(st, pickIds, today) {
-  const runs = (st.scans?.runs || []).filter((r) => pickIds.includes(r.id)).sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq);
-  const older = runs[0], newer = runs[runs.length - 1];
-  const A = new Set(older.rows.map((x) => tickerOf(x.s))), B = new Set(newer.rows.map((x) => tickerOf(x.s)));
-  const tick = [...new Set([...B, ...A])];
-  const b = buildRows(st, [older, newer], tick, today);
-  for (const r of b.rows) r.chg = B.has(r.t) && !A.has(r.t) ? 'joined' : A.has(r.t) && !B.has(r.t) ? 'left' : 'stayed';
-  const order = { joined: 0, left: 1, stayed: 2 };
-  b.rows.sort((a, c) => order[a.chg] - order[c.chg] || grp(a) - grp(c) || byRs(a, c));
-  return { runs: [older, newer], ...b, mode: 'changes', older, newer };
+// 1.8.1 "Found in" (his choice A, 21:40): ONE view for any ticked scans, from any scanners. Every stock of the ticked scans,
+// with which scans have it (hits, one per scan) and how many (n). Order: found in the most scans first, then New before
+// decided before Rejected, then RS. Scans are ordered by scanner, then date, then 1st/2nd of the day.
+export function overlap(st, pickIds, today) {
+  const runs = (st.scans?.runs || []).filter((r) => pickIds.includes(r.id)).sort((a, b) => a.scanner.localeCompare(b.scanner) || a.date.localeCompare(b.date) || a.seq - b.seq);
+  if (!runs.length) return { runs, rows: [], cols: [], universe: 0, mode: 'overlap' };
+  const sets = runs.map((r) => new Set(r.rows.map((x) => tickerOf(x.s))));
+  const all = [...new Set(sets.flatMap((x) => [...x]))];
+  const bt = buildRows(st, runs, all, today);
+  for (const r of bt.rows) { r.hits = sets.map((x) => x.has(r.t)); r.n = r.hits.filter(Boolean).length; }
+  bt.rows.sort((a, c) => c.n - a.n || grp(a) - grp(c) || byRs(a, c));
+  return { runs, ...bt, mode: 'overlap', inAll: bt.rows.filter((r) => r.n === runs.length).length };
 }
-// which view the ticked runs call for
-export function compareMode(st, pickIds) {
-  const runs = (st.scans?.runs || []).filter((r) => pickIds.includes(r.id));
-  return runs.length >= 2 && new Set(runs.map((r) => r.scanner)).size === 1 ? 'changes' : 'common';
+// "Breakout · today (2nd)": the label of one scan, with 1st/2nd when a scanner was collected more than once that day
+export function runLabel(st, r, today) {
+  const same = (st.scans?.runs || []).filter((x) => x.scanner === r.scanner && x.date === r.date).sort((a, b) => a.seq - b.seq);
+  const nth = same.length > 1 ? ` (${['1st', '2nd', '3rd'][same.indexOf(r)] ?? same.indexOf(r) + 1 + 'th'})` : '';
+  return (r.date === today ? 'today' : r.date.slice(8, 10) + '-' + r.date.slice(5, 7) + '-' + r.date.slice(0, 4)) + nth;
 }
 
 // ---------- 1.8.1 filter ----------
@@ -238,3 +240,84 @@ document.getElementById('tj-collect')?.remove();box.id='tj-collect';document.bod
 const fallback=()=>{const a=document.createElement('textarea');a.value=text;document.body.append(a);a.select();let ok=false;try{ok=document.execCommand('copy');}catch(e){}a.remove();say(ok);};
 if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>say(true),fallback);}else fallback();})();`;
 export const collectHref = () => 'javascript:' + COLLECT_SRC.replace(/\n/g, '');
+
+
+// ---------- 1.8.2 one-screen Scans: "sources" ----------
+// A source is anything that holds stocks: a scanner (one of its scans), a saved comparison (newest scan of each of its
+// scanners on a chosen day), a ready-made list, or one of his lists. sourceView turns it into rows for the list + chart.
+export const scannerRuns = (st, name) => (st.scans?.runs || []).filter((r) => r.scanner === name).sort((a, b) => b.date.localeCompare(a.date) || b.seq - a.seq);
+const tickSet = (run) => new Set(run.rows.map((x) => tickerOf(x.s)));
+// the scan of each scanner that was newest on that day (or before it); null when a scanner has none yet
+function pickOn(st, scanners, date) {
+  return scanners.map((n) => scannerRuns(st, n).find((r) => r.date <= date) || null);
+}
+export function compareDates(st, scanners) {
+  const first = Math.max(...scanners.map((n) => { const rs = scannerRuns(st, n); return rs.length ? Date.parse(rs[rs.length - 1].date) : Infinity; }));
+  if (!Number.isFinite(first)) return [];
+  return [...new Set(scanners.flatMap((n) => scannerRuns(st, n).map((r) => r.date)))].filter((d) => Date.parse(d) >= first).sort().reverse();
+}
+function rowsFromItems(st, items, today) {
+  const tks = items.map((x) => tickerOf(x.t));
+  const runs = []; const seen = new Set();
+  for (const r of [...(st.scans?.runs || [])].sort((a, b) => b.date.localeCompare(a.date) || b.seq - a.seq)) if (!seen.has(r.scanner) && r.rows.some((x) => tks.includes(tickerOf(x.s)))) { seen.add(r.scanner); runs.push(r); }
+  const b = buildRows(st, runs, tks, today);
+  for (const r of b.rows) { const it = items.find((x) => tickerOf(x.t) === r.t); if (it?.full?.includes(':')) r.full = it.full; r.added = it?.added || null; }
+  return b;
+}
+export function sourceView(st, src, today) {
+  const empty = { kind: src?.kind, title: '', rows: [], dropped: [], N: 1, runs: [], cols: [], picker: null, hasNewDrop: false };
+  if (!src) return empty;
+  if (src.kind === 'scanner') {
+    const runs = scannerRuns(st, src.name); if (!runs.length) return empty;
+    const run = runs.find((r) => r.id === src.run) || runs[0]; const prev = runs[runs.indexOf(run) + 1] || null;
+    const cur = compare(st, [run.id], today); const ps = prev ? tickSet(prev) : null; const now = tickSet(run);
+    for (const r of cur.rows) r.isNew = !!ps && !ps.has(r.t);
+    const dropped = ps ? buildRows(st, [prev], [...ps].filter((t) => !now.has(t)), today).rows : [];
+    return { kind: 'scanner', title: src.name, sub: runLabel(st, run, today), rows: cur.rows, dropped, N: 1, runs: [run], cols: cur.cols, run, prev,
+      picker: { value: run.id, options: runs.map((r) => ({ value: r.id, label: runLabel(st, r, today) + ` · ${r.rows.length}` })) }, hasNewDrop: !!prev };
+  }
+  if (src.kind === 'compare') {
+    const c = (st.scans?.compares || []).find((x) => x.id === src.id); if (!c) return empty;
+    const names = c.scanners.filter((n) => scannerRuns(st, n).length); const dates = compareDates(st, names);
+    if (names.length < 2 || !dates.length) return { ...empty, kind: 'compare', title: c.name, missing: c.scanners.filter((n) => !names.includes(n)) };
+    const date = dates.includes(src.date) ? src.date : dates[0]; const runs = pickOn(st, names, date);
+    const ov = overlap(st, runs.map((r) => r.id), today); const N = ov.runs.length;
+    const inAll = new Set(ov.rows.filter((r) => r.n === N).map((r) => r.t));
+    const prevDate = dates.find((d) => d < date) || null; let dropped = []; let prevAll = null;
+    if (prevDate) {
+      const pr = pickOn(st, names, prevDate); const po = overlap(st, pr.map((r) => r.id), today);
+      prevAll = new Set(po.rows.filter((r) => r.n === po.runs.length).map((r) => r.t));
+      const gone = [...prevAll].filter((t) => !inAll.has(t)); dropped = buildRows(st, po.runs, gone, today).rows;
+    }
+    for (const r of ov.rows) r.isNew = !!prevAll && r.n === N && !prevAll.has(r.t);
+    return { kind: 'compare', title: c.name, sub: `${ov.inAll} in all ${N} · ${date === today ? 'today' : date.slice(8, 10) + '-' + date.slice(5, 7) + '-' + date.slice(0, 4)}`, rows: ov.rows, dropped, N, runs: ov.runs, cols: ov.cols, inAll: ov.inAll,
+      picker: { value: date, options: dates.map((d) => ({ value: d, label: d === today ? 'today' : d.slice(8, 10) + '-' + d.slice(5, 7) + '-' + d.slice(0, 4) })) }, hasNewDrop: !!prevDate, missing: c.scanners.filter((n) => !names.includes(n)) };
+  }
+  if (src.kind === 'ready' || src.kind === 'list') {
+    const l = src.kind === 'ready' ? readyLists(st).find((x) => x.id === src.id) : (st.scans?.lists || []).find((x) => x.id === src.id);
+    if (!l) return empty; const b = rowsFromItems(st, l.items, today);
+    b.rows.sort((a, c) => grp(a) - grp(c) || byRs(a, c));
+    return { kind: src.kind, title: l.name, sub: `${l.items.length} stock${l.items.length === 1 ? '' : 's'}`, rows: b.rows, dropped: [], N: 1, runs: [], cols: b.cols, list: l, picker: null, hasNewDrop: false };
+  }
+  return empty;
+}
+// quick views above the list (his 6): All, In all scans (comparisons), New today, Dropped today, Not decided, Near buy
+export const QUICK = [['all', 'All'], ['inall', 'In all scans'], ['new', 'New today'], ['dropped', 'Dropped today'], ['undecided', 'Not decided'], ['near', 'Near buy']];
+export function quickRows(v, q) {
+  switch (q) {
+    case 'inall': return v.rows.filter((r) => r.n === v.N);
+    case 'new': return v.rows.filter((r) => r.isNew);
+    case 'dropped': return v.dropped.map((r) => ({ ...r, isDropped: true }));
+    case 'undecided': return v.rows.filter((r) => !r.mark);
+    case 'near': return v.rows.filter((r) => r.mark?.st === 'near');
+    default: return v.rows;
+  }
+}
+export const quickShown = (v, q) => (q === 'inall' ? v.kind === 'compare' : q === 'new' || q === 'dropped' ? v.hasNewDrop : true);
+// the chart: TradingView's own embed (Advanced Chart widget). His choice: Daily, Volume, EMA 10, SMA 20.
+export function chartConfig(symbol) {
+  return { autosize: true, symbol, interval: 'D', timezone: 'exchange', theme: 'light', style: '1', locale: 'en', withdateranges: true, hide_side_toolbar: false, allow_symbol_change: false, save_image: false, details: false, calendar: false,
+    studies: [{ id: 'MAExp@tv-basicstudies', inputs: { length: 10 } }, { id: 'MASimple@tv-basicstudies', inputs: { length: 20 } }], support_host: 'https://www.tradingview.com' };
+}
+export const CHART_SRC = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+export const KEY_DEFAULT = [/^adr/i, /sector/i, /earning/i, /float\s*%|float %/i, /^price$/i, /^chg\s*%|change %/i];
