@@ -314,11 +314,12 @@ export function quickRows(v, q) {
   }
 }
 export const quickShown = (v, q) => (q === 'inall' ? v.kind === 'compare' : q === 'new' || q === 'dropped' ? v.hasNewDrop : true);
-// the chart: TradingView's own chart page in a frame (1.8.2 fix: their loader script left the box white on his PC, so the
-// frame is loaded directly). His choice: Daily, Volume (built in), EMA 10, SMA 20.
+// the chart: TradingView's official embed frame (the same address their embed code opens). 1.8.4 fix: the old
+// s.tradingview.com/widgetembed address is refused inside other sites ("This content is blocked"). Daily, EMA 10, SMA 20.
 export const CHART_STUDIES = [{ id: 'MAExp@tv-basicstudies', inputs: { length: 10 } }, { id: 'MASimple@tv-basicstudies', inputs: { length: 20 } }];
-export function chartUrl(symbol) {
-  const q = new URLSearchParams({ frameElementId: 'tj-chart', symbol, interval: 'D', hidesidetoolbar: '0', symboledit: '0', saveimage: '0', toolbarbg: 'f1f3f6', studies: JSON.stringify(CHART_STUDIES), theme: 'light', style: '1', timezone: 'exchange', withdateranges: '1', locale: 'en' });
-  return 'https://s.tradingview.com/widgetembed/?' + q.toString();
+export function chartUrl(symbol, pageUri = '') {
+  const cfg = { autosize: true, symbol, interval: 'D', timezone: 'exchange', theme: 'light', style: '1', locale: 'en', withdateranges: true, hide_side_toolbar: false, allow_symbol_change: false, save_image: false, calendar: false,
+    studies: CHART_STUDIES, support_host: 'https://www.tradingview.com', 'utm_source': pageUri.replace(/^https?:\/\//, '').split('/')[0], 'utm_medium': 'widget', 'utm_campaign': 'advanced-chart', 'page-uri': pageUri.replace(/^https?:\/\//, '') };
+  return 'https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#' + encodeURIComponent(JSON.stringify(cfg));
 }
 export const KEY_DEFAULT = [/^adr/i, /sector/i, /earning/i, /float\s*%|float %/i, /^price$/i, /^chg\s*%|change %/i];

@@ -60,7 +60,7 @@ function showChart(symbol) {
   clearTimeout(SYM_TIMER);
   SYM_TIMER = setTimeout(() => {
     HOST_SYM = symbol; HOST.textContent = '';
-    HOST.append(h('iframe', { src: SC.chartUrl(symbol), title: 'TradingView chart of ' + symbol, allowtransparency: 'true', allowfullscreen: 'true', style: { width: '100%', height: '100%', border: '0', display: 'block' } }));
+    HOST.append(h('iframe', { src: SC.chartUrl(symbol, location.href), title: 'TradingView chart of ' + symbol, allowtransparency: 'true', allowfullscreen: 'true', style: { width: '100%', height: '100%', border: '0', display: 'block' } }));
     HOST.dataset.symbol = symbol;
   }, HOST_SYM ? 300 : 0);
 }
