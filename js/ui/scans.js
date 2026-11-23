@@ -689,7 +689,7 @@ async function helperDialog(ctx) {
   const have = helperGet();
   const copyConn = have ? h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, 'Another computer?'), para('Copy this connection code and paste it there under “Already set up on another computer?”. Keep it private, like a password.', 'note')),
     h('button', { type: 'button', class: 'btn sm', onClick: async () => { try { await navigator.clipboard.writeText(connCode(have)); toast('Connection code copied.'); } catch { toast('Copy did not work in this browser.'); } } }, 'Copy connection code')) : null;
-  const otherBtn = have ? null : h('button', { type: 'button', class: 'linkish', onClick: () => { other = true; document.querySelector('.scrim .dlg-foot .btn:not(.pri)')?.click(); } }, 'Already set up on another computer? Paste your connection code');
+  const otherBtn = have ? null : h('button', { type: 'button', class: 'linkish', onClick: () => { other = true; document.querySelector('.scrim .dlg-foot .btn:not(.pri)')?.click(); } }, 'Already set up on another computer? Connect to your helper');
   const ok0 = await dialog({ title: 'Connect your Finviz Elite', ok: 'Save', body: h('div', { style: { display: 'grid', gap: '10px' } }, otherBtn, copyConn,
     para('Finviz does not let websites read its files directly, so a small helper in your own Google account fetches them for Trade Journal. Your Finviz key stays in that helper.', ''),
     h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, '1. The helper code'), para('Already contains this computer\'s secret. You add only your Finviz key.', 'note')), copy), box,
@@ -697,9 +697,28 @@ async function helperDialog(ctx) {
     para('The address and secret are kept only in this browser. On another computer you connect once more (same helper, new code copy).', 'note')),
     onOk: () => { const u = url.value.trim(); if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(u)) return 'Paste the Web app address from Google Apps Script (it starts with https://script.google.com/).'; saved = helperSet({ url: u, secret: cur.secret }); return saved ? true : 'This browser does not allow saving it.'; } });
   if (!ok0 && other) {
-    const box2 = h('textarea', { rows: '3', 'aria-label': 'Connection code', placeholder: 'TJFV1.…' }); setTimeout(() => box2.focus(), 0);
-    await dialog({ title: 'Paste your connection code', ok: 'Connect', body: h('div', { style: { display: 'grid', gap: '8px' } }, para('On the computer where Finviz already works: ⟳ Finviz → Helper settings → Copy connection code. Paste it here.', 'note'), box2),
-      onOk: () => { const c = readConnCode(box2.value); if (!c) return 'That is not a connection code from Trade Journal.'; saved = helperSet(c); return saved ? true : 'This browser does not allow saving it.'; } });
+    // 1.8.12: two ways — the connection code, or the helper address + the secret straight from his Apps Script (no other computer needed)
+    const box2 = h('textarea', { rows: '2', 'aria-label': 'Connection code', placeholder: 'TJFV1.…' });
+    const u2 = h('input', { 'aria-label': 'Helper address', placeholder: 'https://script.google.com/macros/s/…/exec' });
+    const s2 = h('input', { 'aria-label': 'Secret', placeholder: 'the text between the quotes in TJ_SECRET', autocomplete: 'off' });
+    setTimeout(() => box2.focus(), 0);
+    await dialog({ title: 'Connect to your helper', ok: 'Connect', body: h('div', { style: { display: 'grid', gap: '10px' } },
+      h('div', { class: 'sc-getbtn sc-conn' }, h('div', { style: { display: 'grid', gap: '6px', width: '100%' } }, h('b', null, 'Either: the connection code'), para('From a computer where Finviz already works: ⟳ Finviz → Helper settings → Copy connection code.', 'note'), box2)),
+      h('div', { class: 'sc-getbtn sc-conn' }, h('div', { style: { display: 'grid', gap: '6px', width: '100%' } }, h('b', null, 'Or: address and secret from your Google helper'),
+        para('In script.google.com → TJ helper: the secret is the text between the quotes in the line const TJ_SECRET = "…" (not the Finviz key). The address is under Deploy → Manage deployments → Web app URL.', 'note'),
+        field('Helper address', u2), field('Secret (TJ_SECRET)', s2)))),
+      onOk: () => {
+        const c = box2.value.trim() ? readConnCode(box2.value) : null;
+        if (box2.value.trim() && !c) return 'That is not a connection code from Trade Journal.';
+        let x = c;
+        if (!x) {
+          const u = u2.value.trim(); const sec = s2.value.trim().replace(/^['"]|['"]$/g, '');
+          if (!u && !sec) return 'Paste the connection code, or the address and the secret.';
+          if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(u)) return 'The address should start with https://script.google.com/';
+          if (sec.length < 16 || /PASTE_/.test(sec)) return 'That does not look like the secret. Copy the text between the quotes in the TJ_SECRET line.';
+          x = { url: u, secret: sec };
+        }
+        saved = helperSet(x); return saved ? true : 'This browser does not allow saving it.'; } });
     if (saved) toast('Connected. This computer uses the same helper now.');
   }
   return saved;
