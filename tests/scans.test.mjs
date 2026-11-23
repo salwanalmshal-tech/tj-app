@@ -203,3 +203,21 @@ test('the Finviz bookmark has no % or # and is valid JavaScript', () => {
   assert.equal(SC.COLLECT_FV_SRC.includes('%'), false); assert.equal(SC.COLLECT_FV_SRC.includes('#'), false);
   assert.doesNotThrow(() => new Function(SC.collectFvHref().slice('javascript:'.length)));
 });
+
+// ---------- 1.8.10 Finviz Elite through his helper ----------
+test('Finviz CSV: quotes, commas inside quotes, header → scan rows', () => {
+  const csv = '﻿"No.","Ticker","Company","Perf Quart","Market Cap"\r\n"1","AAPL","Apple, Inc.","12.5%","3500000"\r\n"2","BRK-B","Berkshire ""B""","4%",""\r\n';
+  assert.deepEqual(SC.parseCsv(csv)[2], ['2', 'BRK-B', 'Berkshire "B"', '4%', '']);
+  const r = SC.finvizCsvToScan(csv); assert.equal(r.ok, true); assert.deepEqual(r.cols, ['No.', 'Ticker', 'Company', 'Perf Quart', 'Market Cap']);
+  assert.deepEqual(r.rows.map((x) => x.s), ['AAPL', 'BRK-B']); assert.equal(r.rows[0].v[2], 'Apple, Inc.');
+  assert.equal(SC.finvizCsvToScan('<!DOCTYPE html><html>login</html>').ok, false); assert.equal(SC.finvizCsvToScan('').ok, false);
+});
+test('Finviz screener address: only filters are kept, the key is always dropped, type=stocks added, non-table views warned', () => {
+  const q = SC.finvizQuery('https://elite.finviz.com/screener?v=141&f=exch_nyse,cap_midover&o=-perf4w&r=21&auth=SECRET');
+  assert.equal(q.ok, true); assert.equal(q.q.includes('auth'), false); assert.equal(q.q.includes('r=21'), false); assert.match(q.q, /type=stocks/); assert.equal(q.perf, true); assert.equal(q.warn, null);
+  assert.ok(SC.finvizQuery('https://elite.finviz.com/screener.ashx?v=211&f=x').warn); assert.equal(SC.finvizQuery('https://example.com/x').ok, false); assert.equal(SC.finvizQuery('hello').ok, false);
+  const st = fresh(); const a = A.addFvScreen(st, 'Breakout', 'https://elite.finviz.com/screener?v=141&f=x&auth=K'); assert.equal(a.ok, true);
+  assert.equal(JSON.stringify(st).includes('auth'), false); assert.equal(A.addFvScreen(st, 'breakout', 'https://elite.finviz.com/screener?v=141').ok, false);
+  A.markFvFetched(st, a.data.screen.id, '2026-11-23'); assert.equal(st.scans.fvScreens[0].last, '2026-11-23');
+  assert.match(SC.HELPER_CODE, /PASTE_YOUR_FINVIZ_KEY_HERE/); assert.match(SC.HELPER_CODE, /p\.secret !== TJ_SECRET/);
+});

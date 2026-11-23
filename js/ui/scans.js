@@ -8,14 +8,15 @@ import * as C from '../calc.js';
 import * as A from '../actions.js';
 import * as SC from '../scans.js';
 
-const V = { src: null, pickOpen: false, cmpTick: new Set(), q: 'all', view: 'chart', sel: null, f: SC.emptyFilter(), fOpen: false, selMode: false, ticked: new Set(), lfold: {} };
+const V = { src: null, pickOpen: false, manageOpen: false, cmpTick: new Set(), q: 'all', view: 'chart', sel: null, f: SC.emptyFilter(), fOpen: false, selMode: false, ticked: new Set(), lfold: {} };
 let CTX = null;
 let LAST = { rows: [], v: null };
 
 const isTyping = (el) => !!el && (el.closest?.('input, textarea, select, [contenteditable="true"]'));
 const dialogOpen = () => !!document.querySelector('.scrim, .sc-menu');
 const menuHidden = () => { try { return localStorage.getItem('tj-scans-nomenu') === '1'; } catch { return false; } };
-const fvUrl = (r) => 'https://finviz.com/quote.ashx?t=' + encodeURIComponent(String(r.t).replace(/\./g, '-')); // 1.8.9: his choice, Open in Finviz
+// 1.8.10: his Finviz Elite chart page (daily, his 1h1v layout, his screener in the sidebar); only the ticker changes. Finviz writes BRK.B as BRK-B.
+const fvUrl = (r) => 'https://elite.finviz.com/charts?t=' + encodeURIComponent(String(r.t).replace(/\./g, '-')) + '&p=d&l=1h1v&sidebar=screener&screener=154772492';
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 // ---------------------------------------------------------------- keys and paste (only on the Scans tab)
@@ -80,7 +81,7 @@ export function render(ctx) {
   document.body.classList.toggle('tj-nomenu', menuHidden());
   if (!validSrc(st, V.src)) { V.src = groups.length ? { kind: 'scanner', name: groups[0].scanner } : sc.lists.length ? { kind: 'list', id: sc.lists[0].id } : null; V.q = 'all'; V.sel = null; }
   if (!V.src) return h('div', { class: 'scans' }, h('header', { class: 'pg-head sc-head' }, h('div', null, h('div', { class: 'eyebrow' }, 'Trade'), h('h1', null, 'Scans')),
-    h('div', { class: 'sc-headbtns' }, h('button', { class: 'btn sm', onClick: () => collectHelp() }, 'Get TJ Collect'), h('button', { class: 'btn sm', onClick: () => keysHelp() }, 'Keys ?'))), emptyState(ctx));
+    h('div', { class: 'sc-headbtns' }, h('button', { class: 'btn sm', onClick: () => keysHelp() }, 'Keys ?'))), emptyState(ctx));
   const v = SC.sourceView(st, V.src, today);
   if (!SC.quickShown(v, V.q)) V.q = v.kind === 'compare' ? 'inall' : 'all';
   const info = tradeInfo(st);
@@ -91,7 +92,7 @@ export function render(ctx) {
   const main = V.view === 'table' ? tablePanel(ctx, st, v, fr, info, today) : [listPanel(ctx, st, v, fr, info, today), chartPanel(ctx, st, v, sel, info, today)];
   if (V.view === 'chart' && sel) setTimeout(() => showChart(sel.full && sel.full.includes(':') ? sel.full : sel.t), 0); else setTimeout(placeChart, 0);
   setTimeout(() => { placeChart(); document.querySelector('.sc-li.on')?.scrollIntoView({ block: 'nearest' }); }, 0);
-  return h('div', { class: 'scans full' }, toolbar(ctx, st, v), filterExtras(ctx, v.cols), V.pickOpen ? picker(ctx, st, groups, today) : null,
+  return h('div', { class: 'scans full' }, toolbar(ctx, st, v), filterExtras(ctx, v.cols), V.pickOpen ? picker(ctx, st, groups, today) : null, V.manageOpen ? manage(ctx, st, groups) : null,
     h('div', { class: 'sc-body ' + V.view }, main));
 }
 function validSrc(st, s) {
@@ -106,12 +107,18 @@ function validSrc(st, s) {
 function openSrc(ctx, s) { V.src = s; V.q = s.kind === 'compare' || s.kind === 'quick' ? 'inall' : 'all'; V.sel = null; V.ticked = new Set(); V.pickOpen = false; ctx.redraw(); }
 
 function emptyState(ctx) {
+  // 1.8.10: both sources (TradingView and Finviz) and the current way to compare
+  const src = (name, btn, how) => h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, name), para(how, 'note')), btn);
   return h('section', { class: 'card sc-empty' }, h('h2', null, 'Start with your first scan'),
     h('ol', null,
-      h('li', null, h('b', null, 'Put TJ Collect on your bookmarks bar. '), 'Drag this button onto the bar (show it with Ctrl + Shift + B): ', dragButton()),
-      h('li', null, h('b', null, 'Open a scanner on TradingView '), 'and click TJ Collect. It copies the scanner rows with every column you see.'),
-      h('li', null, h('b', null, 'Come back here and press Ctrl + V. '), 'Each scanner appears under Sources; make a comparison to see the stocks they have in common.')),
-    h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => pasteFromButton(ctx) }, 'Paste a scan'), h('span', { class: 'note' }, 'You can also paste plain tickers, for example NVDA, AAPL, WMT.')));
+      h('li', null, h('b', null, 'Put a TJ Collect button on your bookmarks bar. '), 'Drag the button for the site you scan on onto the bar (show the bar with Ctrl + Shift + B):',
+        h('div', { class: 'sc-emptysrc' },
+          src('TradingView', dragButton(), 'Copies the scanner rows with every column you see.'),
+          src('Finviz', dragButton(true), 'Copies the 20 stocks of the page you see; collect page 2, 3 … the same way and they join one scan. Use the Performance view for RS.'))),
+      h('li', null, h('b', null, 'Open your screener ', ), 'on TradingView or Finviz and click the button.'),
+      h('li', null, h('b', null, 'Come back here and press Ctrl + V. '), 'Each screener becomes a scanner under Sources.'),
+      h('li', null, h('b', null, 'Compare: '), 'Sources → ⇄ Compare scanners… → tick them → Show common stocks.')),
+    h('div', { class: 'row' }, h('button', { class: 'btn pri', disabled: ctx.readOnly, onClick: () => fvGetDialog(ctx) }, '⟳ Get from Finviz Elite'), h('button', { class: 'btn', onClick: () => pasteFromButton(ctx) }, 'Paste a scan'), h('span', { class: 'note' }, 'You can also paste plain tickers, for example NVDA, AAPL, WMT.')));
 }
 function dragButton(fv = false) {
   return h('a', { class: 'sc-drag' + (fv ? ' fv' : ''), href: fv ? SC.collectFvHref() : SC.collectHref(), draggable: 'true', title: 'Drag me to your bookmarks bar', onClick: (e) => { e.preventDefault(); toast('Drag this button onto your bookmarks bar. Clicking it here does nothing.'); } }, fv ? 'TJ Collect Finviz' : 'TJ Collect');
@@ -146,7 +153,6 @@ function popMenu(anchor, label, items) {
   MENU_EL.querySelector('.sc-mi')?.focus();
   setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', escKey, true); window.addEventListener('scroll', closeMenu, true); }, 0);
 }
-const dots = (label, items, ctx) => h('button', { type: 'button', class: 'sc-dots', 'aria-label': 'More for ' + label, disabled: ctx.readOnly, onClick: (e) => { e.stopPropagation(); popMenu(e.currentTarget, label, items()); } }, '⋯');
 
 // ---------------------------------------------------------------- the one slim toolbar (1.8.8)
 function toolbar(ctx, st, v) {
@@ -162,7 +168,10 @@ function toolbar(ctx, st, v) {
     h('button', { type: 'button', class: 'sc-srcpick' + (V.pickOpen ? ' open' : ''), 'aria-expanded': String(V.pickOpen), title: 'Sources (S)', onClick: (e) => { e.stopPropagation(); V.pickOpen = !V.pickOpen; ctx.redraw(); } },
       h('span', { class: 'sc-srck' }, kindName), h('b', null, v.title), h('span', { class: 'sc-srcn' }, v.kind === 'compare' ? `${v.inAll ?? 0} in all` : plural(v.rows.length, 'stock')), h('span', { 'aria-hidden': 'true' }, ' ▾')),
     picker,
+    v.kind === 'scanner' && v.run && !ctx.readOnly ? h('button', { type: 'button', class: 'sc-ibtn', 'aria-label': 'Delete this scan', title: 'Delete this scan (only the day shown)', onClick: () => deleteRunDialog(ctx, v.run) }, '🗑') : null,
     v.quick ? h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => saveQuickDialog(ctx, v) }, 'Save this comparison') : null,
+    v.kind === 'compare' && (v.inAll ?? 0) > 0 ? h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => addToListDialog(ctx, v.rows.filter((r) => r.n === v.N)) }, `Add the ${v.inAll} to a list…`) : null,
+    v.kind === 'ready' && v.rows.length ? h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => addToListDialog(ctx, v.rows) }, 'Add all to a list…') : null,
     v.missing?.length ? h('span', { class: 'sc-tag earn', title: 'No scans yet: ' + v.missing.join(', ') }, 'Missing: ' + v.missing.join(', ')) : null,
     h('div', { class: 'sc-quick', role: 'group', 'aria-label': 'Quick views' }, SC.QUICK.filter(([k]) => SC.quickShown(v, k)).map(([k, label]) =>
       h('button', { type: 'button', class: 'sc-qv' + (V.q === k ? ' on' : '') + (k === 'dropped' ? ' drop' : ''), 'aria-pressed': String(V.q === k), onClick: () => { V.q = k; V.sel = null; ctx.redraw(); } }, label, h('span', { class: 'sc-n' }, SC.quickRows(v, k).length)))),
@@ -170,11 +179,10 @@ function toolbar(ctx, st, v) {
     q, h('button', { type: 'button', class: 'btn sm sc-fbtn' + (n ? ' active' : ''), 'aria-expanded': String(V.fOpen), onClick: () => { V.fOpen = !V.fOpen; ctx.redraw(); } }, n ? `Filter · ${n}` : 'Filter'),
     h('div', { class: 'seg sc-pages', role: 'group', 'aria-label': 'View' }, [['chart', 'Chart'], ['table', 'Table']].map(([k, l]) => h('button', { type: 'button', class: V.view === k ? 'on' : '', 'aria-pressed': String(V.view === k), onClick: () => { V.view = k; ctx.redraw(); } }, l))),
     (v.kind === 'list' || v.kind === 'ready') && v.list ? h('button', { class: 'btn sm', title: 'Download for TradingView', disabled: !v.list.items.length, onClick: () => downloadOne(ctx, v.list) }, '⤓ TradingView') : null,
+    h('button', { class: 'btn sm pri', disabled: ctx.readOnly, title: 'Get your Finviz Elite screeners', onClick: () => fvGetDialog(ctx) }, '⟳ Finviz'),
     h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => pasteFromButton(ctx) }, 'Paste scan'),
-    dots(v.title, () => [...sourceMenu(ctx, st, v),
-      { label: 'New folder…', cls: 'sep', fn: () => newFolderDialog(ctx) },
-      st.scans.lists.length ? { label: 'Download several lists…', fn: () => downloadManyDialog(ctx) } : null,
-      { label: 'Get TJ Collect…', cls: 'sep', fn: () => collectHelp() }, { label: 'Keys…', fn: () => keysHelp() }], ctx));
+    h('button', { class: 'btn sm', title: 'Get the TJ Collect buttons for TradingView and Finviz', onClick: () => collectHelp() }, 'TJ Collect'),
+    h('button', { class: 'btn sm', 'aria-label': 'Keyboard keys', title: 'Keys', onClick: () => keysHelp() }, '?'));
 }
 async function saveQuickDialog(ctx, v) {
   const nm = h('input', { value: v.title.slice(0, 60), maxlength: '60', 'aria-label': 'Name' }); setTimeout(() => nm.select(), 0); let made = null;
@@ -182,51 +190,32 @@ async function saveQuickDialog(ctx, v) {
     onOk: () => { const r = ctx.act((d) => A.addScanCompare(d, nm.value, v.scanners), { label: 'save comparison', now: true }); if (r.ok) made = r.data.id; return r.ok ? true : r.error; } });
   if (made) openSrc(ctx, { kind: 'compare', id: made });
 }
-function sourceMenu(ctx, st, v) {
-  if (v.kind === 'scanner') return [
-    { label: 'Rename scanner…', fn: () => renameScannerDialog(ctx, v.title) },
-    { label: `Delete this scan (${v.picker.options.find((o) => o.value === v.run.id)?.label.split(' · ')[0]})…`, cls: 'rej', fn: () => deleteRunDialog(ctx, v.run) },
-    { label: 'Delete scanner…', cls: 'rej', fn: () => deleteScannerDialog(ctx, v.title) }];
-  if (v.kind === 'compare' && v.quick) return [{ label: 'Save this comparison…', fn: () => saveQuickDialog(ctx, v) }, { label: `Add the ${v.inAll ?? 0} in all to a list…`, fn: () => addToListDialog(ctx, v.rows.filter((r) => r.n === v.N)) }];
-  if (v.kind === 'compare') { const c = st.scans.compares.find((x) => x.id === V.src.id); return [
-    { label: 'Edit comparison…', fn: () => compareDialog(ctx, c) },
-    { label: `Add the ${v.inAll ?? 0} in all to a list…`, fn: () => addToListDialog(ctx, v.rows.filter((r) => r.n === v.N)) },
-    { label: 'Delete comparison…', cls: 'rej', fn: () => deleteCompareDialog(ctx, c) }]; }
-  if (v.kind === 'ready') return [{ label: 'Add all to a list…', fn: () => addToListDialog(ctx, v.rows) }];
-  if (v.kind === 'list') return listMenu(ctx, st, v.list);
-  return [];
-}
-function listMenu(ctx, st, l) {
-  const stale = A.staleInList(st, l); const f = l.folder ? st.scans.folders.find((x) => x.id === l.folder) : null; const fl = f ? st.scans.lists.filter((x) => x.folder === f.id) : [];
-  return [{ label: 'Download for TradingView', fn: () => downloadOne(ctx, l) },
-    f ? { label: `Download folder ${f.name} as one watchlist`, fn: () => downloadSections(ctx, f.name, fl) } : null,
-    stale.length ? { label: `Clean up ${stale.length} (rejected or bought)…`, fn: () => cleanUpDialog(ctx, l, new Set(stale)) } : null,
-    { label: 'Rename…', fn: () => nameDialog(ctx, 'Rename list', l.name, (d, x) => A.renameScanList(d, l.id, x)) },
-    { label: 'Move to folder…', fn: () => moveListDialog(ctx, l) },
-    { label: 'Delete list…', cls: 'rej', fn: () => deleteListDialog(ctx, l) },
-    f ? { label: `Rename folder ${f.name}…`, cls: 'sep', fn: () => nameDialog(ctx, 'Rename folder', f.name, (d, x) => A.renameScanFolder(d, f.id, x)) } : null,
-    f ? { label: `Delete folder ${f.name}…`, cls: 'rej', fn: () => deleteFolderDialog(ctx, f, fl) } : null];
-}
-
 // ---------------------------------------------------------------- Sources menu (1.8.9, his wish: simple — a click opens it, nothing else)
 let PICK_CLOSE = null;
 function picker(ctx, st, groups, today) {
   const sc = st.scans; const on = (s) => V.src && V.src.kind === s.kind && (s.kind === 'scanner' ? V.src.name === s.name : V.src.id === s.id);
-  const item = (s, label, right) => h('button', { type: 'button', class: 'sc-mitem' + (on(s) ? ' on' : ''), onClick: () => openSrc(ctx, s) }, h('span', { class: 'sc-mlabel' }, label), right ? h('span', { class: 'sc-mright' }, right) : null);
+  const icons = (label, edit, del) => (ctx.readOnly ? [] : [
+    edit ? h('button', { type: 'button', class: 'sc-micon', 'aria-label': 'Rename or edit ' + label, title: 'Rename / edit', onClick: (e) => { e.stopPropagation(); edit(); } }, '✎') : null,
+    del ? h('button', { type: 'button', class: 'sc-micon del', 'aria-label': 'Delete ' + label, title: 'Delete', onClick: (e) => { e.stopPropagation(); del(); } }, '🗑') : null]);
+  // 1.8.10 (his choice A): rename ✎ and delete 🗑 always visible beside the line, light grey, darker when pointed at
+  const item = (s, label, right, edit, del) => h('div', { class: 'sc-mline' + (on(s) ? ' on' : '') },
+    h('button', { type: 'button', class: 'sc-mitem' + (on(s) ? ' on' : ''), onClick: () => openSrc(ctx, s) }, h('span', { class: 'sc-mlabel' }, label), right ? h('span', { class: 'sc-mright' }, right) : null), ...icons(label, edit, del));
   const sec = (title, ...kids) => h('div', { class: 'sc-msec' }, h('div', { class: 'sc-mhd' }, title), ...kids);
   const ready = SC.readyLists(st).filter((l) => l.id === 'ready-near' || l.id === 'ready-watch');
   const folderName = (l) => (l.folder ? (sc.folders.find((f) => f.id === l.folder)?.name || '') + ' › ' : '');
   const lists = [...sc.lists].sort((a, b) => (folderName(a) + a.name).localeCompare(folderName(b) + b.name));
   const panel = h('div', { class: 'sc-picker sc-simple card', role: 'dialog', 'aria-label': 'Sources', onClick: (e) => e.stopPropagation() },
     sec('Scanners',
-      groups.length ? groups.map((g) => item({ kind: 'scanner', name: g.scanner }, g.scanner, `${g.runs[0].date === today ? 'today' : dmy(g.runs[0].date).slice(0, 5)} · ${g.runs[0].rows.length}`))
+      groups.length ? groups.map((g) => item({ kind: 'scanner', name: g.scanner }, g.scanner, `${g.runs[0].date === today ? 'today' : dmy(g.runs[0].date).slice(0, 5)} · ${g.runs[0].rows.length}`, () => renameScannerDialog(ctx, g.scanner), () => deleteScannerDialog(ctx, g.scanner)))
         : h('p', { class: 'note' }, 'Press Ctrl + V on this page to add a scan.'),
       groups.length >= 2 ? h('button', { type: 'button', class: 'sc-mitem sc-maction', onClick: () => compareTickDialog(ctx, groups) }, h('span', { class: 'sc-mlabel' }, '⇄ Compare scanners…')) : null),
-    (sc.compares || []).length ? sec('Saved comparisons', sc.compares.map((c) => item({ kind: 'compare', id: c.id }, c.name, `${SC.sourceView(st, { kind: 'compare', id: c.id }, today).inAll ?? 0} in all`))) : null,
-    sec('By status', h('div', { class: 'sc-mrow' }, ready.map((l) => item({ kind: 'ready', id: l.id }, l.id === 'ready-near' ? 'Near buy' : 'Watching', String(l.items.length))))),
+    (sc.compares || []).length ? sec('Saved comparisons', sc.compares.map((c) => item({ kind: 'compare', id: c.id }, c.name, `${SC.sourceView(st, { kind: 'compare', id: c.id }, today).inAll ?? 0} in all`, () => compareDialog(ctx, c), () => deleteCompareDialog(ctx, c)))) : null,
+    sec('By status', h('div', { class: 'sc-mrow' }, ready.map((l) => h('button', { type: 'button', class: 'sc-mitem' + (on({ kind: 'ready', id: l.id }) ? ' on' : ''), onClick: () => openSrc(ctx, { kind: 'ready', id: l.id }) }, h('span', { class: 'sc-mlabel' }, l.id === 'ready-near' ? 'Near buy' : 'Watching'), h('span', { class: 'sc-mright' }, String(l.items.length)))))),
     sec('My lists',
-      lists.length ? h('div', { class: 'sc-mrow' }, lists.map((l) => item({ kind: 'list', id: l.id }, folderName(l) + l.name, String(l.items.length)))) : h('p', { class: 'note' }, 'No lists yet. Add stocks with L while you look at charts.'),
-      h('button', { type: 'button', class: 'sc-mitem sc-maction', disabled: ctx.readOnly, onClick: () => newListDialog(ctx, null) }, h('span', { class: 'sc-mlabel' }, '+ New list'))));
+      lists.length ? lists.map((l) => item({ kind: 'list', id: l.id }, folderName(l) + l.name, plural(l.items.length, 'stock'), () => nameDialog(ctx, 'Rename list', l.name, (d, x) => A.renameScanList(d, l.id, x)), () => deleteListDialog(ctx, l)))
+        : h('p', { class: 'note' }, 'No lists yet. Add stocks with L while you look at charts.'),
+      h('button', { type: 'button', class: 'sc-mitem sc-maction', disabled: ctx.readOnly, onClick: () => newListDialog(ctx, null) }, h('span', { class: 'sc-mlabel' }, '+ New list'))),
+    h('button', { type: 'button', class: 'btn sm sc-managebtn', onClick: () => { V.pickOpen = false; V.manageOpen = true; ctx.redraw(); } }, '✎ Manage scanners and lists'));
   if (PICK_CLOSE) { document.removeEventListener('mousedown', PICK_CLOSE, true); document.removeEventListener('keydown', PICK_CLOSE, true); }
   PICK_CLOSE = (e) => {
     if (!V.pickOpen || dialogOpen()) return;
@@ -236,6 +225,39 @@ function picker(ctx, st, groups, today) {
   setTimeout(() => { document.addEventListener('mousedown', PICK_CLOSE, true); document.addEventListener('keydown', PICK_CLOSE, true); }, 0);
   return panel;
 }
+// ---------------------------------------------------------------- Manage (1.8.10, his choice A): one clear table, plain-word buttons per row
+let MAN_CLOSE = null;
+function manage(ctx, st, groups) {
+  const sc = st.scans; const ro = ctx.readOnly;
+  const b = (label, fn, cls = '') => h('button', { type: 'button', class: 'btn sm ' + cls, disabled: ro, onClick: fn }, label);
+  const row = (name, info, btns, cls = '') => h('tr', { class: cls }, h('td', { class: 'sc-mgname' }, name), h('td', { class: 'note' }, info), h('td', { class: 'sc-mgbtns' }, btns));
+  const listRow = (l, indent) => row(h('span', { class: indent ? 'sc-mgin' : '' }, l.name), plural(l.items.length, 'stock'), [
+    b('Rename', () => nameDialog(ctx, 'Rename list', l.name, (d, x) => A.renameScanList(d, l.id, x))), b('Move', () => moveListDialog(ctx, l)),
+    h('button', { type: 'button', class: 'btn sm', disabled: !l.items.length, onClick: () => downloadOne(ctx, l) }, 'Download'),
+    A.staleInList(st, l).length ? b(`Clean up ${A.staleInList(st, l).length}`, () => cleanUpDialog(ctx, l, new Set(A.staleInList(st, l))), 'sc-clean') : null,
+    b('Delete', () => deleteListDialog(ctx, l), 'danger')]);
+  const loose = sc.lists.filter((l) => !l.folder);
+  const panel = h('div', { class: 'sc-manage card', role: 'dialog', 'aria-label': 'Manage scanners and lists', onClick: (e) => e.stopPropagation() },
+    h('div', { class: 'sc-mghead' }, h('h3', null, 'Manage scanners and lists'), h('button', { type: 'button', class: 'sc-pclose', 'aria-label': 'Close', onClick: () => { V.manageOpen = false; ctx.redraw(); } }, '×')),
+    h('table', { class: 'sc-mgt' }, h('tbody', null,
+      h('tr', { class: 'sc-mgsec' }, h('td', { colspan: '3' }, 'Scanners')),
+      groups.length ? groups.map((g) => row(g.scanner, plural(g.runs.length, 'scan'), [b('Rename', () => renameScannerDialog(ctx, g.scanner)), b('Delete', () => deleteScannerDialog(ctx, g.scanner), 'danger')])) : row(h('span', { class: 'note' }, 'No scanners yet'), '', []),
+      (sc.compares || []).length ? [h('tr', { class: 'sc-mgsec' }, h('td', { colspan: '3' }, 'Saved comparisons')), sc.compares.map((c) => row(c.name, c.scanners.join(' + '), [b('Edit', () => compareDialog(ctx, c)), b('Delete', () => deleteCompareDialog(ctx, c), 'danger')]))] : null,
+      h('tr', { class: 'sc-mgsec' }, h('td', { colspan: '2' }, 'Folders and lists'), h('td', { class: 'sc-mgbtns' }, b('+ Folder', () => newFolderDialog(ctx)), b('+ List', () => newListDialog(ctx, null)), sc.lists.length ? h('button', { type: 'button', class: 'btn sm', onClick: () => downloadManyDialog(ctx) }, 'Download several') : null)),
+      sc.folders.map((f) => { const ls = sc.lists.filter((l) => l.folder === f.id); return [
+        row(h('b', null, '▣ ' + f.name), plural(ls.length, 'list'), [b('Rename', () => nameDialog(ctx, 'Rename folder', f.name, (d, x) => A.renameScanFolder(d, f.id, x))), h('button', { type: 'button', class: 'btn sm', disabled: !ls.some((l) => l.items.length), onClick: () => downloadSections(ctx, f.name, ls) }, 'Download as one watchlist'), b('Delete', () => deleteFolderDialog(ctx, f, ls), 'danger')], 'sc-mgfolder'),
+        ls.map((l) => listRow(l, true))]; }),
+      loose.map((l) => listRow(l, false)),
+      !sc.lists.length && !sc.folders.length ? row(h('span', { class: 'note' }, 'No lists yet'), '', []) : null)));
+  if (MAN_CLOSE) { document.removeEventListener('mousedown', MAN_CLOSE, true); document.removeEventListener('keydown', MAN_CLOSE, true); }
+  MAN_CLOSE = (e) => {
+    if (!V.manageOpen || dialogOpen()) return;
+    if (e.type === 'keydown' ? e.key === 'Escape' : !e.target.closest?.('.sc-manage, .sc-menu, .scrim')) { V.manageOpen = false; document.removeEventListener('mousedown', MAN_CLOSE, true); document.removeEventListener('keydown', MAN_CLOSE, true); document.querySelector('.sc-manage')?.remove(); }
+  };
+  setTimeout(() => { document.addEventListener('mousedown', MAN_CLOSE, true); document.addEventListener('keydown', MAN_CLOSE, true); }, 0);
+  return panel;
+}
+
 // "⇄ Compare scanners…": the only place where he ticks anything
 async function compareTickDialog(ctx, groups) {
   V.pickOpen = false;
@@ -634,4 +656,85 @@ async function takePaste(ctx, text) {
   V.src = { kind: 'scanner', name: scanner, run: res.data.run.id }; V.q = 'all'; V.sel = null; ctx.redraw();
   const miss = p.source === 'finviz' && p.shown && p.rows.length < p.shown ? ` Page ${p.fv.page} of ${Math.ceil(p.shown / 20)}: collect the next pages on Finviz the same way, they join this scan.` : p.shown && p.rows.length < p.shown ? ` TradingView showed ${p.shown}; scroll to the bottom of the list and collect again to get all.` : '';
   toast(`${scanner}: ${plural(p.rows.length, 'stock')} added.` + miss, 'Undo', () => ctx.store.undo(), miss ? 9000 : 5000);
+}
+
+// ---------------------------------------------------------------- 1.8.10 Finviz Elite: his screeners through his Google helper
+// The helper's address and the shared secret live only in this browser (asked once per computer). The Finviz key lives only in
+// his Google helper. The data file keeps the screeners' names and filters.
+const HELPER_KEY = 'tj-fv-helper';
+const helperGet = () => { try { return JSON.parse(localStorage.getItem(HELPER_KEY) || 'null'); } catch { return null; } };
+const helperSet = (x) => { try { localStorage.setItem(HELPER_KEY, JSON.stringify(x)); return true; } catch { return false; } };
+const newSecret = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '');
+async function fvFetch(helper, q) {
+  const url = helper.url + (helper.url.includes('?') ? '&' : '?') + 'secret=' + encodeURIComponent(helper.secret) + '&q=' + encodeURIComponent(q);
+  let res; try { res = await fetch(url, { redirect: 'follow' }); } catch { return { ok: false, error: 'The helper could not be reached. Check its address, and that it is deployed for "Anyone".' }; }
+  let j; try { j = await res.json(); } catch { return { ok: false, error: 'The helper did not answer properly. Check that you deployed it as a Web app.' }; }
+  if (!j.ok) return { ok: false, error: j.error === 'Wrong secret' ? 'The secret in the helper does not match. Copy the helper code again from here.' : `Finviz answered with an error (${j.code || j.error}). Check the key in the helper.` };
+  return SC.finvizCsvToScan(j.csv);
+}
+async function helperDialog(ctx) {
+  const cur = helperGet() || { url: '', secret: newSecret() };
+  const url = h('input', { value: cur.url, placeholder: 'https://script.google.com/macros/s/…/exec', 'aria-label': 'Helper address' });
+  const code = SC.HELPER_CODE.replace('PASTE_THE_SECRET_FROM_TRADE_JOURNAL_HERE', cur.secret);
+  const copy = h('button', { type: 'button', class: 'btn sm pri', onClick: async () => { try { await navigator.clipboard.writeText(code); toast('Helper code copied. Paste it in Google Apps Script.'); } catch { box.hidden = false; box.select(); } } }, 'Copy the helper code');
+  const box = h('textarea', { rows: '6', readonly: true, hidden: true, 'aria-label': 'Helper code' }); box.value = code;
+  let saved = false;
+  await dialog({ title: 'Connect your Finviz Elite', ok: 'Save', body: h('div', { style: { display: 'grid', gap: '10px' } },
+    para('Finviz does not let websites read its files directly, so a small helper in your own Google account fetches them for Trade Journal. Your Finviz key stays in that helper.', ''),
+    h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, '1. The helper code'), para('Already contains this computer\'s secret. You add only your Finviz key.', 'note')), copy), box,
+    field('2. Helper address (the Web app address from Google)', url),
+    para('The address and secret are kept only in this browser. On another computer you connect once more (same helper, new code copy).', 'note')),
+    onOk: () => { const u = url.value.trim(); if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(u)) return 'Paste the Web app address from Google Apps Script (it starts with https://script.google.com/).'; saved = helperSet({ url: u, secret: cur.secret }); return saved ? true : 'This browser does not allow saving it.'; } });
+  return saved;
+}
+async function screenDialog(ctx, x) {
+  const nm = h('input', { value: x?.name || '', maxlength: '60', 'aria-label': 'Name', placeholder: 'Breakout' });
+  const ad = h('input', { value: '', 'aria-label': 'Finviz screener address', placeholder: x ? 'Leave empty to keep the same filters' : 'https://elite.finviz.com/screener?v=141&f=…' });
+  setTimeout(() => (x ? nm : ad).focus(), 0); let res = null;
+  await dialog({ title: x ? `Edit ${x.name}` : 'Add a Finviz screener', ok: 'Save', body: h('div', { style: { display: 'grid', gap: '10px' } },
+    field('Screener address (copy it from the browser bar on Finviz)', ad), field('Name in Trade Journal', nm),
+    para('Use the Performance view (or a table view) on Finviz before you copy the address: Performance gives RS. Your key is never needed here.', 'note')),
+    onOk: () => { const r = ctx.act((d) => (x ? A.editFvScreen(d, x.id, nm.value, ad.value) : A.addFvScreen(d, nm.value, ad.value)), { label: x ? 'edit screener' : 'add screener', now: true }); if (!r.ok) return r.error; res = r.data; return true; } });
+  if (res?.warn) toast(res.warn, null, null, 9000); else if (res && !x && !res.perf) toast('Saved. Tip: the Performance view gives RS.', null, null, 6000);
+  return res;
+}
+async function fvGetDialog(ctx) {
+  if (ctx.readOnly) return;
+  if (!helperGet()) { const ok = await helperDialog(ctx); if (!ok) return; }
+  const st = ctx.store.state; const screens = st.scans.fvScreens || [];
+  if (!screens.length) { const r = await screenDialog(ctx, null); if (!r) return; return fvGetDialog(ctx); }
+  const today = ctx.today();
+  // his choice B (23-11-2026): nothing pre-ticked; he ticks what he wants each time
+  const boxes = screens.map((x) => [x, h('input', { type: 'checkbox', 'aria-label': 'Get ' + x.name })]);
+  const go = h('span'); const upd = () => { const n = boxes.filter(([, b]) => b.checked).length; go.textContent = n ? `${n} ticked` : 'Tick the screeners you want'; };
+  boxes.forEach(([, b]) => b.addEventListener('change', upd)); upd();
+  let action = null;
+  const rowEl = ([x, b]) => h('div', { class: 'sc-fvrow' }, h('label', null, b, ' ', h('b', null, x.name)), h('span', { class: 'note' }, x.last ? 'last: ' + (x.last === today ? 'today' : dmy(x.last)) : 'never fetched'),
+    h('button', { type: 'button', class: 'sc-micon', 'aria-label': 'Edit ' + x.name, title: 'Edit', onClick: () => { action = { k: 'edit', x }; document.querySelector('.scrim .dlg-foot .btn:not(.pri)')?.click(); } }, '✎'),
+    h('button', { type: 'button', class: 'sc-micon del', 'aria-label': 'Delete ' + x.name, title: 'Delete', onClick: () => { action = { k: 'del', x }; document.querySelector('.scrim .dlg-foot .btn:not(.pri)')?.click(); } }, '🗑'));
+  const ok = await dialog({ title: 'Get scans from Finviz', ok: 'Get ticked', body: h('div', { style: { display: 'grid', gap: '8px' } },
+    h('div', { class: 'sc-fvlist' }, boxes.map(rowEl)), h('div', { class: 'note' }, go),
+    h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn sm', onClick: () => { action = { k: 'add' }; document.querySelector('.scrim .dlg-foot .btn:not(.pri)')?.click(); } }, '+ Add screener'),
+      h('button', { type: 'button', class: 'linkish', onClick: () => { action = { k: 'helper' }; document.querySelector('.scrim .dlg-foot .btn:not(.pri)')?.click(); } }, 'Helper settings'))),
+    onOk: () => (boxes.some(([, b]) => b.checked) ? true : 'Tick at least one screener.') });
+  if (!ok) {
+    if (action?.k === 'add') { await screenDialog(ctx, null); return fvGetDialog(ctx); }
+    if (action?.k === 'edit') { await screenDialog(ctx, action.x); return fvGetDialog(ctx); }
+    if (action?.k === 'helper') { await helperDialog(ctx); return fvGetDialog(ctx); }
+    if (action?.k === 'del') { const y = await dialog({ title: `Delete the screener ${action.x.name}?`, ok: 'Delete', danger: true, body: para('Only its saved address in Trade Journal goes. Its scans stay.', '') }); if (y) ctx.act((d) => A.deleteFvScreen(d, action.x.id), { label: 'delete screener', now: true }); return fvGetDialog(ctx); }
+    return;
+  }
+  const pick = boxes.filter(([, b]) => b.checked).map(([x]) => x); const helper = helperGet(); const done = []; const failed = [];
+  for (let i = 0; i < pick.length; i++) {
+    const x = pick[i]; toast(`Getting ${x.name} (${i + 1} of ${pick.length})…`, null, null, 20000);
+    const r = await fvFetch(helper, x.q);
+    if (!r.ok) { failed.push(`${x.name}: ${r.error}`); continue; }
+    if (!r.rows.length) { failed.push(`${x.name}: no stocks today`); ctx.act((d) => A.markFvFetched(d, x.id, today), { label: 'fetched', now: true, noUndo: true }); continue; }
+    const res = ctx.act((d) => { const a = A.addScanRun(d, { scanner: x.name, date: today, cols: r.cols, rows: r.rows, shown: r.rows.length }, { replace: true, today }); if (a.ok) A.markFvFetched(d, x.id, today); return a; }, { label: 'Finviz ' + x.name, now: true });
+    if (res.ok) done.push(`${x.name} ${r.rows.length}`); else failed.push(`${x.name}: ${res.error}`);
+  }
+  if (done.length) { V.src = { kind: 'scanner', name: pick.find((x) => done.some((d) => d.startsWith(x.name + ' '))).name }; V.q = 'all'; V.sel = null; }
+  ctx.redraw();
+  if (failed.length) dialog({ title: done.length ? 'Some screeners did not come' : 'Nothing came from Finviz', info: true, body: h('div', { style: { display: 'grid', gap: '6px' } }, done.length ? para('Got: ' + done.join(' · '), '') : null, h('ul', { class: 'sc-ul' }, failed.map((f) => h('li', null, f)))) });
+  else toast(`Got from Finviz: ${done.join(' · ')}.`, null, null, 7000);
 }

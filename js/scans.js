@@ -367,3 +367,51 @@ document.getElementById('tj-collect')?.remove();box.id='tj-collect';document.bod
 const fallback=()=>{const a=document.createElement('textarea');a.value=text;document.body.append(a);a.select();let ok=false;try{ok=document.execCommand('copy');}catch(e){}a.remove();say(ok);};
 if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>say(true),fallback);}else fallback();})();`;
 export const collectFvHref = () => 'javascript:' + COLLECT_FV_SRC.replace(/\n/g, '');
+
+// ---------- 1.8.10 Finviz Elite through his own Google helper ----------
+// Finviz blocks other websites from reading its export (tested 23-11-2026: CORS). His own Google Apps Script ("TJ helper")
+// fetches the export with his Finviz key, which stays inside the script, and passes the CSV on. TJ keeps only the screener
+// filters (never the key) and, in this browser only, the helper's address and a shared secret.
+export function parseCsv(text) {
+  const rows = []; let row = [], cell = '', q = false; const s = String(text ?? '').replace(/^﻿/, '');
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) { if (c === '"') { if (s[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; continue; }
+    if (c === '"') q = true; else if (c === ',') { row.push(cell); cell = ''; } else if (c === '\n' || c === '\r') { if (c === '\r' && s[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((x) => x.trim() !== ''));
+}
+// a Finviz CSV (header + rows) → the same shape as a TJ Collect paste
+export function finvizCsvToScan(csv) {
+  const t = parseCsv(csv); if (t.length < 1) return { ok: false, error: 'The file from Finviz is empty.' };
+  const cols = t[0].map((c) => c.trim()); const ti = cols.findIndex((c) => /^ticker$/i.test(c));
+  if (ti < 0) return { ok: false, error: /<html|<!doctype/i.test(csv) ? 'Finviz sent a web page instead of the file (is the key right, and the view a table view?).' : 'The file from Finviz has no Ticker column.' };
+  const rows = t.slice(1).map((r) => ({ s: String(r[ti] ?? '').trim().toUpperCase(), v: cols.map((_, i) => String(r[i] ?? '').trim().slice(0, 80)) })).filter((r) => validSymbol(r.s));
+  return { ok: true, cols, rows };
+}
+// what TJ stores for a screener: only its filters from the normal Finviz address (any auth= is dropped); type=stocks added
+const FV_TABLE_VIEWS = /^(111|121|161|131|141|171|181|151)$/; // Overview, Valuation, Financial, Ownership, Performance, Technical, Analytics, Custom
+export function finvizQuery(address) {
+  let u; try { u = new URL(String(address).trim()); } catch { return { ok: false, error: 'That is not a web address. Copy the address of your screener from the browser bar.' }; }
+  if (!/(^|\.)finviz\.com$/i.test(u.hostname) || !/\/(screener|export\/screener)/i.test(u.pathname + '/')) return { ok: false, error: 'That is not a Finviz screener address.' };
+  const p = new URLSearchParams(u.search); p.delete('auth'); p.delete('r'); if (!p.get('type')) p.set('type', 'stocks');
+  const v = p.get('v'); const warn = v && !FV_TABLE_VIEWS.test(v) ? 'This view does not export (charts, tickers, news…). Switch the screener to the Performance or a table view and copy the address again.' : null;
+  return { ok: true, q: p.toString(), warn, perf: v === '141' };
+}
+export const HELPER_CODE = `// TJ helper for Finviz — paste into a new Google Apps Script project (script.google.com).
+// It fetches your Finviz Elite screener exports for Trade Journal. Your Finviz key stays here, in your own Google account.
+const FINVIZ_KEY = 'PASTE_YOUR_FINVIZ_KEY_HERE';   // the code after auth= on Finviz's Screener API page
+const TJ_SECRET = 'PASTE_THE_SECRET_FROM_TRADE_JOURNAL_HERE';
+
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (!p.secret || p.secret !== TJ_SECRET) return out({ ok: false, error: 'Wrong secret' });
+  const q = String(p.q || '');
+  if (!/^[A-Za-z0-9_=&%.,\\-|*:;~+]*$/.test(q) || /(^|&)auth=/.test(q)) return out({ ok: false, error: 'Bad screener filters' });
+  const url = 'https://elite.finviz.com/export/screener?' + q + '&auth=' + encodeURIComponent(FINVIZ_KEY);
+  const r = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  return out({ ok: r.getResponseCode() === 200, code: r.getResponseCode(), csv: r.getContentText() });
+}
+function out(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+`;

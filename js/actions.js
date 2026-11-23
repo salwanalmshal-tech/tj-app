@@ -657,3 +657,19 @@ export function joinFinvizPage(st, runId, { cols = [], rows, page, shown = null 
   r.fvPages = [...(r.fvPages || []), page].sort((a, b) => a - b); if (shown) r.shown = shown;
   return ok({ added: n, run: r });
 }
+
+// ---------- 1.8.10 his Finviz screeners (name + filters; the Finviz key is never stored here) ----------
+export function addFvScreen(st, name, address) {
+  const sc = scansOf(st); sc.fvScreens ??= []; const n = cleanName(name, 'screener'); if (!n.ok) return n;
+  const q = SC.finvizQuery(address); if (!q.ok) return q;
+  if (sc.fvScreens.some((x) => same(x.name, n.data))) return err(`A screener called “${n.data}” already exists.`);
+  const x = { id: nextId(st, 'fs'), name: n.data, q: q.q, last: null }; sc.fvScreens.push(x); return ok({ screen: x, warn: q.warn, perf: q.perf });
+}
+export function editFvScreen(st, id, name, address) {
+  const sc = scansOf(st); sc.fvScreens ??= []; const x = sc.fvScreens.find((y) => y.id === id); if (!x) return err('Not found.');
+  const n = cleanName(name, 'screener'); if (!n.ok) return n; if (sc.fvScreens.some((y) => y.id !== id && same(y.name, n.data))) return err(`A screener called “${n.data}” already exists.`);
+  if (address && address.trim()) { const q = SC.finvizQuery(address); if (!q.ok) return q; x.q = q.q; }
+  x.name = n.data; return ok({ screen: x });
+}
+export function deleteFvScreen(st, id) { const sc = scansOf(st); sc.fvScreens ??= []; const i = sc.fvScreens.findIndex((y) => y.id === id); if (i < 0) return err('Not found.'); sc.fvScreens.splice(i, 1); return ok(); }
+export function markFvFetched(st, id, date) { const x = (st.scans?.fvScreens || []).find((y) => y.id === id); if (x) x.last = date; return ok(); }

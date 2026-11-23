@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.8.9';
+export const APP_VERSION = '1.8.10';
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -63,7 +63,7 @@ export function emptyState(now = new Date().toISOString()) {
 }
 
 // 1.8.1: his own folders and lists (folder = one TradingView watchlist, list = a section), folded scanners
-export function emptyScans() { return { runs: [], marks: {}, showCols: null, lists: [], folders: [], fold: {}, compares: [], keyCols: null }; } // 1.8.2: saved comparisons, key values under the chart
+export function emptyScans() { return { runs: [], marks: {}, showCols: null, lists: [], folders: [], fold: {}, compares: [], keyCols: null, fvScreens: [] }; } // 1.8.10: his Finviz screeners (filters only, never the key) // 1.8.2: saved comparisons, key values under the chart
 // 1.8.0: the reject reason chips he starts with (his choice A); he adds, renames and archives them in Lists
 export function defaultRejects() {
   return [['rj-ext', 'Extended'], ['rj-vol', 'Weak volume'], ['rj-earn', 'Earnings soon'], ['rj-sma50', 'Below SMA 50'], ['rj-base', 'Bad base'], ['rj-rs', 'Low RS']].map(([id, name]) => ({ id, name, archived: false }));
