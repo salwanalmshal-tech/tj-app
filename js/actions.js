@@ -506,7 +506,7 @@ export function orderReportsList(st, screen, ids) {
 // ---------- 1.8.0 Scans ----------
 // One scan run = one paste from the TJ Collect bookmark (or plain tickers). Runs are kept per scanner and date.
 // mode 'replace' removes today's earlier run of the same scanner first (he chose to be asked when that happens).
-export function addScanRun(st, { scanner, date, cols = [], rows, shown = null }, { replace = false, today = date } = {}) {
+export function addScanRun(st, { scanner, date, cols = [], rows, shown = null, fv = null }, { replace = false, today = date } = {}) {
   const name = String(scanner ?? '').trim(); if (!name) return err('Give the scanner a name.');
   if (name.length > 60) return err('The scanner name is too long (60 characters at most).');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return err('The scan date is not valid.');
@@ -514,6 +514,7 @@ export function addScanRun(st, { scanner, date, cols = [], rows, shown = null },
   st.scans ??= { runs: [], marks: {}, showCols: null };
   if (replace) st.scans.runs = st.scans.runs.filter((r) => !(r.scanner === name && r.date === date));
   const run = { id: nextId(st, 'sr'), scanner: name, date, seq: nextSeq(st), cols: cols.slice(0, 60), rows: good.map((r) => ({ s: r.s.toUpperCase(), v: (r.v || []).slice(0, cols.length) })), shown: shown || null, trimmed: false };
+  if (fv) { run.source = 'finviz'; run.fvKey = fv.key; run.fvPages = [fv.page]; }
   st.scans.runs.push(run);
   const trimmed = SC.trimOld(st, today, Number(st.settings.scanKeepDays) || 90);
   return ok({ run, trimmed });
@@ -644,3 +645,15 @@ export function deleteScanCompare(st, id) {
   st.trash.push({ kind: 'scanCompare', deletedAt: new Date().toISOString(), item: sc.compares[i] }); sc.compares.splice(i, 1); return ok();
 }
 export function setScanKeyCols(st, cols) { const sc = scansOf(st); if (cols.length > 6) return err('Choose 6 at most.'); sc.keyCols = cols; return ok(); }
+
+// 1.8.9 Finviz pages: page 2, 3 … of the same screener (same filters) on the same day join the scan of page 1
+export function finvizRunFor(st, scanner, date, key) { return (st.scans?.runs || []).filter((r) => r.scanner === String(scanner).trim() && r.date === date && r.fvKey === key).sort((a, b) => b.seq - a.seq)[0] || null; }
+export function joinFinvizPage(st, runId, { cols = [], rows, page, shown = null }) {
+  const r = (st.scans?.runs || []).find((x) => x.id === runId); if (!r) return err('Not found.');
+  if ((r.fvPages || []).includes(page)) return err('That page is already in this scan.');
+  const have = new Set(r.rows.map((x) => SC.tickerOf(x.s)));
+  const idx = (r.cols || []).map((c) => cols.indexOf(c)); // same view: same columns; a different view keeps the first view's columns
+  let n = 0; for (const x of rows || []) { if (!SC.validSymbol(x.s) || have.has(SC.tickerOf(x.s))) continue; r.rows.push({ s: x.s.toUpperCase(), v: idx.map((i) => (i >= 0 ? x.v?.[i] ?? '' : '')) }); have.add(SC.tickerOf(x.s)); n++; }
+  r.fvPages = [...(r.fvPages || []), page].sort((a, b) => a - b); if (shown) r.shown = shown;
+  return ok({ added: n, run: r });
+}

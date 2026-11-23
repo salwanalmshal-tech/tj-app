@@ -179,3 +179,27 @@ test('quick comparison (ticked scanners, not saved) works like a saved one', () 
   const v = SC.sourceView(st, { kind: 'quick', scanners: ['S', 'T'] }, '2026-11-22');
   assert.equal(v.kind, 'compare'); assert.equal(v.quick, true); assert.deepEqual(SC.quickRows(v, 'inall').map((r) => r.t), ['AAA']); assert.equal(v.title, 'S + T');
 });
+
+// ---------- 1.8.9 Finviz ----------
+test('Finviz: page 1 starts a scan, page 2 joins it, RS reads Perf Quart / Half / Year, earnings "Nov 20/a"', () => {
+  const st = fresh(); const cols = ['No.', 'Ticker', 'Perf Week', 'Perf Quart', 'Perf Half', 'Perf Year', 'Earnings'];
+  const p1 = SC.parsePaste(SC.PAYLOAD_TAG + JSON.stringify({ source: 'finviz', scanner: 'FV breakout', key: 'f=ta_sma50_pa&v=141', page: 1, date: '2026-11-23', cols, rows: [{ s: 'AAPL', v: ['1', 'AAPL', '1%', '30%', '40%', '50%', 'Nov 26/a'] }, { s: 'MSFT', v: ['2', 'MSFT', '1%', '10%', '10%', '10%', ''] }], shown: 23 }));
+  assert.equal(p1.ok, true); assert.equal(p1.source, 'finviz'); assert.deepEqual(p1.fv, { key: 'f=ta_sma50_pa&v=141', page: 1 });
+  const r1 = A.addScanRun(st, { scanner: p1.scanner, date: p1.date, cols: p1.cols, rows: p1.rows, shown: p1.shown, fv: p1.fv }).data.run;
+  assert.deepEqual(r1.fvPages, [1]); assert.equal(A.finvizRunFor(st, 'FV breakout', '2026-11-23', 'f=ta_sma50_pa&v=141').id, r1.id);
+  const j = A.joinFinvizPage(st, r1.id, { cols, rows: [{ s: 'NVDA', v: ['21', 'NVDA', '1%', '5%', '5%', '5%', ''] }, { s: 'AAPL', v: [] }], page: 2, shown: 23 });
+  assert.equal(j.data.added, 1); assert.deepEqual(r1.fvPages, [1, 2]); assert.equal(r1.rows.length, 3);
+  assert.equal(A.joinFinvizPage(st, r1.id, { cols, rows: [], page: 2 }).ok, false);
+  const v = SC.sourceView(st, { kind: 'scanner', name: 'FV breakout' }, '2026-11-23');
+  assert.equal(v.rows.find((r) => r.t === 'AAPL').rs, 99); assert.deepEqual(v.rows.find((r) => r.t === 'AAPL').earnings, { days: 3, iso: '2026-11-26' });
+  assert.equal(SC.earningsDays('Feb 03/b', '2026-11-23').iso, '2027-02-03');
+});
+test('Finviz tickers take the exchange from a TradingView scan when there is one', () => {
+  const st = fresh(); A.addScanRun(st, { scanner: 'TV', date: '2026-11-22', rows: [r2('NASDAQ:AAPL')] }); A.addScanRun(st, { scanner: 'FV', date: '2026-11-23', rows: [{ s: 'AAPL', v: [] }, { s: 'ZZZ', v: [] }] });
+  assert.equal(SC.fullOf(st, 'AAPL'), 'NASDAQ:AAPL'); assert.equal(SC.fullOf(st, 'ZZZ'), 'ZZZ');
+  assert.equal(SC.sourceView(st, { kind: 'scanner', name: 'FV' }, '2026-11-23').rows.find((r) => r.t === 'AAPL').full, 'NASDAQ:AAPL');
+});
+test('the Finviz bookmark has no % or # and is valid JavaScript', () => {
+  assert.equal(SC.COLLECT_FV_SRC.includes('%'), false); assert.equal(SC.COLLECT_FV_SRC.includes('#'), false);
+  assert.doesNotThrow(() => new Function(SC.collectFvHref().slice('javascript:'.length)));
+});

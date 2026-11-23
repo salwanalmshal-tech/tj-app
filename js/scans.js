@@ -24,7 +24,8 @@ export function parsePaste(text) {
     const rows = (Array.isArray(p.rows) ? p.rows : []).map((r) => ({ s: String(r?.s ?? '').toUpperCase(), v: Array.isArray(r?.v) ? r.v.slice(0, cols.length).map((x) => String(x ?? '').slice(0, 80)) : [] })).filter((r) => validSymbol(r.s));
     if (!rows.length) return { ok: false, error: 'The copied scan has no stocks.' };
     const shown = Number.isInteger(p.shown) && p.shown > 0 ? p.shown : null;
-    return { ok: true, kind: 'collect', scanner: String(p.scanner ?? '').trim().slice(0, 60), date: /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? p.date : null, cols, rows: dedupe(rows), shown };
+    const fv = p.source === 'finviz' ? { key: String(p.key ?? '').slice(0, 400), page: Number.isInteger(p.page) && p.page > 0 ? p.page : 1 } : null;
+    return { ok: true, kind: 'collect', source: fv ? 'finviz' : 'tradingview', fv, scanner: String(p.scanner ?? '').trim().slice(0, 60), date: /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? p.date : null, cols, rows: dedupe(rows), shown };
   }
   const words = t.split(/[\s,;]+/).map((w) => w.trim().toUpperCase()).filter(Boolean);
   const good = words.filter(validSymbol); const bad = words.filter((w) => !validSymbol(w));
@@ -40,7 +41,8 @@ export function pctNum(text) {
   if (!/^-?\d+(\.\d+)?$/.test(s)) return null; const v = Number(s); return Number.isFinite(v) ? v : null;
 }
 const findCol = (cols, re) => cols.findIndex((c) => re.test(c));
-const PERF = { m3: /perf\w*\W*%?\W*3\s*m|3\s*month/i, m6: /perf\w*\W*%?\W*6\s*m|6\s*month/i, y1: /perf\w*\W*%?\W*(1\s*y|12\s*m|1\s*year|year)/i };
+// 1.8.9: Finviz names too (Performance view: Perf Quart, Perf Half, Perf Year)
+const PERF = { m3: /perf\w*\W*%?\W*3\s*m|3\s*month|perf\w*\s*quart/i, m6: /perf\w*\W*%?\W*6\s*m|6\s*month|perf\w*\s*half/i, y1: /perf\w*\W*%?\W*(1\s*y|12\s*m|1\s*year|year)/i };
 export const EARN = /earning/i;
 
 // value of one column for one stock in one run
@@ -85,7 +87,7 @@ function buildRows(st, runs, tickers, today) {
   const cols = [...new Set(newestFirst.flatMap((r) => r.cols || []))].filter((c) => !/^symbol$/i.test(c));
   const rows = tickers.map((t) => {
     const src = newestFirst.find((r) => r.rows.some((x) => tickerOf(x.s) === t));
-    const full = src ? src.rows.find((x) => tickerOf(x.s) === t).s : fullOf(st, t);
+    let full = src ? src.rows.find((x) => tickerOf(x.s) === t).s : fullOf(st, t); if (!full.includes(':')) full = fullOf(st, t);
     const vals = Object.fromEntries(cols.map((c) => { for (const r of newestFirst) { const i = (r.cols || []).indexOf(c); if (i < 0) continue; const x = r.rows.find((y) => tickerOf(y.s) === t); if (x && x.v?.[i]) return [c, x.v[i]]; } return [c, '']; }));
     return { t, full, rs: ranks.get(t) ?? null, vals, mark: st.scans?.marks?.[t] || null, earnings: earningsDays(valueOf(t, EARN), today), earningsText: valueOf(t, EARN), chg: null };
   });
@@ -162,7 +164,10 @@ export const filterCount = (f) => (f.rsMin !== null && f.rsMin !== '' ? 1 : 0) +
 
 // ---------- 1.8.1 lists ----------
 export function fullOf(st, t) {
-  for (const r of [...(st.scans?.runs || [])].sort((a, b) => b.date.localeCompare(a.date) || b.seq - a.seq)) { const x = r.rows.find((y) => tickerOf(y.s) === t); if (x) return x.s; }
+  // prefer a scan that knows the exchange (TradingView gives "NASDAQ:AAPL", Finviz only "AAPL")
+  const runs = [...(st.scans?.runs || [])].sort((a, b) => b.date.localeCompare(a.date) || b.seq - a.seq);
+  for (const r of runs) { const x = r.rows.find((y) => tickerOf(y.s) === t && y.s.includes(':')); if (x) return x.s; }
+  for (const r of runs) { const x = r.rows.find((y) => tickerOf(y.s) === t); if (x) return x.s; }
   for (const l of st.scans?.lists || []) { const x = l.items.find((y) => y.t === t); if (x) return x.full; }
   return t;
 }
@@ -191,6 +196,9 @@ export const safeFileName = (s) => String(s).replace(/[\\/:*?"<>|]/g, ' ').repla
 export function earningsDays(text, today) {
   if (!text) return null; const s = String(text).trim();
   let iso = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+  const fv = s.match(/^([A-Z][a-z]{2})\s+(\d{1,2})\s*\/\s*[ab]$/); // Finviz: "Nov 20/a" (no year: this year, or next if it is long past)
+  if (!iso && fv) { const y = Number(today.slice(0, 4)); const mk = (yy) => { const t = Date.parse(`${fv[1]} ${fv[2]}, ${yy}`); return Number.isNaN(t) ? null : new Date(t); };
+    let d = mk(y); if (d && (Date.parse(today) - d.getTime()) / 86400000 > 180) d = mk(y + 1); if (d) iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
   if (!iso) { const t = Date.parse(s.replace(/(\d)(st|nd|rd|th)/, '$1')); if (Number.isNaN(t)) return null; const d = new Date(t); iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
   const days = Math.round((Date.parse(iso) - Date.parse(today)) / 86400000);
   return Number.isFinite(days) ? { days, iso } : null;
@@ -325,3 +333,37 @@ export function chartUrl(symbol, pageUri = '') {
   return 'https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#' + encodeURIComponent(JSON.stringify(cfg));
 }
 export const KEY_DEFAULT = [/^adr/i, /sector/i, /earning/i, /float\s*%|float %/i, /^price$/i, /^chg\s*%|change %/i];
+
+
+// ---------- 1.8.9 TJ Collect for Finviz ----------
+// Runs on a Finviz screener page. It reads the table whose rows link to stock quote pages (quote.ashx?t=…), every column of the
+// view you have open, the result count, and which page you are on (the free plan shows 20 per page). The screener is told
+// apart by its filters in the address, so TJ can join page 2, 3 … to the same scan. The name is asked once per screener
+// and remembered on Finviz (in this browser). No % or # in this text: browsers decode them inside bookmark addresses.
+export const COLLECT_FV_SRC = `(()=>{const T=s=>(s||'').replace(/\\s+/g,' ').trim();
+const tick=a=>{const m=(a.getAttribute('href')||'').match(/quote\\.ashx\\?t=([A-Za-z0-9.\\-]+)/);return m?m[1].toUpperCase():null;};
+const groups=new Map();document.querySelectorAll('tr').forEach(tr=>{const a=tr.querySelector('a[href*="quote.ashx?t="]');if(!a)return;const tb=tr.closest('table');if(!groups.has(tb))groups.set(tb,[]);groups.get(tb).push(tr);});
+const best=[...groups].sort((a,b)=>b[1].length-a[1].length)[0];
+if(!best||best[1].length<1){alert('Trade Journal: no screener results on this page. Open your Finviz screener results, then click TJ Collect again.');return;}
+const tb=best[0],trs=best[1];let hr=[...tb.querySelectorAll('tr')].find(r=>r.querySelector('th'))||[...tb.querySelectorAll('tr')].find(r=>!r.querySelector('a[href*="quote.ashx?t="]'));
+const cols=hr?[...hr.children].map((c,i)=>T(c.innerText)||('Column '+(i+1))):[];
+const ti=cols.findIndex(c=>/^ticker$/i.test(c));
+const rows=trs.map(tr=>{const cells=[...tr.children].map(td=>T(td.innerText));const a=(ti>=0&&tr.children[ti]&&tr.children[ti].querySelector('a[href*="quote.ashx?t="]'))||tr.querySelector('a[href*="quote.ashx?t="]');return{s:tick(a),v:cols.map((c,i)=>cells[i]??'')};}).filter(r=>r.s);
+const u=new URL(location.href);const r0=Number(u.searchParams.get('r')||1);const page=Math.max(1,Math.floor((r0-1)/20)+1);u.searchParams.delete('r');
+const key=[...u.searchParams].filter(([k])=>k!=='r').sort().map(([k,v])=>k+'='+v).join('&');
+let total=null;const tm=(document.body.innerText||'').match(/Total:?\\s*([0-9,]+)|\\/\\s*([0-9,]+)\\s*Total/i);if(tm)total=Number((tm[1]||tm[2]).replace(/,/g,''));
+let names={};try{names=JSON.parse(localStorage.getItem('tj-fv-names')||'{}');}catch(e){}
+let name=names[key];if(!name){name=prompt('Trade Journal: name of this Finviz screener','Finviz');if(name===null)return;name=name.trim()||'Finviz';names[key]=name;try{localStorage.setItem('tj-fv-names',JSON.stringify(names));}catch(e){}}
+const d=new Date();const date=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const text='${PAYLOAD_TAG}'+JSON.stringify({source:'finviz',scanner:name,key,page,date,cols,rows,shown:total});
+const pages=total?Math.ceil(total/20):null;
+const box=document.createElement('div');box.style.cssText='position:fixed;top:16px;right:16px;z-index:2147483647;width:360px;background:white;color:rgb(21,35,59);border:1px solid rgb(201,211,223);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px;font:14px/1.45 Arial,sans-serif';
+const say=(ok)=>{box.innerHTML='';const b=document.createElement('b');b.textContent=ok?('Copied '+rows.length+' stocks · '+name+(pages?' · page '+page+' of '+pages:'')):'Copy did not work. Select the text below and press Ctrl+C.';box.append(b);
+const p=document.createElement('div');p.style.cssText='margin-top:6px;color:rgb(91,107,128)';p.textContent=ok?('Now press Ctrl+V in Trade Journal → Scans.'+(pages&&page<pages?' Then come back, go to page '+(page+1)+' and click TJ Collect again: Trade Journal joins the pages.':'')):'';box.append(p);
+if(!ok){const a=document.createElement('textarea');a.value=text;a.style.cssText='width:326px;height:90px;margin-top:6px';box.append(a);a.select();}
+const n=document.createElement('div');n.style.cssText='margin-top:6px;color:rgb(91,107,128);font-size:12px';n.textContent='Wrong name? Rename the scanner in Trade Journal; to be asked again here, clear this site\\'s data.';box.append(n);
+const c=document.createElement('button');c.textContent='Close';c.style.cssText='margin-top:10px;padding:6px 14px;border-radius:8px;border:1px solid rgb(201,211,223);background:rgb(243,246,250);cursor:pointer';c.onclick=()=>box.remove();box.append(c);};
+document.getElementById('tj-collect')?.remove();box.id='tj-collect';document.body.append(box);
+const fallback=()=>{const a=document.createElement('textarea');a.value=text;document.body.append(a);a.select();let ok=false;try{ok=document.execCommand('copy');}catch(e){}a.remove();say(ok);};
+if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>say(true),fallback);}else fallback();})();`;
+export const collectFvHref = () => 'javascript:' + COLLECT_FV_SRC.replace(/\n/g, '');

@@ -15,7 +15,7 @@ let LAST = { rows: [], v: null };
 const isTyping = (el) => !!el && (el.closest?.('input, textarea, select, [contenteditable="true"]'));
 const dialogOpen = () => !!document.querySelector('.scrim, .sc-menu');
 const menuHidden = () => { try { return localStorage.getItem('tj-scans-nomenu') === '1'; } catch { return false; } };
-const tvUrl = (r) => 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(r.full && r.full.includes(':') ? r.full : r.t);
+const fvUrl = (r) => 'https://finviz.com/quote.ashx?t=' + encodeURIComponent(String(r.t).replace(/\./g, '-')); // 1.8.9: his choice, Open in Finviz
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 // ---------------------------------------------------------------- keys and paste (only on the Scans tab)
@@ -36,7 +36,7 @@ if (typeof document !== 'undefined') {
     else if (key === 'r') { e.preventDefault(); rejectDialog(CTX, cur); }
     else if (key === 'l') { e.preventDefault(); addToListDialog(CTX, [cur]); }
     else if (key === 's') { e.preventDefault(); V.pickOpen = true; CTX.redraw(); }
-    else if (k === 'Enter') { e.preventDefault(); window.open(tvUrl(cur), '_blank', 'noopener'); }
+    else if (k === 'Enter') { e.preventDefault(); window.open(fvUrl(cur), '_blank', 'noopener'); }
   });
 }
 
@@ -113,19 +113,20 @@ function emptyState(ctx) {
       h('li', null, h('b', null, 'Come back here and press Ctrl + V. '), 'Each scanner appears under Sources; make a comparison to see the stocks they have in common.')),
     h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => pasteFromButton(ctx) }, 'Paste a scan'), h('span', { class: 'note' }, 'You can also paste plain tickers, for example NVDA, AAPL, WMT.')));
 }
-function dragButton() {
-  return h('a', { class: 'sc-drag', href: SC.collectHref(), draggable: 'true', title: 'Drag me to your bookmarks bar', onClick: (e) => { e.preventDefault(); toast('Drag this button onto your bookmarks bar. Clicking it here does nothing.'); } }, 'TJ Collect');
+function dragButton(fv = false) {
+  return h('a', { class: 'sc-drag' + (fv ? ' fv' : ''), href: fv ? SC.collectFvHref() : SC.collectHref(), draggable: 'true', title: 'Drag me to your bookmarks bar', onClick: (e) => { e.preventDefault(); toast('Drag this button onto your bookmarks bar. Clicking it here does nothing.'); } }, fv ? 'TJ Collect Finviz' : 'TJ Collect');
 }
 function collectHelp() {
-  dialog({ title: 'Get the TJ Collect button', info: true, body: h('div', { style: { display: 'grid', gap: '10px' } },
-    para('Drag the button below onto your bookmarks bar (show the bar with Ctrl + Shift + B). Then, on a TradingView scanner, click it: it copies only the scanner rows, every column you see, the scanner name and the date.', ''),
-    h('div', null, dragButton()),
-    para('If dragging does not work, right-click the button, choose Copy link, and paste it as the address of a new bookmark.', 'note')) });
+  dialog({ title: 'Get the TJ Collect buttons', info: true, body: h('div', { style: { display: 'grid', gap: '12px' } },
+    para('Drag a button onto your bookmarks bar (show the bar with Ctrl + Shift + B). Then click it on your scanner page and press Ctrl + V here.', ''),
+    h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, 'TradingView'), para('On a TradingView screener: copies the scanner rows, every column you see, the name and the date.', 'note')), dragButton()),
+    h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, 'Finviz'), para('On a Finviz screener: copies the 20 stocks of the page you see, with the columns of your view. Collect page 2, 3 … the same way: they join the same scan. Use the Performance view to get RS.', 'note')), dragButton(true)),
+    para('If dragging does not work, right-click a button, choose Copy link, and paste it as the address of a new bookmark.', 'note')) });
 }
 function keysHelp() {
   const k = (key, what) => h('div', { class: 'sc-key' }, h('kbd', null, key), h('span', null, what));
   dialog({ title: 'Keys in Scans', info: true, body: h('div', { style: { display: 'grid', gap: '8px' } },
-    k('↑ ↓', 'Move through the list (the chart follows)'), k('N', 'Near buy'), k('R', 'Rejected (choose a reason)'), k('W', 'Watching'), k('L', 'Add to one of your lists'), k('Enter', 'Open the stock in TradingView'), k('Ctrl + V', 'Add a scan from TJ Collect'), k('?', 'This list'),
+    k('↑ ↓', 'Move through the list (the chart follows)'), k('N', 'Near buy'), k('R', 'Rejected (choose a reason)'), k('W', 'Watching'), k('L', 'Add to one of your lists'), k('Enter', 'Open the stock in Finviz'), k('Ctrl + V', 'Add a scan from TJ Collect'), k('?', 'This list'),
     para('The keys work only on this tab and never while you type in a box.', 'note')) });
 }
 
@@ -170,7 +171,10 @@ function toolbar(ctx, st, v) {
     h('div', { class: 'seg sc-pages', role: 'group', 'aria-label': 'View' }, [['chart', 'Chart'], ['table', 'Table']].map(([k, l]) => h('button', { type: 'button', class: V.view === k ? 'on' : '', 'aria-pressed': String(V.view === k), onClick: () => { V.view = k; ctx.redraw(); } }, l))),
     (v.kind === 'list' || v.kind === 'ready') && v.list ? h('button', { class: 'btn sm', title: 'Download for TradingView', disabled: !v.list.items.length, onClick: () => downloadOne(ctx, v.list) }, '⤓ TradingView') : null,
     h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => pasteFromButton(ctx) }, 'Paste scan'),
-    dots(v.title, () => [...sourceMenu(ctx, st, v), { label: 'Get TJ Collect…', cls: 'sep', fn: () => collectHelp() }, { label: 'Keys…', fn: () => keysHelp() }], ctx));
+    dots(v.title, () => [...sourceMenu(ctx, st, v),
+      { label: 'New folder…', cls: 'sep', fn: () => newFolderDialog(ctx) },
+      st.scans.lists.length ? { label: 'Download several lists…', fn: () => downloadManyDialog(ctx) } : null,
+      { label: 'Get TJ Collect…', cls: 'sep', fn: () => collectHelp() }, { label: 'Keys…', fn: () => keysHelp() }], ctx));
 }
 async function saveQuickDialog(ctx, v) {
   const nm = h('input', { value: v.title.slice(0, 60), maxlength: '60', 'aria-label': 'Name' }); setTimeout(() => nm.select(), 0); let made = null;
@@ -193,68 +197,55 @@ function sourceMenu(ctx, st, v) {
   return [];
 }
 function listMenu(ctx, st, l) {
-  const stale = A.staleInList(st, l);
+  const stale = A.staleInList(st, l); const f = l.folder ? st.scans.folders.find((x) => x.id === l.folder) : null; const fl = f ? st.scans.lists.filter((x) => x.folder === f.id) : [];
   return [{ label: 'Download for TradingView', fn: () => downloadOne(ctx, l) },
+    f ? { label: `Download folder ${f.name} as one watchlist`, fn: () => downloadSections(ctx, f.name, fl) } : null,
     stale.length ? { label: `Clean up ${stale.length} (rejected or bought)…`, fn: () => cleanUpDialog(ctx, l, new Set(stale)) } : null,
     { label: 'Rename…', fn: () => nameDialog(ctx, 'Rename list', l.name, (d, x) => A.renameScanList(d, l.id, x)) },
     { label: 'Move to folder…', fn: () => moveListDialog(ctx, l) },
-    { label: 'Delete list…', cls: 'rej', fn: () => deleteListDialog(ctx, l) }];
+    { label: 'Delete list…', cls: 'rej', fn: () => deleteListDialog(ctx, l) },
+    f ? { label: `Rename folder ${f.name}…`, cls: 'sep', fn: () => nameDialog(ctx, 'Rename folder', f.name, (d, x) => A.renameScanFolder(d, f.id, x)) } : null,
+    f ? { label: `Delete folder ${f.name}…`, cls: 'rej', fn: () => deleteFolderDialog(ctx, f, fl) } : null];
 }
 
-// ---------------------------------------------------------------- Sources picker (1.8.8): 3 columns, tick scanners to compare
+// ---------------------------------------------------------------- Sources menu (1.8.9, his wish: simple — a click opens it, nothing else)
 let PICK_CLOSE = null;
 function picker(ctx, st, groups, today) {
   const sc = st.scans; const on = (s) => V.src && V.src.kind === s.kind && (s.kind === 'scanner' ? V.src.name === s.name : V.src.id === s.id);
-  V.cmpTick = new Set([...V.cmpTick].filter((n) => groups.some((g) => g.scanner === n)));
-  const row = (s, label, n, menu, extra) => h('div', { class: 'sc-srow' + (on(s) ? ' on' : '') },
-    h('button', { type: 'button', class: 'sc-sname', title: label, onClick: () => openSrc(ctx, s) }, label), extra || null, h('span', { class: 'sc-n' }, n), menu || null);
-  const ready = SC.readyLists(st); const loose = sc.lists.filter((l) => !l.folder);
-  const stale = (l) => (A.staleInList(st, l).length ? h('span', { class: 'sc-stale', title: 'Stocks rejected or bought since you added them' }, '!') : null);
-  const folderBlock = (f) => {
-    const ls = sc.lists.filter((l) => l.folder === f.id); const folded = !!V.lfold[f.id];
-    return h('div', { class: 'sc-folder' },
-      h('div', { class: 'sc-fhead' },
-        h('button', { type: 'button', class: 'sc-fold', 'aria-expanded': String(!folded), 'aria-label': (folded ? 'Open ' : 'Fold ') + f.name, onClick: (e) => { e.stopPropagation(); V.lfold[f.id] = !folded; ctx.redraw(); } }, folded ? '▸' : '▾'),
-        h('b', { class: 'sc-fname', title: f.name }, f.name), h('span', { class: 'sc-n' }, plural(ls.length, 'list')),
-        dots(f.name, () => [
-          { label: 'Download as one watchlist', fn: () => downloadSections(ctx, f.name, ls) },
-          { label: 'New list in this folder…', fn: () => newListDialog(ctx, f.id) },
-          { label: 'Rename…', fn: () => nameDialog(ctx, 'Rename folder', f.name, (d, x) => A.renameScanFolder(d, f.id, x)) },
-          { label: 'Delete folder…', cls: 'rej', fn: () => deleteFolderDialog(ctx, f, ls) }], ctx)),
-      folded ? null : ls.length ? ls.map((l) => row({ kind: 'list', id: l.id }, l.name, l.items.length, dots(l.name, () => listMenu(ctx, ctx.store.state, l), ctx), stale(l))) : h('p', { class: 'note sc-indent' }, 'No lists yet.'));
-  };
-  const ticked = [...V.cmpTick];
-  const panel = h('div', { class: 'sc-picker card', role: 'dialog', 'aria-label': 'Sources', onClick: (e) => e.stopPropagation() },
-    h('div', { class: 'sc-pcol' }, h('h3', null, 'Scanners'),
-      groups.length ? groups.map((g) => h('div', { class: 'sc-srow' + (on({ kind: 'scanner', name: g.scanner }) ? ' on' : '') },
-        h('input', { type: 'checkbox', 'aria-label': 'Tick ' + g.scanner + ' to compare', checked: V.cmpTick.has(g.scanner), onChange: (e) => { if (e.target.checked) V.cmpTick.add(g.scanner); else V.cmpTick.delete(g.scanner); ctx.redraw(); } }),
-        h('button', { type: 'button', class: 'sc-sname', title: g.scanner, onClick: () => openSrc(ctx, { kind: 'scanner', name: g.scanner }) }, g.scanner),
-        h('span', { class: 'note sc-when' }, g.runs[0].date === today ? 'today' : dmy(g.runs[0].date)), h('span', { class: 'sc-n' }, g.runs[0].rows.length),
-        dots(g.scanner, () => [{ label: 'Rename…', fn: () => renameScannerDialog(ctx, g.scanner) }, { label: 'Delete scanner…', cls: 'rej', fn: () => deleteScannerDialog(ctx, g.scanner) }], ctx)))
+  const item = (s, label, right) => h('button', { type: 'button', class: 'sc-mitem' + (on(s) ? ' on' : ''), onClick: () => openSrc(ctx, s) }, h('span', { class: 'sc-mlabel' }, label), right ? h('span', { class: 'sc-mright' }, right) : null);
+  const sec = (title, ...kids) => h('div', { class: 'sc-msec' }, h('div', { class: 'sc-mhd' }, title), ...kids);
+  const ready = SC.readyLists(st).filter((l) => l.id === 'ready-near' || l.id === 'ready-watch');
+  const folderName = (l) => (l.folder ? (sc.folders.find((f) => f.id === l.folder)?.name || '') + ' › ' : '');
+  const lists = [...sc.lists].sort((a, b) => (folderName(a) + a.name).localeCompare(folderName(b) + b.name));
+  const panel = h('div', { class: 'sc-picker sc-simple card', role: 'dialog', 'aria-label': 'Sources', onClick: (e) => e.stopPropagation() },
+    sec('Scanners',
+      groups.length ? groups.map((g) => item({ kind: 'scanner', name: g.scanner }, g.scanner, `${g.runs[0].date === today ? 'today' : dmy(g.runs[0].date).slice(0, 5)} · ${g.runs[0].rows.length}`))
         : h('p', { class: 'note' }, 'Press Ctrl + V on this page to add a scan.'),
-      h('button', { class: 'btn sc-cmpbtn' + (ticked.length >= 2 ? ' pri' : ''), disabled: ticked.length < 2, onClick: () => openSrc(ctx, { kind: 'quick', scanners: ticked }) }, ticked.length >= 2 ? `Compare ticked (${ticked.length})` : 'Tick 2 or more to compare')),
-    h('div', { class: 'sc-pcol' }, h('h3', null, 'Comparisons'),
-      (sc.compares || []).length ? sc.compares.map((c) => row({ kind: 'compare', id: c.id }, c.name, SC.sourceView(st, { kind: 'compare', id: c.id }, today).inAll ?? 0, dots(c.name, () => [
-        { label: 'Edit…', fn: () => compareDialog(ctx, c) }, { label: 'Delete…', cls: 'rej', fn: () => deleteCompareDialog(ctx, c) }], ctx)))
-        : h('p', { class: 'note' }, 'Tick scanners on the left and press Compare. Then “Save this comparison” keeps it here, always with the newest scans.')),
-    h('div', { class: 'sc-pcol' }, h('h3', null, 'Lists'),
-      ready.map((l) => row({ kind: 'ready', id: l.id }, l.name, l.items.length, null, h('span', { class: 'sc-ready', 'aria-hidden': 'true' }, '★'))),
-      h('div', { class: 'sc-psep' }),
-      sc.folders.map(folderBlock), loose.length && sc.folders.length ? h('div', { class: 'eyebrow sc-indent' }, 'Not in a folder') : null,
-      loose.map((l) => row({ kind: 'list', id: l.id }, l.name, l.items.length, dots(l.name, () => listMenu(ctx, ctx.store.state, l), ctx), stale(l))),
-      h('div', { class: 'row sc-pbtns' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => newFolderDialog(ctx) }, '+ Folder'), h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => newListDialog(ctx, null) }, '+ List'),
-        sc.lists.length ? h('button', { class: 'btn sm', onClick: () => downloadManyDialog(ctx) }, '⤓ Several') : null)),
-    h('button', { type: 'button', class: 'sc-pclose', 'aria-label': 'Close sources', onClick: () => { V.pickOpen = false; ctx.redraw(); } }, '×'));
-  // close when clicking outside it or pressing Escape
+      groups.length >= 2 ? h('button', { type: 'button', class: 'sc-mitem sc-maction', onClick: () => compareTickDialog(ctx, groups) }, h('span', { class: 'sc-mlabel' }, '⇄ Compare scanners…')) : null),
+    (sc.compares || []).length ? sec('Saved comparisons', sc.compares.map((c) => item({ kind: 'compare', id: c.id }, c.name, `${SC.sourceView(st, { kind: 'compare', id: c.id }, today).inAll ?? 0} in all`))) : null,
+    sec('By status', h('div', { class: 'sc-mrow' }, ready.map((l) => item({ kind: 'ready', id: l.id }, l.id === 'ready-near' ? 'Near buy' : 'Watching', String(l.items.length))))),
+    sec('My lists',
+      lists.length ? h('div', { class: 'sc-mrow' }, lists.map((l) => item({ kind: 'list', id: l.id }, folderName(l) + l.name, String(l.items.length)))) : h('p', { class: 'note' }, 'No lists yet. Add stocks with L while you look at charts.'),
+      h('button', { type: 'button', class: 'sc-mitem sc-maction', disabled: ctx.readOnly, onClick: () => newListDialog(ctx, null) }, h('span', { class: 'sc-mlabel' }, '+ New list'))));
   if (PICK_CLOSE) { document.removeEventListener('mousedown', PICK_CLOSE, true); document.removeEventListener('keydown', PICK_CLOSE, true); }
   PICK_CLOSE = (e) => {
     if (!V.pickOpen || dialogOpen()) return;
     if (e.type === 'keydown' ? e.key === 'Escape' : !e.target.closest?.('.sc-picker, .sc-srcpick, .sc-menu, .scrim')) { V.pickOpen = false; document.removeEventListener('mousedown', PICK_CLOSE, true); document.removeEventListener('keydown', PICK_CLOSE, true);
-      // close without a full redraw, so the click that closed it still reaches what was clicked
       document.querySelector('.sc-picker')?.remove(); const b = document.querySelector('.sc-srcpick'); b?.classList.remove('open'); b?.setAttribute('aria-expanded', 'false'); }
   };
   setTimeout(() => { document.addEventListener('mousedown', PICK_CLOSE, true); document.addEventListener('keydown', PICK_CLOSE, true); }, 0);
   return panel;
+}
+// "⇄ Compare scanners…": the only place where he ticks anything
+async function compareTickDialog(ctx, groups) {
+  V.pickOpen = false;
+  const boxes = groups.map((g) => [g.scanner, h('input', { type: 'checkbox' })]);
+  const ok = await dialog({ title: 'Compare scanners', ok: 'Show common stocks', body: h('div', { style: { display: 'grid', gap: '10px' } },
+    para('Which scanners? You will see the stocks found by all of them (their newest scans).', ''),
+    h('div', { class: 'sc-cols' }, boxes.map(([n, b]) => h('label', null, b, ' ', n)))),
+    onOk: () => (boxes.filter(([, b]) => b.checked).length >= 2 ? true : 'Tick at least 2 scanners.') });
+  if (!ok) return ctx.redraw();
+  openSrc(ctx, { kind: 'quick', scanners: boxes.filter(([, b]) => b.checked).map(([n]) => n) });
 }
 
 // ---------------------------------------------------------------- quick views + filter (shared by list and table)
@@ -336,7 +327,7 @@ function chartPanel(ctx, st, v, r, info, today) {
       h('div', { class: 'sc-cht' }, h('b', { class: 'sc-big' }, r.t), h('span', { class: 'note' }, (r.full?.includes(':') ? r.full.split(':')[0] : '') + (r.rs !== null ? ` · RS ${r.rs}` : '')),
         v.kind === 'compare' && r.n ? h('span', { class: 'note' }, ` · in ${r.n} of ${v.N}`) : null, ...marks(st, r, info, today),
         h('span', { class: 'sc-actnote note' }, m ? `· ${SC.STATUS[m.st]} since ${dmy(m.date)}${m.st === 'rej' && reasonNames(st, m) ? ' · ' + reasonNames(st, m) : ''}` : '', lists.length ? ` · in ${lists.map((l) => l.name).join(', ')}` : '')),
-      h('a', { class: 'btn sm', href: tvUrl(r), target: '_blank', rel: 'noopener' }, 'Open in TradingView ↗')),
+      h('a', { class: 'btn sm', href: fvUrl(r), target: '_blank', rel: 'noopener' }, 'Open in Finviz ↗')),
     h('div', { id: 'sc-chart-ph', class: 'sc-chart-ph', 'data-symbol': r.full?.includes(':') ? r.full : r.t }, h('span', { class: 'note' }, 'Loading the TradingView chart…')),
     h('div', { class: 'sc-act' },
       btn('W', 'Watching', 'watch'), btn('N', 'Near buy', 'near'), btn('R', 'Rejected', 'rej'),
@@ -572,16 +563,17 @@ async function cleanUpDialog(ctx, l, stale) {
 
 // ---------------------------------------------------------------- downloads (TradingView: watchlist name → Import list…)
 const importHint = 'In TradingView: click the watchlist name → Import list… and pick the file from your Downloads.';
+const noExch = (lists) => { const n = [...new Set(lists.flatMap((l) => l.items).filter((x) => !(x.full || '').includes(':')).map((x) => x.t))]; return n.length ? ` ${n.length} without exchange (${n.slice(0, 5).join(', ')}${n.length > 5 ? '…' : ''}): TradingView may skip them.` : ''; };
 function downloadOne(ctx, l) {
   if (!l.items.length) return toast('This list is empty.');
   const name = `${SC.safeFileName(l.name)} ${dmy(ctx.today())}.txt`;
-  download(name, new Blob([SC.tradingViewList(l.items)], { type: 'text/plain' })); toast(`Saved “${name}”. ${importHint}`, null, null, 9000);
+  download(name, new Blob([SC.tradingViewList(l.items)], { type: 'text/plain' })); toast(`Saved “${name}”. ${importHint}` + noExch([l]), null, null, 9000);
 }
 function downloadSections(ctx, title, lists) {
   const withItems = lists.filter((l) => l.items.length); if (!withItems.length) return toast('These lists are empty.');
   const name = `${SC.safeFileName(title)} ${dmy(ctx.today())}.txt`;
   download(name, new Blob([SC.tradingViewSections(withItems)], { type: 'text/plain' }));
-  toast(`Saved “${name}”: one watchlist with ${plural(withItems.length, 'section')}. ${importHint}`, null, null, 9000);
+  toast(`Saved “${name}”: one watchlist with ${plural(withItems.length, 'section')}. ${importHint}` + noExch(withItems), null, null, 9000);
 }
 async function downloadManyDialog(ctx) {
   const sc = ctx.store.state.scans; const ready = SC.readyLists(ctx.store.state);
@@ -620,6 +612,16 @@ async function takePaste(ctx, text) {
       onOk: () => (nm.value.trim() ? true : 'Give the scanner a name.') });
     if (!ok) return; scanner = nm.value.trim();
   }
+  if (p.source === 'finviz' && p.fv) {
+    const prev = A.finvizRunFor(ctx.store.state, scanner, date, p.fv.key);
+    if (prev && !(prev.fvPages || []).includes(p.fv.page)) {
+      const res = ctx.act((d) => A.joinFinvizPage(d, prev.id, { cols: p.cols, rows: p.rows, page: p.fv.page, shown: p.shown }), { label: `${scanner} page ${p.fv.page}`, now: true });
+      if (!res.ok) return toast(res.error);
+      V.src = { kind: 'scanner', name: scanner, run: prev.id }; V.q = 'all'; V.sel = null; ctx.redraw();
+      const r = res.data.run; const pages = r.shown ? Math.ceil(r.shown / 20) : null; const left = pages ? [...Array(pages).keys()].map((i) => i + 1).filter((n) => !r.fvPages.includes(n)) : [];
+      return toast(`${scanner}: page ${p.fv.page} joined · ${r.rows.length}${r.shown ? ' of ' + r.shown : ''} stocks.` + (left.length ? ` Still missing page ${left.slice(0, 6).join(', ')}${left.length > 6 ? '…' : ''}.` : r.shown ? ' All pages in.' : ''), 'Undo', () => ctx.store.undo(), 8000);
+    }
+  }
   let replace = false;
   if (A.scanRunExists(ctx.store.state, scanner, date)) {
     const keep = h('input', { type: 'radio', name: 'sc-dup', value: 'keep' }); const rep = h('input', { type: 'radio', name: 'sc-dup', value: 'replace', checked: true });
@@ -627,9 +629,9 @@ async function takePaste(ctx, text) {
       h('label', null, rep, ' Replace that scan with this one'), h('label', null, keep, ' Keep both (New today and Dropped today then compare the two)'), para('Your statuses on the stocks stay either way.', 'note')) });
     if (!ok) return; replace = rep.checked;
   }
-  const res = ctx.act((d) => A.addScanRun(d, { scanner, date, cols: p.cols, rows: p.rows, shown: p.shown }, { replace, today }), { label: 'scan ' + scanner, now: true });
+  const res = ctx.act((d) => A.addScanRun(d, { scanner, date, cols: p.cols, rows: p.rows, shown: p.shown, fv: p.fv || null }, { replace, today }), { label: 'scan ' + scanner, now: true });
   if (!res.ok) return toast(res.error);
   V.src = { kind: 'scanner', name: scanner, run: res.data.run.id }; V.q = 'all'; V.sel = null; ctx.redraw();
-  const miss = p.shown && p.rows.length < p.shown ? ` TradingView showed ${p.shown}; scroll to the bottom of the list and collect again to get all.` : '';
+  const miss = p.source === 'finviz' && p.shown && p.rows.length < p.shown ? ` Page ${p.fv.page} of ${Math.ceil(p.shown / 20)}: collect the next pages on Finviz the same way, they join this scan.` : p.shown && p.rows.length < p.shown ? ` TradingView showed ${p.shown}; scroll to the bottom of the list and collect again to get all.` : '';
   toast(`${scanner}: ${plural(p.rows.length, 'stock')} added.` + miss, 'Undo', () => ctx.store.undo(), miss ? 9000 : 5000);
 }
