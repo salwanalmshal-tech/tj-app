@@ -664,6 +664,13 @@ async function takePaste(ctx, text) {
 const HELPER_KEY = 'tj-fv-helper';
 const helperGet = () => { try { return JSON.parse(localStorage.getItem(HELPER_KEY) || 'null'); } catch { return null; } };
 const helperSet = (x) => { try { localStorage.setItem(HELPER_KEY, JSON.stringify(x)); return true; } catch { return false; } };
+// 1.8.11: one "connection code" (helper address + secret) moves the connection to another computer, with no change in Google
+export const connCode = (x) => 'TJFV1.' + btoa(JSON.stringify({ u: x.url, s: x.secret }));
+export function readConnCode(text) {
+  const t = String(text || '').trim(); if (!t.startsWith('TJFV1.')) return null;
+  try { const o = JSON.parse(atob(t.slice(6))); if (/^https:\/\/script\.google(usercontent)?\.com\//.test(o.u) && typeof o.s === 'string' && o.s.length >= 16) return { url: o.u, secret: o.s }; } catch { /* not a code */ }
+  return null;
+}
 const newSecret = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '');
 async function fvFetch(helper, q) {
   const url = helper.url + (helper.url.includes('?') ? '&' : '?') + 'secret=' + encodeURIComponent(helper.secret) + '&q=' + encodeURIComponent(q);
@@ -678,13 +685,23 @@ async function helperDialog(ctx) {
   const code = SC.HELPER_CODE.replace('PASTE_THE_SECRET_FROM_TRADE_JOURNAL_HERE', cur.secret);
   const copy = h('button', { type: 'button', class: 'btn sm pri', onClick: async () => { try { await navigator.clipboard.writeText(code); toast('Helper code copied. Paste it in Google Apps Script.'); } catch { box.hidden = false; box.select(); } } }, 'Copy the helper code');
   const box = h('textarea', { rows: '6', readonly: true, hidden: true, 'aria-label': 'Helper code' }); box.value = code;
-  let saved = false;
-  await dialog({ title: 'Connect your Finviz Elite', ok: 'Save', body: h('div', { style: { display: 'grid', gap: '10px' } },
+  let saved = false; let other = false;
+  const have = helperGet();
+  const copyConn = have ? h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, 'Another computer?'), para('Copy this connection code and paste it there under “Already set up on another computer?”. Keep it private, like a password.', 'note')),
+    h('button', { type: 'button', class: 'btn sm', onClick: async () => { try { await navigator.clipboard.writeText(connCode(have)); toast('Connection code copied.'); } catch { toast('Copy did not work in this browser.'); } } }, 'Copy connection code')) : null;
+  const otherBtn = have ? null : h('button', { type: 'button', class: 'linkish', onClick: () => { other = true; document.querySelector('.scrim .dlg-foot .btn:not(.pri)')?.click(); } }, 'Already set up on another computer? Paste your connection code');
+  const ok0 = await dialog({ title: 'Connect your Finviz Elite', ok: 'Save', body: h('div', { style: { display: 'grid', gap: '10px' } }, otherBtn, copyConn,
     para('Finviz does not let websites read its files directly, so a small helper in your own Google account fetches them for Trade Journal. Your Finviz key stays in that helper.', ''),
     h('div', { class: 'sc-getbtn' }, h('div', null, h('b', null, '1. The helper code'), para('Already contains this computer\'s secret. You add only your Finviz key.', 'note')), copy), box,
     field('2. Helper address (the Web app address from Google)', url),
     para('The address and secret are kept only in this browser. On another computer you connect once more (same helper, new code copy).', 'note')),
     onOk: () => { const u = url.value.trim(); if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(u)) return 'Paste the Web app address from Google Apps Script (it starts with https://script.google.com/).'; saved = helperSet({ url: u, secret: cur.secret }); return saved ? true : 'This browser does not allow saving it.'; } });
+  if (!ok0 && other) {
+    const box2 = h('textarea', { rows: '3', 'aria-label': 'Connection code', placeholder: 'TJFV1.…' }); setTimeout(() => box2.focus(), 0);
+    await dialog({ title: 'Paste your connection code', ok: 'Connect', body: h('div', { style: { display: 'grid', gap: '8px' } }, para('On the computer where Finviz already works: ⟳ Finviz → Helper settings → Copy connection code. Paste it here.', 'note'), box2),
+      onOk: () => { const c = readConnCode(box2.value); if (!c) return 'That is not a connection code from Trade Journal.'; saved = helperSet(c); return saved ? true : 'This browser does not allow saving it.'; } });
+    if (saved) toast('Connected. This computer uses the same helper now.');
+  }
   return saved;
 }
 async function screenDialog(ctx, x) {
