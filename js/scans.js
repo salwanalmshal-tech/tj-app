@@ -11,7 +11,7 @@ export const STATUS = { watch: 'Watching', near: 'Near buy', rej: 'Rejected' };
 const SYM = /^([A-Z0-9_]{1,20}:)?[A-Z0-9][A-Z0-9.\-!/]{0,19}$/;
 export const tickerOf = (s) => String(s).toUpperCase().split(':').pop();
 export const exchangeOf = (s) => (String(s).includes(':') ? String(s).toUpperCase().split(':')[0] : '');
-export const validSymbol = (s) => SYM.test(String(s).toUpperCase());
+export const validSymbol = (s) => typeof s === 'string' && SYM.test(s.toUpperCase()); // 1.8.13: a missing ticker was read as "UNDEFINED"
 
 // ---------- reading what he pastes ----------
 // Two kinds: the TJ Collect bookmark's text (tag + JSON), or plain tickers separated by commas, spaces or new lines.

@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.8.12';
+export const APP_VERSION = '1.8.13'; // 1.8.13 (24-11-2026) = the first version after the restart of the project. 1.8.12 is the last version before it (rollback point).
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -108,6 +108,12 @@ export function dataProblems(data) {
     if (t.stars !== undefined && t.stars !== null && !(typeof t.stars === 'number' && t.stars >= 0.5 && t.stars <= 5 && Math.round(t.stars * 2) === t.stars * 2)) out.push(`${w} stars: "${t.stars}" is not 1 to 5`);
     for (const x of arr(t.sales, w + ' sales')) { if (!ID.test(String(x?.id))) out.push(w + ': a sale has no valid ID'); date(x?.date, w + ' sale date'); num(x?.qty, w + ' sold shares', { pos: true }); num(x?.price, w + ' sell price'); num(x?.commission, w + ' sell commission', { opt: true }); }
   }
+  // 1.8.13 (24-11-2026, first version after the restart): the parts the program reads at start-up and on every screen are
+  // checked too, so one damaged value is reported here (and a bad file is refused by Restore) instead of stopping a screen.
+  for (const [k, name] of [['trash', 'Trash'], ['changeLog', 'Change log'], ['stopHistory', 'Stop history'], ['splits', 'Splits'], ['reports', 'Reports']]) arr(data[k], name);
+  for (const e of Array.isArray(data.trash) ? data.trash : []) if (!e || typeof e !== 'object' || typeof e.kind !== 'string') out.push('Trash: an item is not readable');
+  if (data.counters !== undefined) { const c = data.counters; if (!c || typeof c !== 'object') out.push('Counters are not readable'); else for (const k of ['trade', 'seq', 'id']) if (c[k] !== undefined && !(Number.isInteger(c[k]) && c[k] >= 0)) out.push(`Counter ${k}: "${c[k]}" is not a whole number`); }
+  settingProblems(data.settings, out);
   const cap = data.capital || {};
   if (cap.start) { num(cap.start.amount, 'Start capital'); date(cap.start.date, 'Start capital date'); }
   for (const f of arr(cap.flows, 'Deposits and withdrawals')) { num(f?.amount, 'Deposit/withdrawal amount', { pos: true }); date(f?.date, 'Deposit/withdrawal date'); }
@@ -116,7 +122,7 @@ export function dataProblems(data) {
   if (data.scans !== undefined) {
     if (!data.scans || typeof data.scans !== 'object') out.push('Scans are not readable');
     else {
-      for (const r of arr(data.scans.runs, 'Scan runs')) { if (!r || !ID.test(String(r.id))) { out.push('A scan run has no valid ID'); continue; } date(r.date, `Scan run ${r.id} date`); arr(r.rows, `Scan run ${r.id} stocks`); }
+      for (const r of arr(data.scans.runs, 'Scan runs')) { if (!r || !ID.test(String(r.id))) { out.push('A scan run has no valid ID'); continue; } date(r.date, `Scan run ${r.id} date`); const rows = arr(r.rows, `Scan run ${r.id} stocks`); if (rows.some((x) => !x || typeof x.s !== 'string' || !x.s.trim())) out.push(`Scan run ${r.scanner ?? r.id} (${r.date}): a stock has no ticker`); } // 1.8.13: a row without a ticker stopped Scans
       for (const l of arr(data.scans.lists ?? [], 'Scan lists')) { if (!l || !ID.test(String(l.id))) { out.push('A scan list has no valid ID'); continue; } arr(l.items, `Scan list ${l.name} stocks`); }
       for (const c of arr(data.scans.compares ?? [], 'Scan comparisons')) if (!c || !ID.test(String(c.id)) || !Array.isArray(c.scanners)) out.push('A saved comparison is not readable');
       for (const f of arr(data.scans.folders ?? [], 'Scan folders')) if (!f || !ID.test(String(f.id))) out.push('A scan folder has no valid ID');
@@ -126,6 +132,29 @@ export function dataProblems(data) {
   }
   return out;
 }
+// 1.8.13: every setting the file has must fit the shape of its default (numbers as numbers, label lists as [limit, name]).
+// Missing settings are fine (migrate fills them). Unknown extra keys are left alone. Empty is allowed only where the default is empty.
+function settingProblems(s, out) {
+  if (s === undefined) return; if (!s || typeof s !== 'object' || Array.isArray(s)) { out.push('Settings are not readable'); return; }
+  const isNum = (v) => (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && D.parse(v) !== null);
+  const numText = (v) => typeof v === 'string' && D.parse(v) !== null; // the screens read these as text (e.g. riskWarn.replace)
+  const shown = (v) => (v === null ? 'empty' : `"${v ?? ''}"`);
+  const walk = (v, def, where) => {
+    if (v === undefined) return;
+    if (Array.isArray(def)) {
+      if (!Array.isArray(v)) return out.push(`Setting ${where} is not a list`);
+      if (Array.isArray(def[0])) { v.forEach((p, i) => { if (!Array.isArray(p) || !isNum(p[0]) || typeof p[1] !== 'string') out.push(`Setting ${where}, line ${i + 1}: needs a limit and a name`); }); return; }
+      if (!v.every(isNum)) out.push(`Setting ${where}: needs numbers`); return; // length not checked: the screens cope with any length, so older files are never refused for it
+    }
+    if (def && typeof def === 'object') { if (!v || typeof v !== 'object') return out.push(`Setting ${where} is not readable`); for (const k of Object.keys(def)) walk(v[k], def[k], `${where}.${k}`); return; }
+    if (typeof def === 'number') { if (!isNum(v)) out.push(`Setting ${where}: ${shown(v)} is not a number`); return; }
+    if (typeof def === 'string' && def !== '') { if (!numText(v)) out.push(`Setting ${where}: ${shown(v)} is not a number`); return; }
+    if (def === '' && v !== '' && !numText(v)) out.push(`Setting ${where}: ${shown(v)} is not a number`);
+  };
+  const def = defaultSettings();
+  for (const k of Object.keys(def)) { if (typeof def[k] === 'string' && Number.isNaN(Number(def[k])) && def[k] !== '') { if (s[k] !== undefined && typeof s[k] !== 'string') out.push(`Setting ${k} is not a text`); continue; } walk(s[k], def[k], k); }
+}
+
 // Migration hook: each future structure change is one step. Returns the (possibly upgraded) data.
 export function migrate(data) {
   const out = structuredClone(data);

@@ -85,22 +85,29 @@ async function signIn() {
 function tabSession() { try { let s = sessionStorage.getItem('tj-session'); if (!s) { s = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem('tj-session', s); } return s; } catch { return undefined; } }
 async function startDemo() { ctx.demo = true; ctx.account = ''; await openStorage(new MemoryStorage()); }
 
+// 1.8.13: the checks every loaded file goes through (opening AND Take over): refuse a foreign or newer file, show the problems
+// of his own file (it still opens so he can fix it), and make the B5 "before update" backup. false = do not use this file.
+async function checkAndBackup(storage, raw) {
+  const c = checkFile(raw);
+  // your own data file opens even with a wrong value (otherwise you could not reach Import / Export to fix it); you are told what is wrong
+  if (!c.ok && !c.problems) { await dialog({ title: 'Cannot open the data file', body: para(c.reason, ''), info: true }); return false; }
+  if (!c.ok) await dialog({ title: 'Some values in your data file are not valid', info: true, body: h('div', null, para('The program opens the file so you can fix them, or restore a backup in Import / Export → Backups.', ''), h('pre', { class: 'note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, c.reason.split('\n').slice(1).join('\n'))) });
+  // B5: the first time a new version opens the data, the file as it was is backed up before anything changes
+  if (needsUpdateBackup(raw)) {
+    let done = false; try { await storage.writeBackup('before-update', raw); done = true; } catch { /* asked below */ }
+    if (!done && !(await dialog({ title: 'The backup before this update could not be made', ok: 'Open anyway', cancel: 'Cancel',
+      body: para(`Program version ${APP_VERSION} is opening your data for the first time (saved by version ${raw.meta?.version ?? 'unknown'}). A backup of your data should be made first, but it failed (check your connection). Cancel and try again, or open anyway.`, '') }))) return false;
+  }
+  return true;
+}
+
 async function openStorage(storage) {
   try {
     ctx.storage = storage;
     const { data: raw } = await storage.open();
     let state;
     if (raw) {
-      const c = checkFile(raw);
-      // your own data file opens even with a wrong value (otherwise you could not reach Import / Export to fix it); you are told what is wrong
-      if (!c.ok && !c.problems) { await dialog({ title: 'Cannot open the data file', body: para(c.reason, ''), info: true }); return welcome(); }
-      if (!c.ok) await dialog({ title: 'Some values in your data file are not valid', info: true, body: h('div', null, para('The program opens the file so you can fix them, or restore a backup in Import / Export → Backups.', ''), h('pre', { class: 'note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, c.reason.split('\n').slice(1).join('\n'))) });
-      // B5: the first time a new version opens the data, the file as it was is backed up before anything changes
-      if (needsUpdateBackup(raw)) {
-        let done = false; try { await storage.writeBackup('before-update', raw); done = true; } catch { /* asked below */ }
-        if (!done && !(await dialog({ title: 'The backup before this update could not be made', ok: 'Open anyway', cancel: 'Cancel',
-          body: para(`Program version ${APP_VERSION} is opening your data for the first time (saved by version ${raw.meta?.version ?? 'unknown'}). A backup of your data should be made first, but it failed (check your connection). Cancel and try again, or open anyway.`, '') }))) return welcome();
-      }
+      if (!(await checkAndBackup(storage, raw))) return welcome();
       state = migrate(raw);
     } else state = emptyState();
     // lock: someone else (another window) has the file open?
@@ -135,7 +142,8 @@ function start(state, isNew) {
   window.addEventListener('hashchange', () => { const r = location.hash.replace('#/', ''); if (ROUTES[r] && r !== ctx.route) { ctx.route = r; draw(); } });
   const r0 = location.hash.replace('#/', ''); ctx.route = ROUTES[r0] ? r0 : 'open';
   if (isNew || !state.capital.start) ctx.route = 'capital', ctx.params = { first: true };
-  if (!ctx.readOnly) ctx.store.run((d) => A.purgeTrash(d), { label: 'Trash emptied', noUndo: true }); // items older than 15 days
+  // 1.8.13: emptying the Trash is a background chore; if a damaged file makes it fail, the program still opens (Backups stay reachable)
+  if (!ctx.readOnly) { try { ctx.store.run((d) => A.purgeTrash(d), { label: 'Trash emptied', noUndo: true }); } catch (e) { console.error(e); } } // items older than 15 days
   draw();
 }
 
@@ -168,8 +176,10 @@ async function takeOver() {
   if (!ok) return;
   try {
     const { data: raw } = await ctx.storage.open(); // refresh version
-    if (raw) { ctx.store.replace(migrate(raw)); }
+    // 1.8.13: the same checks and backup as opening (a newer file is refused, the window stays read-only)
+    if (raw) { if (!(await checkAndBackup(ctx.storage, raw))) return; ctx.store.replace(migrate(raw)); }
     await ctx.storage.acquireLock(); ctx.readOnly = false; ctx.saver.readOnly = false; setBanner(null); startTimers(); draw();
+    if (raw && needsUpdateBackup(raw)) ctx.saver.markDirty({ now: true }); // save the upgraded file once, as after opening
   } catch (e) { toast('Could not take over: ' + e.message); }
 }
 let lastBackupCheck = 0;
