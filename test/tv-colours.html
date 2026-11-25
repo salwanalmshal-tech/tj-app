@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TJ test: TradingView chart colours</title>
+<style>
+  body{font:14px/1.5 system-ui,Segoe UI,sans-serif;margin:20px;color:#15233B;background:#F4F6FA}
+  h1{font-size:18px;margin:0 0 4px} p{margin:0 0 12px;max-width:900px}
+  .box{background:#fff;border:1px solid #D9DEE8;border-radius:10px;padding:12px;margin-bottom:16px}
+  .box h2{font-size:14px;margin:0 0 8px}
+  .chart{height:460px;border:1px solid #D9DEE8;border-radius:8px;overflow:hidden}
+  iframe{width:100%;height:100%;border:0;display:block}
+</style>
+</head>
+<body>
+<h1>Test: can TJ set the chart colours?</h1>
+<p class="note">Temporary test page (25-11-2026). Not part of Trade Journal; it will be deleted after the test.</p>
+<p>Three charts of MSFT. For each one, tell me: are the bars and volume green/red, is the MA 20 line black, and are <b>both</b> lines (EMA 10 and MA 20) still there?</p>
+
+<div class="box"><h2>Chart 1: today's chart, only switched to bars (no colours set)</h2><div class="chart" id="c1"></div></div>
+<div class="box"><h2>Chart 2: bars and volume set to green / red</h2><div class="chart" id="c2"></div></div>
+<div class="box"><h2>Chart 3: like chart 2, plus MA 20 set to black</h2><div class="chart" id="c3"></div></div>
+
+<script>
+{
+  const UP = '#089981', DOWN = '#F23645';
+  const studies = [{ id: 'MAExp@tv-basicstudies', inputs: { length: 10 } }, { id: 'MASimple@tv-basicstudies', inputs: { length: 20 } }];
+  const bars = {
+    'mainSeriesProperties.barStyle.upColor': UP, 'mainSeriesProperties.barStyle.downColor': DOWN,
+    'mainSeriesProperties.candleStyle.upColor': UP, 'mainSeriesProperties.candleStyle.downColor': DOWN,
+    'mainSeriesProperties.candleStyle.borderUpColor': UP, 'mainSeriesProperties.candleStyle.borderDownColor': DOWN,
+    'mainSeriesProperties.candleStyle.wickUpColor': UP, 'mainSeriesProperties.candleStyle.wickDownColor': DOWN,
+  };
+  const vol = { 'volume.volume.color.0': DOWN, 'volume.volume.color.1': UP };
+  const ma20 = { 'moving average.plot.color': '#000000' };
+  const url = (extra) => {
+    const cfg = Object.assign({ autosize: true, symbol: 'NASDAQ:MSFT', interval: 'D', timezone: 'exchange', theme: 'light', style: '0', locale: 'en',
+      withdateranges: true, hide_side_toolbar: false, allow_symbol_change: false, save_image: false, calendar: false, studies,
+      support_host: 'https://www.tradingview.com', utm_source: location.host, utm_medium: 'widget', utm_campaign: 'advanced-chart', 'page-uri': location.host + location.pathname }, extra);
+    return 'https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#' + encodeURIComponent(JSON.stringify(cfg));
+  };
+  const put = (id, extra) => { const f = document.createElement('iframe'); f.src = url(extra); f.title = id; document.getElementById(id).append(f); };
+  put('c1', {});
+  put('c2', { overrides: bars, studies_overrides: vol });
+  put('c3', { overrides: bars, studies_overrides: Object.assign({}, vol, ma20) });
+}
+</script>
+</body>
+</html>
