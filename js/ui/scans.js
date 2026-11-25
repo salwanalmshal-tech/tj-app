@@ -16,7 +16,7 @@ const isTyping = (el) => !!el && (el.closest?.('input, textarea, select, [conten
 const dialogOpen = () => !!document.querySelector('.scrim, .sc-menu');
 const menuHidden = () => { try { return localStorage.getItem('tj-scans-nomenu') === '1'; } catch { return false; } };
 // 1.8.10: his Finviz Elite chart page (daily, his 1h1v layout, his screener in the sidebar); only the ticker changes. Finviz writes BRK.B as BRK-B.
-const fvUrl = (r) => 'https://elite.finviz.com/charts?t=' + encodeURIComponent(String(r.t).replace(/\./g, '-')) + '&p=d&l=1h1v&sidebar=screener&screener=154772492';
+const fvUrl = (r) => 'https://elite.finviz.com/charts?t=' + encodeURIComponent(SC.finvizTicker(r.t)) + '&p=d&l=1h1v&sidebar=screener&screener=154772492'; // 154772492 = his W1-1M screen
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 // ---------------------------------------------------------------- keys and paste (only on the Scans tab)
@@ -178,7 +178,6 @@ function toolbar(ctx, st, v) {
     h('span', { class: 'spacer' }),
     q, h('button', { type: 'button', class: 'btn sm sc-fbtn' + (n ? ' active' : ''), 'aria-expanded': String(V.fOpen), onClick: () => { V.fOpen = !V.fOpen; ctx.redraw(); } }, n ? `Filter · ${n}` : 'Filter'),
     h('div', { class: 'seg sc-pages', role: 'group', 'aria-label': 'View' }, [['chart', 'Chart'], ['table', 'Table']].map(([k, l]) => h('button', { type: 'button', class: V.view === k ? 'on' : '', 'aria-pressed': String(V.view === k), onClick: () => { V.view = k; ctx.redraw(); } }, l))),
-    (v.kind === 'list' || v.kind === 'ready') && v.list ? h('button', { class: 'btn sm', title: 'Download for TradingView', disabled: !v.list.items.length, onClick: () => downloadOne(ctx, v.list) }, '⤓ TradingView') : null,
     h('button', { class: 'btn sm pri', disabled: ctx.readOnly, title: 'Get your Finviz Elite screeners', onClick: () => fvGetDialog(ctx) }, '⟳ Finviz'),
     h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => pasteFromButton(ctx) }, 'Paste scan'),
     h('button', { class: 'btn sm', title: 'Get the TJ Collect buttons for TradingView and Finviz', onClick: () => collectHelp() }, 'TJ Collect'),
@@ -320,7 +319,7 @@ function listPanel(ctx, st, v, fr, info, today) {
   const filtered = SC.filterCount(V.f) + (V.f.status !== 'all' ? 1 : 0) + (V.f.q ? 1 : 0);
   const top = h('div', { class: 'sc-lhd' }, h('span', { class: 'note' }, filtered ? h('b', { class: 'sc-filtered' }, `Showing ${fr.rows.length} of ${fr.total} · filtered`) : plural(fr.rows.length, 'stock')),
     h('button', { class: 'linkish', onClick: () => { V.selMode = !V.selMode; V.ticked = new Set(); ctx.redraw(); } }, V.selMode ? 'Done' : 'Select'));
-  const parts = [top]; if (V.selMode) parts.push(selectBar(ctx, fr));
+  const parts = [top, h('div', { class: 'sc-lact' }, listToFinviz(ctx, v, fr))]; if (V.selMode) parts.push(selectBar(ctx, fr));
   if (!fr.rows.length) { parts.push(emptyRows(ctx, v, fr)); return h('section', { class: 'card sc-list' }, parts); }
   parts.push(h('div', { class: 'sc-lis', role: 'listbox', 'aria-label': 'Stocks' }, fr.rows.map((r) => {
     const x = info.get(r.t);
@@ -367,12 +366,31 @@ function keyColsDialog(ctx, cols, shown) {
     onOk: () => { const p = boxes.filter(([, b]) => b.checked).map(([c]) => c); if (p.length > 6) return 'Choose 6 at most.'; const r = ctx.act((d) => A.setScanKeyCols(d, p), { label: 'key values', now: true }); return r.ok ? true : r.error; } });
 }
 
+// 1.8.14 (agreed 25-11-2026): the stocks the header counts (a list, Near buy, or a quick view after filters) → Finviz.
+// "All in Finviz" opens his Custom screener table with only these stocks; "Copy tickers" for any other box. TJ cannot write
+// to Finviz (its API only reads), so for the Advanced Charts side panel he saves that table as a screen himself.
+function listToFinviz(ctx, v, fr) {
+  const tickers = SC.finvizTickers(fr.rows.map((r) => r.t)); const none = !tickers.length;
+  const copy = async () => {
+    const text = tickers.join(',');
+    try { await navigator.clipboard.writeText(text); toast(`${plural(tickers.length, 'ticker')} copied.`); }
+    catch { dialog({ title: 'Copy the tickers', info: true, ok: 'Close', body: (() => { const t = h('textarea', { rows: '4', readonly: true, 'aria-label': 'Tickers' }); t.value = text; setTimeout(() => t.select(), 0); return t; })() }); }
+  };
+  const l = (v.kind === 'list' || v.kind === 'ready') && v.list ? v.list : null;
+  return h('div', { class: 'sc-fvl' },
+    none ? h('button', { type: 'button', class: 'btn sm', disabled: true }, 'All in Finviz ↗')
+      : h('a', { class: 'btn sm', href: SC.finvizListUrl(tickers), target: '_blank', rel: 'noopener', title: `Open these ${plural(tickers.length, 'stock')} in your Finviz Custom table` }, 'All in Finviz ↗'),
+    h('button', { type: 'button', class: 'btn sm', disabled: none, title: 'Copy the tickers, comma-separated', onClick: copy }, 'Copy tickers'),
+    l ? h('button', { type: 'button', class: 'btn sm', 'aria-label': 'More', 'aria-haspopup': 'menu', title: 'More',
+      onClick: (e) => popMenu(e.currentTarget, 'More', [{ label: 'Download for TradingView', fn: () => downloadOne(ctx, l) }]) }, '⋯') : null);
+}
+
 // ---------------------------------------------------------------- Table view (all columns, for screening by numbers)
 function tablePanel(ctx, st, v, fr, info, today) {
   const shown = shownCols(st, v.cols); const filtered = SC.filterCount(V.f) + (V.f.status !== 'all' ? 1 : 0) + (V.f.q ? 1 : 0);
   const parts = [h('div', { class: 'sc-tbtop' }, h('span', { class: 'note' }, plural(fr.rows.length, 'stock')), h('div', { class: 'row' },
       h('button', { class: 'btn sm' + (V.selMode ? ' pri' : ''), onClick: () => { V.selMode = !V.selMode; V.ticked = new Set(); ctx.redraw(); } }, V.selMode ? 'Done selecting' : 'Select'),
-      h('button', { class: 'btn sm', onClick: () => colsDialog(ctx, v.cols, shown) }, 'Columns'))),
+      h('button', { class: 'btn sm', onClick: () => colsDialog(ctx, v.cols, shown) }, 'Columns'), listToFinviz(ctx, v, fr))),
     filtered ? h('div', { class: 'note sc-tbnote' }, h('b', { class: 'sc-filtered' }, `Showing ${fr.rows.length} of ${fr.total} · filtered`)) : null];
   if (V.selMode) parts.push(selectBar(ctx, fr));
   if (!fr.rows.length) { parts.push(emptyRows(ctx, v, fr)); return h('section', { class: 'card sc-mid' }, parts); }

@@ -12,6 +12,11 @@ const SYM = /^([A-Z0-9_]{1,20}:)?[A-Z0-9][A-Z0-9.\-!/]{0,19}$/;
 export const tickerOf = (s) => String(s).toUpperCase().split(':').pop();
 export const exchangeOf = (s) => (String(s).includes(':') ? String(s).toUpperCase().split(':')[0] : '');
 export const validSymbol = (s) => typeof s === 'string' && SYM.test(s.toUpperCase()); // 1.8.13: a missing ticker was read as "UNDEFINED"
+// 1.8.14 (agreed 25-11-2026): send a whole TJ list to Finviz. Finviz writes BRK.B as BRK-B; each ticker once, in list order.
+export const finvizTicker = (t) => String(t).trim().toUpperCase().replace(/\./g, '-');
+export const finvizTickers = (tickers) => [...new Set(tickers.map(finvizTicker).filter(Boolean))];
+// his own Custom table view (v=151): Finviz remembers his columns, so only the tickers go in the address
+export const finvizListUrl = (tickers) => 'https://elite.finviz.com/screener/stocks?v=151&t=' + encodeURIComponent(finvizTickers(tickers).join(','));
 
 // ---------- reading what he pastes ----------
 // Two kinds: the TJ Collect bookmark's text (tag + JSON), or plain tickers separated by commas, spaces or new lines.

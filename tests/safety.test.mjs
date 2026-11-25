@@ -46,8 +46,8 @@ test('a scan row without a ticker is reported, and adding one is refused without
   assert.equal(r.ok, false); assert.equal(st.scans.runs.length, 0);
 });
 
-test('the version after the restart is 1.8.13 and opens an older file with the before-update backup', () => {
-  assert.equal(M.APP_VERSION, '1.8.13');
+test('a version after the restart (1.8.13 or later) opens an older file with the before-update backup', () => {
+  const [a, b, c] = M.APP_VERSION.split('.').map(Number); assert.ok(a > 1 || b > 8 || (b === 8 && c >= 13), M.APP_VERSION);
   const old = M.emptyState(); old.meta.version = '1.8.12';
   assert.equal(M.needsUpdateBackup(old), true); assert.equal(M.needsUpdateBackup(M.migrate(old)), false);
 });
