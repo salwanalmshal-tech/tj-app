@@ -9,6 +9,25 @@ import * as C from '../calc.js';
 const getP = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
 const setP = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
 const show = (v) => String(v).replace('.', ',');
+// 1.8.16: settings that never change a mark or a label (saving, backups, Trash, scans, the price-jump question)
+const SYSTEM_KEYS = new Set(['saveDelaySec', 'excelCopyDays', 'excelCopyKeep', 'scanKeepDays', 'trashKeepDays', 'bigJumpPct']);
+const sameVal = (a, b) => { const x = D.parse(String(a ?? '')), y = D.parse(String(b ?? '')); return x !== null && y !== null ? x === y : String(a ?? '') === String(b ?? ''); };
+const TABLE_NAMES = { rCategories: 'Trade result labels', stopDistance: 'Stop distance labels' };
+// what the Save dialog lists: "Keep deleted items for: 15 → 7 days" for a number, the table name for changed labels
+export function settingDiffs(before, after, inputs, tables) {
+  const out = [];
+  for (const [path, [i, , unit]] of inputs) {
+    const a = getP(before, path), b = getP(after, path); if (sameVal(a, b)) continue;
+    const u = unit ? (unit === '%' ? ' %' : ' ' + unit) : '';
+    out.push({ key: path.split('.')[0], text: `${i.getAttribute('aria-label')}: ${show(a ?? '–')} → ${show(b)}${u}` });
+  }
+  for (const t of tables) {
+    const A = before[t.k] || [], B = after[t.k] || [];
+    const same = A.length === B.length && A.every((r, n) => sameVal(r[0], B[n][0]) && r[1] === B[n][1]) && (before[t.e] ?? '') === (after[t.e] ?? '');
+    if (!same) out.push({ key: t.k, text: `${TABLE_NAMES[t.k] || t.k}: changed` });
+  }
+  return out;
+}
 let lastSection = 'rules';
 export const goSection = (k) => { lastSection = k; };
 
@@ -31,7 +50,7 @@ export function render(ctx) {
   const num = (path, kind, unit, label) => {
     const i = h('input', { value: show(getP(S, path)), inputmode: 'decimal', 'aria-label': label });
     i.addEventListener('input', () => { dirty(); refresh(); });
-    inputs.set(path, [i, kind]);
+    inputs.set(path, [i, kind, unit]);
     return h('span', { class: 'sv' }, i, unit ? h('span', { class: 'su' }, unit) : null);
   };
   // a row: meaning (+ one quiet line), the value, and the mark it gives
@@ -186,7 +205,13 @@ export function render(ctx) {
     // Q20 (agreed 2026-11-08): say how many closed trades get a different label
     let changed = 0; for (const t of st.trades) { if (!(t.sales.length && C.openQty(t) === 0n)) continue; const R = C.rMultiple(t), sd = C.stopDistancePct(t);
       if (C.rCategory(R, st.settings) !== C.rCategory(R, ns) || C.stopDistanceLabel(sd, st.settings) !== C.stopDistanceLabel(sd, ns)) changed++; }
-    const ok = await dialog({ title: 'Save the new settings?', body: para('Marks and labels are recalculated on every screen. Saved trades keep their data.' + (changed ? ` ${changed} closed trade${changed === 1 ? ' gets' : 's get'} a different result or stop-distance label.` : ''), ''), ok: 'Save settings' }); if (!ok) return;
+    // 1.8.16 (agreed 25-11-2026): say what changed; the marks-and-labels line only when a setting that changes them was changed
+    const diffs = settingDiffs(st.settings, ns, inputs, tables);
+    if (!diffs.length) { status.className = 'set-status ok'; status.textContent = 'All changes saved'; toast('Nothing changed.'); return; }
+    const marks = diffs.some((d) => !SYSTEM_KEYS.has(d.key));
+    const lines = diffs.slice(0, 8).map((d) => h('li', null, d.text)); if (diffs.length > 8) lines.push(h('li', null, `and ${diffs.length - 8} more`));
+    const ok = await dialog({ title: 'Save the new settings?', body: h('div', null, h('ul', { class: 'sc-ul' }, lines),
+      marks ? para('Marks and labels are recalculated on every screen. Saved trades keep their data.' + (changed ? ` ${changed} closed trade${changed === 1 ? ' gets' : 's get'} a different result or stop-distance label.` : ''), 'note') : null), ok: 'Save settings' }); if (!ok) return;
     const r = ctx.act((d) => { d.settings = ns; return { ok: true }; }, { label: 'settings', now: true }); toast(r.ok ? 'Settings saved.' : r.error);
   };
 

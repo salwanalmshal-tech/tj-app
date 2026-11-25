@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.8.15'; // 1.8.13 (24-11-2026) = the first version after the restart of the project. 1.8.12 is the last version before it (rollback point).
+export const APP_VERSION = '1.8.16'; // 1.8.13 (24-11-2026) = the first version after the restart of the project. 1.8.12 is the last version before it (rollback point).
 export const SCHEMA = 1;
 
 export function defaultSettings() {

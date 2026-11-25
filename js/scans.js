@@ -47,7 +47,10 @@ export function pctNum(text) {
 }
 const findCol = (cols, re) => cols.findIndex((c) => re.test(c));
 // 1.8.9: Finviz names too (Performance view: Perf Quart, Perf Half, Perf Year)
-const PERF = { m3: /perf\w*\W*%?\W*3\s*m|3\s*month|perf\w*\s*quart/i, m6: /perf\w*\W*%?\W*6\s*m|6\s*month|perf\w*\s*half/i, y1: /perf\w*\W*%?\W*(1\s*y|12\s*m|1\s*year|year)/i };
+// 1.8.16: the Finviz export (his helper) uses long names: "Performance (Quarter)", "Performance (Half Year)", "Performance (Year)"
+// (his export 25-11-2026, see releases/finviz-export-columns.md). "3 Minutes" / "3 Years" / "YTD" must never count as 3M or 1Y.
+const PERF = { m3: /perf\w*\W*%?\W*3\s*m(?!in)|3\s*month|perf\w*\W*quart/i, m6: /perf\w*\W*%?\W*6\s*m(?!in)|6\s*month|perf\w*\W*half/i, y1: /perf\w*\W*%?\W*(1\s*y|12\s*m|1\s*year|year)/i };
+export const PERF_COLS = PERF; // for tests
 export const EARN = /earning/i;
 
 // value of one column for one stock in one run
