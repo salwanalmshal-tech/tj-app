@@ -15,7 +15,7 @@ export const goSection = (k) => { lastSection = k; };
 const SECTIONS = [
   ['Trading', [['rules', 'Trading rules', 'Stops, EMA10 and earnings'], ['risk', 'Risk and position size', 'Capital at risk and allocation']]],
   ['Journal', [['results', 'Results and labels', 'Result labels and stop distance'], ['history', 'History marks', 'Closed-trade highlighting'], ['verdicts', 'Performance verdicts', 'Words for your average R (risk)']]],
-  ['System', [['saving', 'Saving and backup', 'Autosave, Excel copies and scans'], ['account', 'Account and data', 'Version, file and connection']]],
+  ['System', [['saving', 'Saving and backup', 'Autosave, Excel copies, scans and Trash'], ['account', 'Account and data', 'Version, file and connection']]],
 ];
 
 export function render(ctx) {
@@ -150,6 +150,8 @@ export function render(ctx) {
       row({ path: 'excelCopyKeep', kind: 'int', unit: 'copies', label: 'Keep the newest', sub: 'Older Excel copies are deleted; JSON backups are not.', chip: 'Older removed', tone: 'plain' })),
     card('Scans', 'Keep',
       row({ path: 'scanKeepDays', kind: 'int', unit: 'days', label: 'Keep full scans for', sub: 'After this, a scan keeps only its date, scanner and tickers. Your statuses on the stocks and scans linked to a trade are always kept.', chip: 'Short scan', tone: 'plain' })),
+    card('Trash', 'Keep', // 1.8.15 (his choice 25-11-2026)
+      row({ path: 'trashKeepDays', kind: 'int', unit: 'days', label: 'Keep deleted items for', sub: 'Then they are gone for good. A new number counts from the next time the program opens. To empty it now: Import / Export → Trash.', chip: 'Gone for good', tone: 'plain' })),
   ];
   const kv = (k, v) => h('div', { class: 'srow kv' }, h('div', { class: 'sl' }, h('span', null, k)), h('b', null, v));
   const account = [
@@ -171,6 +173,7 @@ export function render(ctx) {
     if (ns.excelCopyDays < 1 || ns.excelCopyDays > 365) return fail('Make an Excel copy every 1 to 365 days.');
     if (ns.excelCopyKeep < 1 || ns.excelCopyKeep > 52) return fail('Keep between 1 and 52 Excel copies.');
     if (!(ns.scanKeepDays >= 14 && ns.scanKeepDays <= 3650)) return fail('Keep full scans between 14 and 3650 days.');
+    if (!(ns.trashKeepDays >= 1 && ns.trashKeepDays <= 90)) return fail('Keep deleted items between 1 and 90 days.');
     if (ns.saveDelaySec > 120) return fail('Waiting more than 120 seconds before saving is too long.');
     // review fix 2026-11-09: limits that contradict each other would make some marks or labels never appear
     const num = (x) => D.d(String(x));

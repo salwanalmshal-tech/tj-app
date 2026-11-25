@@ -143,7 +143,7 @@ function start(state, isNew) {
   const r0 = location.hash.replace('#/', ''); ctx.route = ROUTES[r0] ? r0 : 'open';
   if (isNew || !state.capital.start) ctx.route = 'capital', ctx.params = { first: true };
   // 1.8.13: emptying the Trash is a background chore; if a damaged file makes it fail, the program still opens (Backups stay reachable)
-  if (!ctx.readOnly) { try { ctx.store.run((d) => A.purgeTrash(d), { label: 'Trash emptied', noUndo: true }); } catch (e) { console.error(e); } } // items older than 15 days
+  if (!ctx.readOnly) { try { ctx.store.run((d) => A.purgeTrash(d), { label: 'Trash emptied', noUndo: true }); } catch (e) { console.error(e); } } // items older than his Trash days (1.8.15 setting, 15 by default)
   draw();
 }
 

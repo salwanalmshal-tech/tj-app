@@ -332,8 +332,9 @@ export const quickShown = (v, q) => (q === 'inall' ? v.kind === 'compare' : q ==
 // s.tradingview.com/widgetembed address is refused inside other sites ("This content is blocked"). Daily, EMA 10, SMA 20.
 export const CHART_STUDIES = [{ id: 'MAExp@tv-basicstudies', inputs: { length: 10 } }, { id: 'MASimple@tv-basicstudies', inputs: { length: 20 } }];
 // 1.8.7: colour settings removed again: the embedded chart dropped both lines when they were set (his screen 22-11-2026).
+// 1.8.15 (his choice 25-11-2026): opens with OHLC bars (style 0, green/red by default) instead of candles (style 1). No colours: tested again 25-11-2026.
 export function chartUrl(symbol, pageUri = '') {
-  const cfg = { autosize: true, symbol, interval: 'D', timezone: 'exchange', theme: 'light', style: '1', locale: 'en', withdateranges: true, hide_side_toolbar: false, allow_symbol_change: false, save_image: false, calendar: false,
+  const cfg = { autosize: true, symbol, interval: 'D', timezone: 'exchange', theme: 'light', style: '0', locale: 'en', withdateranges: true, hide_side_toolbar: false, allow_symbol_change: false, save_image: false, calendar: false,
     studies: CHART_STUDIES, support_host: 'https://www.tradingview.com', 'utm_source': pageUri.replace(/^https?:\/\//, '').split('/')[0], 'utm_medium': 'widget', 'utm_campaign': 'advanced-chart', 'page-uri': pageUri.replace(/^https?:\/\//, '') };
   return 'https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#' + encodeURIComponent(JSON.stringify(cfg));
 }

@@ -485,12 +485,12 @@ async function renameScannerDialog(ctx, name) {
 }
 async function deleteScannerDialog(ctx, name) {
   const n = SC.scannerRuns(ctx.store.state, name).length;
-  const ok = await dialog({ title: `Delete ${name} and its ${plural(n, 'scan')}?`, ok: 'Delete', danger: true, body: para('Everything moves to the Trash for 15 days, so you can restore it. Your statuses on the stocks and your lists stay.', '') });
+  const ok = await dialog({ title: `Delete ${name} and its ${plural(n, 'scan')}?`, ok: 'Delete', danger: true, body: para('Everything moves to the Trash for ' + A.trashText(ctx.store.state) + ', so you can restore it. Your statuses on the stocks and your lists stay.', '') });
   if (!ok) return; const r = ctx.act((d) => A.deleteScanner(d, name), { label: 'delete scanner', now: true });
   if (r.ok) toast(`${name} moved to the Trash.`, 'Undo', () => ctx.store.undo()); else toast(r.error); ctx.redraw();
 }
 async function deleteRunDialog(ctx, run) {
-  const ok = await dialog({ title: `Delete the ${run.scanner} scan of ${dmy(run.date)}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for 15 days. Your statuses on the stocks stay.', '') });
+  const ok = await dialog({ title: `Delete the ${run.scanner} scan of ${dmy(run.date)}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for ' + A.trashText(ctx.store.state) + '. Your statuses on the stocks stay.', '') });
   if (!ok) return; const r = ctx.act((d) => A.deleteScanRun(d, run.id), { label: 'delete scan', now: true }); if (r.ok) { V.src = { kind: 'scanner', name: run.scanner }; toast('Scan moved to the Trash.', 'Undo', () => ctx.store.undo()); } ctx.redraw();
 }
 async function compareDialog(ctx, c) {
@@ -507,7 +507,7 @@ async function compareDialog(ctx, c) {
   if (made) openSrc(ctx, { kind: 'compare', id: made }); else ctx.redraw();
 }
 async function deleteCompareDialog(ctx, c) {
-  const ok = await dialog({ title: `Delete the comparison ${c.name}?`, ok: 'Delete', danger: true, body: para('Only the comparison goes (to the Trash for 15 days). Your scans, statuses and lists stay.', '') });
+  const ok = await dialog({ title: `Delete the comparison ${c.name}?`, ok: 'Delete', danger: true, body: para('Only the comparison goes (to the Trash for ' + A.trashText(ctx.store.state) + '). Your scans, statuses and lists stay.', '') });
   if (!ok) return; const r = ctx.act((d) => A.deleteScanCompare(d, c.id), { label: 'delete comparison', now: true }); if (r.ok) toast(`${c.name} moved to the Trash.`, 'Undo', () => ctx.store.undo()); ctx.redraw();
 }
 
@@ -572,11 +572,11 @@ async function moveListDialog(ctx, l) {
   ctx.redraw();
 }
 async function deleteListDialog(ctx, l) {
-  const ok = await dialog({ title: `Delete the list ${l.name}?`, ok: 'Delete', danger: true, body: para(`Its ${plural(l.items.length, 'stock')} leave this list only. It moves to the Trash for 15 days.`, '') });
+  const ok = await dialog({ title: `Delete the list ${l.name}?`, ok: 'Delete', danger: true, body: para(`Its ${plural(l.items.length, 'stock')} leave this list only. It moves to the Trash for ${A.trashText(ctx.store.state)}.`, '') });
   if (!ok) return; const r = ctx.act((d) => A.deleteScanList(d, l.id), { label: 'delete list', now: true }); if (r.ok) toast(`${l.name} moved to the Trash.`, 'Undo', () => ctx.store.undo()); ctx.redraw();
 }
 async function deleteFolderDialog(ctx, f, ls) {
-  const ok = await dialog({ title: `Delete the folder ${f.name}?`, ok: 'Delete', danger: true, body: para(ls.length ? `Its ${plural(ls.length, 'list')} (${ls.map((l) => l.name).join(', ')}) go with it. Everything moves to the Trash for 15 days.` : 'It is empty. It moves to the Trash for 15 days.', '') });
+  const ok = await dialog({ title: `Delete the folder ${f.name}?`, ok: 'Delete', danger: true, body: para(ls.length ? `Its ${plural(ls.length, 'list')} (${ls.map((l) => l.name).join(', ')}) go with it. Everything moves to the Trash for ${A.trashText(ctx.store.state)}.` : 'It is empty. It moves to the Trash for ' + A.trashText(ctx.store.state) + '.', '') });
   if (!ok) return; const r = ctx.act((d) => A.deleteScanFolder(d, f.id), { label: 'delete folder', now: true }); if (r.ok) toast(`${f.name} moved to the Trash.`, 'Undo', () => ctx.store.undo()); ctx.redraw();
 }
 async function removeItem(ctx, l, x, others) {
@@ -747,7 +747,8 @@ async function screenDialog(ctx, x) {
   setTimeout(() => (x ? nm : ad).focus(), 0); let res = null;
   await dialog({ title: x ? `Edit ${x.name}` : 'Add a Finviz screener', ok: 'Save', body: h('div', { style: { display: 'grid', gap: '10px' } },
     field('Screener address (copy it from the browser bar on Finviz)', ad), field('Name in Trade Journal', nm),
-    para('Use the Performance view (or a table view) on Finviz before you copy the address: Performance gives RS. Your key is never needed here.', 'note')),
+    para('Use the Performance view (or a table view) on Finviz before you copy the address: Performance gives RS. Your key is never needed here.', 'note'),
+    para('Changed columns or filters in Finviz? Paste the new address here. Trade Journal keeps using the address it saved.', 'note')), // 1.8.15 (agreed 25-11-2026; his test: Finviz changes do not reach TJ by themselves)
     onOk: () => { const r = ctx.act((d) => (x ? A.editFvScreen(d, x.id, nm.value, ad.value) : A.addFvScreen(d, nm.value, ad.value)), { label: x ? 'edit screener' : 'add screener', now: true }); if (!r.ok) return r.error; res = r.data; return true; } });
   if (res?.warn) toast(res.warn, null, null, 9000); else if (res && !x && !res.perf) toast('Saved. Tip: the Performance view gives RS.', null, null, 6000);
   return res;

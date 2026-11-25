@@ -131,6 +131,6 @@ async function del(ctx, list, it, usage) {
   const key = NAMES[list][1];
   if (usage.stocks) return dialog({ title: `${it[key]} is in use`, body: para(`${usage.stocks === 1 ? '1 rejected stock uses' : usage.stocks + ' rejected stocks use'} it. Archive it instead: it stays on those stocks but disappears from the chips.`, ''), info: true });
   if (usage.trades || usage.dividends) return dialog({ title: `${it[key]} is in use`, body: para(`${usageText(usage)} use it. Archive it instead: archived items stay in old trades but disappear from the pick lists.`, ''), info: true });
-  const ok = await dialog({ title: `Delete ${it[key]}?`, danger: true, ok: 'Delete', body: para('It moves to the Trash for 15 days.', '') }); if (!ok) return;
+  const ok = await dialog({ title: `Delete ${it[key]}?`, danger: true, ok: 'Delete', body: para('It moves to the Trash for ' + A.trashText(ctx.store.state) + '.', '') }); if (!ok) return;
   const r = ctx.act((d) => A.deleteListItem(d, list, it.id), { label: 'delete ' + it[key], now: true }); if (r.ok) toast(`${it[key]} moved to the Trash.`, 'Restore', () => ctx.store.undo()); else toast(r.error);
 }

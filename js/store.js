@@ -26,6 +26,8 @@ export class Store {
     return res;
   }
   canUndo() { return !!this.prev; }
+  // 1.8.15: after "Empty the Trash" (deleted for good, backup first) an older Undo must not bring a deleted item back
+  clearUndo() { this.prev = null; this.prevLabel = ''; this._emit('change', 'undo cleared'); }
   undoLabel() { return this.prevLabel; }
   undo() {
     if (!this.prev) return false;

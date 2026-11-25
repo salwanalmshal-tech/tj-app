@@ -129,13 +129,13 @@ export function render(ctx) {
     toast('Dividend added.', 'Undo', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0);
   }
   const delFlow = async (f) => {
-    const ok = await dialog({ title: `Delete the ${f.type} of ${usd(D.d(f.amount))} on ${dmy(f.date)}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for 15 days. Capital changes.', '') }); if (!ok) return;
+    const ok = await dialog({ title: `Delete the ${f.type} of ${usd(D.d(f.amount))} on ${dmy(f.date)}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for ' + A.trashText(ctx.store.state) + '. Capital changes.', '') }); if (!ok) return;
     const r = ctx.act((d) => A.deleteFlow(d, f.id), { label: 'delete line', now: true });
     if (r.ok) { toast('Moved to the Trash.', 'Restore', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0); } else toast(r.error);
   };
   const delDiv = async (x) => {
     const sym = A.stockById(st, x.stockId)?.symbol ?? '?';
-    const ok = await dialog({ title: `Delete the ${sym} dividend of ${usd(D.d(x.amount))}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for 15 days. Capital changes.', '') }); if (!ok) return;
+    const ok = await dialog({ title: `Delete the ${sym} dividend of ${usd(D.d(x.amount))}?`, ok: 'Delete', danger: true, body: para('It moves to the Trash for ' + A.trashText(ctx.store.state) + '. Capital changes.', '') }); if (!ok) return;
     const r = ctx.act((d) => A.deleteDividend(d, x.id), { label: 'delete dividend', now: true });
     if (r.ok) { toast('Dividend moved to the Trash.', 'Restore', () => ctx.store.undo()); setTimeout(() => askRecalc(ctx), 0); } else toast(r.error);
   };

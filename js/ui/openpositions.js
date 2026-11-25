@@ -383,7 +383,7 @@ function detail(ctx, id) {
       h('button', { class: 'btn big quiet-dng', style: { marginLeft: 'auto' }, disabled: ctx.readOnly, onClick: async () => {
         const ok = await dialog({ title: `Delete trade ${t.id} (${sym})?`, danger: true, ok: 'Delete trade',
           body: h('div', null, para(`Use this for a trade made by mistake or just to try something. It disappears at once from Open positions, History, capital and statistics${t.sales.length ? ', together with its ' + t.sales.length + ' sale' + (t.sales.length > 1 ? 's' : '') : ''}.`, ''),
-            para('It stays in the Trash for 15 days in case you deleted the wrong trade (Import / Export → Trash). After that it is gone for good.', '')) });
+            para('It stays in the Trash for ' + A.trashText(ctx.store.state) + ' in case you deleted the wrong trade (Import / Export → Trash). After that it is gone for good.', '')) });
         if (!ok) return;
         const r = ctx.act((d) => A.deleteTrade(d, t.id), { label: 'delete trade', now: true });
         if (r.ok) { close(); toast(`${sym} ${t.id} deleted.`, 'Undo', () => ctx.store.undo()); } else toast(r.error);

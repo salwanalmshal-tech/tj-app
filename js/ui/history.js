@@ -821,7 +821,7 @@ function editSale(ctx, tradeId, saleId) {
     h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' } }, field('Sell date', date), field('Shares sold', qty), field('Sell price', price), field('Sell commission', comm)),
     h('div', { class: 'row' }, h('button', { class: 'btn', onClick: () => { closeTopDialog(); editTrade(ctx, t.id); } }, 'Edit buy data…'),
       h('button', { class: 'btn quiet-dng', onClick: async () => {
-        const ok = await dialog({ title: `Reopen ${sym}: remove this sale?`, ok: 'Remove sale', body: para(`The ${qtyTxt(D.d(s.qty))} shares become open again and the sale moves to the Trash for 15 days. Capital and statistics change.`, '') });
+        const ok = await dialog({ title: `Reopen ${sym}: remove this sale?`, ok: 'Remove sale', body: para(`The ${qtyTxt(D.d(s.qty))} shares become open again and the sale moves to the Trash for ${A.trashText(ctx.store.state)}. Capital and statistics change.`, '') });
         if (!ok) return; const r = ctx.act((d) => A.reopenSales(d, t.id, [s.id]), { label: 'reopen ' + sym, now: true }); if (r.ok) { closeTopDialog(); toast(`${sym} sale removed.`, 'Undo', () => ctx.store.undo()); } else toast(r.error); } }, 'Reopen (remove this sale)…'))),
     onOk: async () => {
       const iso = parseDMY(date.value); if (!iso) return 'Enter a valid sell date (dd-mm-yyyy).';

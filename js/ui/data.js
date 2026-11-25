@@ -17,7 +17,7 @@ export function loadXLSX() {
 const stampName = () => new Date().toISOString().slice(0, 10);
 
 // Layout 2026-11-06 (after his "Safety Centre" example): a left menu with five sections; every action and rule stays as agreed
-// (import kinds, checks, backups first, typed DELETE, Trash 15 days, change log never erased).
+// (import kinds, checks, backups first, typed DELETE, Trash 15 days by default (1.8.15: his setting), change log never erased).
 let lastSection = 'overview';
 const SECTIONS = [['overview', 'Overview', 'Main actions'], ['backups', 'Backups', 'Recovery points'], ['excel', 'Excel copies', 'Readable copies'], ['trash', 'Trash and change log', 'Deleted items and the list of changes']];
 const card = (title, tag, ...kids) => h('section', { class: 'scard' }, h('div', { class: 'sch' }, h('h3', null, title), tag ? h('span', { class: 'stag' }, tag) : null), h('div', { class: 'scb' }, kids));
@@ -25,7 +25,7 @@ const task = (eyebrow, title, text, tone, ...buttons) => h('section', { class: '
 const when = (iso) => dmy(iso.slice(0, 10)) + ' · ' + new Date(iso).toTimeString().slice(0, 5);
 export function render(ctx) {
   const panes = {}; const navBtns = {}; const head = h('div', { class: 'spane-h' });
-  const titles = { overview: ['What do you want to do?', 'Choose one task. Technical details stay out of the way until you need them.'], backups: ['Recovery backups', 'Complete JSON copies kept in the “Backups” folder next to your data file.'], excel: ['Excel copies', 'Readable files for analysis and review in Excel or Google Sheets.'], trash: ['Trash and activity', 'Deleted items stay 15 days. The change log is kept, except after emptying the Trash, a "New start" import, or a Restore.'], clear: ['Clear all data', 'Start with an empty journal, only after reviewing what happens.'] };
+  const titles = { overview: ['What do you want to do?', 'Choose one task. Technical details stay out of the way until you need them.'], backups: ['Recovery backups', 'Complete JSON copies kept in the “Backups” folder next to your data file.'], excel: ['Excel copies', 'Readable files for analysis and review in Excel or Google Sheets.'], trash: ['Trash and activity', 'Deleted items stay for the days set in Settings → Saving and backup. The change log is kept, except for trades that leave the Trash, a "New start" import, or a Restore.'], clear: ['Clear all data', 'Start with an empty journal, only after reviewing what happens.'] };
   const build = { overview: () => overviewPane(ctx, pick), backups: () => backupPane(ctx), excel: () => excelPane(ctx), trash: () => trashPane(ctx), clear: () => clearPane(ctx) };
   function pick(key) {
     lastSection = key;
@@ -183,8 +183,8 @@ function excelPane(ctx) {
 }
 
 // ------------------------------------------------------------- backups
-const KIND = { auto: 'Automatic', manual: 'Made by you', 'before-update': 'Before an update', 'before-restore': 'Before a restore', 'before-replace': 'Before an import', 'before-clear': 'Before clearing all data' };
-const KIND_TONE = { auto: 'pos', manual: 'info', 'before-update': 'warn', 'before-restore': 'warn', 'before-replace': 'neg', 'before-clear': 'neg' };
+const KIND = { auto: 'Automatic', manual: 'Made by you', 'before-update': 'Before an update', 'before-restore': 'Before a restore', 'before-replace': 'Before an import', 'before-clear': 'Before clearing all data', 'before-empty-trash': 'Before emptying the Trash' };
+const KIND_TONE = { auto: 'pos', manual: 'info', 'before-update': 'warn', 'before-restore': 'warn', 'before-replace': 'neg', 'before-clear': 'neg', 'before-empty-trash': 'neg' };
 async function downloadBackup(ctx, b) { try { download(b.name || 'backup.json', new Blob([JSON.stringify(await ctx.storage.readBackup(b.id), null, 1)], { type: 'application/json' })); } catch (e) { toast(e.message); } }
 async function restoreBackup(ctx, b) { try { const raw = await ctx.storage.readBackup(b.id); const c = checkFile(raw); if (!c.ok) return toast(c.reason); await replaceWith(ctx, migrate(raw), 'the backup of ' + when(b.time)); } catch (e) { toast(e.message); } }
 function backupPane(ctx) {
@@ -220,15 +220,32 @@ function trashLabel(st, e) {
 }
 function trashPane(ctx) {
   const st = ctx.store.state; const items = st.trash.map((e, idx) => ({ e, idx })).reverse();
-  const left = (e) => { const d = 15 - Math.floor((Date.now() - Date.parse(e.deletedAt)) / 86400000); return d <= 0 ? 'last day' : d + ' day' + (d === 1 ? '' : 's') + ' left'; };
+  const days = A.trashDays(st);
+  const left = (e) => { const d = days - Math.floor((Date.now() - Date.parse(e.deletedAt)) / 86400000); return d <= 0 ? 'last day' : d + ' day' + (d === 1 ? '' : 's') + ' left'; };
   const trash = items.length ? h('div', { class: 'blist' }, items.map(({ e, idx }) => h('div', { class: 'brow' }, h('b', null, TRASH_KIND[e.kind] || e.kind), h('span', null, trashLabel(st, e)), h('span', { class: 'mut' }, left(e)),
       h('div', { class: 'row' }, h('button', { class: 'btn sm', disabled: ctx.readOnly, onClick: () => { const before = new Set(A.capitalDiffs(ctx.store.state).map((x) => x.id + ':' + x.after)); const r = ctx.act((d) => A.restoreFromTrash(d, idx), { label: 'restore', now: true }); toast(r.ok ? 'Restored.' : r.error); if (r.ok && A.capitalDiffs(ctx.store.state).some((x) => !before.has(x.id + ':' + x.after))) setTimeout(() => askRecalc(ctx), 0); } }, 'Restore')))))
     : h('div', { class: 'empty' }, h('b', null, 'The Trash is empty'), h('span', null, 'Deleted items appear here with the days left to restore them.'));
   const log = st.changeLog.slice(-100).reverse();
   const logEl = h('details', { class: 'logbox' }, h('summary', null, h('b', null, `${st.changeLog.length} entr${st.changeLog.length === 1 ? 'y' : 'ies'}`), h('span', null, ' · show the latest 100')),
     h('div', { class: 'tw' }, h('table', null, h('thead', null, h('tr', null, ['When', 'What', 'Details'].map((x) => h('th', null, x)))), h('tbody', null, log.map((l) => h('tr', null, h('td', null, dmy(l.ts.slice(0, 10)) + ' ' + l.ts.slice(11, 16)), h('td', null, l.type), h('td', { class: 'mut' }, Object.entries(l).filter(([k]) => !['ts', 'type'].includes(k)).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · '))))))));
-  return [card('Trash', '15 days', trash), card('Change log', 'Trade changes', h('p', { class: 'snote' }, 'A record of trade changes: opening a trade, edits to shares/buy price/commission/buy date, Initial stop, sales and their edits, removing a sale, deleting a trade, and stock splits. Deposits, withdrawals, dividends, start capital, settings and your lists (stocks/setups/errors) are not recorded here. Current stop changes are kept in a separate history that is not shown on any screen yet.'), logEl),
+  return [card('Trash', A.trashText(st), trash, items.length ? emptyTrashRow(ctx, st) : null), card('Change log', 'Trade changes', h('p', { class: 'snote' }, 'A record of trade changes: opening a trade, edits to shares/buy price/commission/buy date, Initial stop, sales and their edits, removing a sale, deleting a trade, and stock splits. Deposits, withdrawals, dividends, start capital, settings and your lists (stocks/setups/errors) are not recorded here. Current stop changes are kept in a separate history that is not shown on any screen yet.'), logEl),
     task('Why this matters', 'Recover mistakes and understand changes', 'The Trash protects recently deleted items. The change log shows when and how a trade changed.', 'green')];
+}
+
+// 1.8.15 (his choice 25-11-2026): empty the Trash now. Full backup first (like Clear all data); no Undo.
+function emptyTrashRow(ctx, st) {
+  const n = st.trash.length; const trades = st.trash.filter((e) => e.kind === 'trade').length;
+  const run = async () => {
+    await dialog({ title: `Empty the Trash (${n} item${n === 1 ? '' : 's'})?`, danger: true, ok: 'Empty the Trash', body: h('div', null,
+      para(`Everything in the Trash is deleted for good${trades ? `, including ${trades} trade${trades === 1 ? '' : 's'} and ${trades === 1 ? 'its' : 'their'} lines in the change log` : ''}.`, ''),
+      para('A full backup is made first, so you can get it back with Restore.', 'note')),
+      onOk: async () => {
+        if (!(await safetyBackup('before-empty-trash'))) return 'The backup could not be made, so nothing was deleted. Check your connection and try again.';
+        const r = ctx.act((d) => A.emptyTrash(d), { label: 'empty the Trash', now: true, noUndo: true }); if (!r.ok) return r.error; ctx.store.clearUndo();
+        toast('Trash emptied. A backup was made first.'); ctx.redraw(); return true;
+      } });
+  };
+  return h('div', { class: 'row', style: { paddingTop: '10px' } }, h('button', { class: 'btn quiet-dng', disabled: ctx.readOnly, onClick: run }, 'Empty the Trash…'));
 }
 
 // ------------------------------------------------------------- clear all data (Q9)

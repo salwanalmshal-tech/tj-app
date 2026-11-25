@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.8.14'; // 1.8.13 (24-11-2026) = the first version after the restart of the project. 1.8.12 is the last version before it (rollback point).
+export const APP_VERSION = '1.8.15'; // 1.8.13 (24-11-2026) = the first version after the restart of the project. 1.8.12 is the last version before it (rollback point).
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -31,6 +31,7 @@ export function defaultSettings() {
     // share calculator in Open trade: the risk % he accepts per trade. Empty = start from his own "orange above" risk limit (riskWarn).
     calcRiskPct: '',
     scanKeepDays: 90, // 1.8.0: Scans — full scan runs kept this many days, then only date, scanner and tickers
+    trashKeepDays: 15, // 1.8.15: deleted items stay this many days in the Trash (his setting, 1 to 90)
     // Performance verdicts (plan step 2): the 5 limits of each scale, lowest first. Start values = his Excel Calculator.
     verdictWin: ['0.5', '1', '1.5', '2.5', '4'], verdictLoss: ['0.5', '0.75', '1', '1.25', '1.5'], verdictRatio: ['1', '1.5', '2', '3', '5'],
   };

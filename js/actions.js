@@ -351,10 +351,20 @@ export function restoreFromTrash(st, index) {
   if (back[e.kind]() === false) return err(['scanner', 'scanList', 'scanFolder', 'scanCompare'].includes(e.kind) ? 'Something with the same name exists again, so it cannot come back. Rename that first.' : 'The trade of these sales no longer exists.');
   st.trash.splice(index, 1); return ok();
 }
-// After 15 days the Trash is emptied for good. A deleted trade is then gone everywhere (2026-11-06): its lines in the
+// 1.8.15 (his choice 25-11-2026): how many days deleted items stay is his setting (1 to 90, starts at 15).
+// A missing or wrong value falls back to 15, so the Trash never empties sooner than he expects.
+export function trashDays(st) { const n = Number(st?.settings?.trashKeepDays); return Number.isInteger(n) && n >= 1 && n <= 90 ? n : 15; }
+export const trashText = (st) => { const n = trashDays(st); return n + (n === 1 ? ' day' : ' days'); };
+// After his Trash days the Trash is emptied for good. A deleted trade is then gone everywhere (2026-11-06): its lines in the
 // change log and stop history are removed too. Returns an error when there is nothing to empty (so nothing is saved).
-export function purgeTrash(st, now = Date.now(), days = 15) {
+export function purgeTrash(st, now = Date.now(), days = trashDays(st)) {
   const old = st.trash.filter((e) => now - Date.parse(e.deletedAt) >= days * 86400000); if (!old.length) return err('Nothing to empty.');
+  return dropFromTrash(st, old);
+}
+// 1.8.15 (his choice 25-11-2026): "Empty the Trash" now, everything in it, with the same clean-up as above.
+// The screen makes a full backup first; there is no Undo for this.
+export function emptyTrash(st) { if (!st.trash.length) return err('The Trash is already empty.'); return dropFromTrash(st, [...st.trash]); }
+function dropFromTrash(st, old) {
   const gone = new Set(old.filter((e) => e.kind === 'trade').map((e) => e.item.id));
   st.trash = st.trash.filter((e) => !old.includes(e));
   if (gone.size) {
