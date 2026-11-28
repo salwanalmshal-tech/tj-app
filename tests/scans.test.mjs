@@ -58,15 +58,15 @@ test('earnings days and the TradingView file', () => {
   assert.equal(SC.tradingViewText([{ t: 'AAA', full: 'NASDAQ:AAA' }, { t: 'BBB', full: 'BBB' }]), 'NASDAQ:AAA,BBB');
 });
 test('reject reasons: a list like the others; usage counts stocks; merge moves the stocks', () => {
-  const st = fresh(); assert.equal(st.rejects.length, 6);
+  const st = fresh(); assert.equal(st.rejects.length, 7); // 1.8.17: + No character (the old four archived)
   A.setScanMark(st, 'AAA', { status: 'rej', reasons: ['rj-ext', 'rj-vol'], date: '2026-11-22' });
   assert.equal(A.listUsage(st, 'rejects', 'rj-ext'), 1);
   const r = A.renameListItem(st, 'rejects', 'rj-ext', 'Weak volume', { merge: true });
-  assert.equal(r.ok, true, r.error); assert.deepEqual(st.scans.marks.AAA.reasons, ['rj-vol']); assert.equal(st.rejects.length, 5);
+  assert.equal(r.ok, true, r.error); assert.deepEqual(st.scans.marks.AAA.reasons, ['rj-vol']); assert.equal(st.rejects.length, 6);
 });
 test('file check: old files get scans; broken scan data is reported', () => {
   const old = emptyState(); delete old.scans; delete old.rejects; const m = migrate(old);
-  assert.deepEqual(m.scans.runs, []); assert.equal(m.rejects.length, 6); assert.equal(m.settings.scanKeepDays, 90);
+  assert.deepEqual(m.scans.runs, []); assert.equal(m.rejects.length, 7); assert.equal(m.settings.scanKeepDays, 90);
   assert.deepEqual(dataProblems(m), []);
   const bad = migrate(emptyState()); bad.scans.runs.push({ id: 'x y', date: 'no', rows: [] }); bad.scans.marks.ZZ = { st: 'maybe' };
   assert.ok(dataProblems(bad).length >= 2);
@@ -90,24 +90,30 @@ test('Found in: any ticked scans, most scans first, hits per scan', () => {
   const ids = st.scans.runs.map((r) => r.id); A.setScanMark(st, 'BBB', { status: 'near', date: '2026-11-22' });
   const o = SC.overlap(st, ids, '2026-11-22');
   assert.deepEqual(o.runs.map((r) => r.scanner + r.seq), ['S' + st.scans.runs[0].seq, 'S' + st.scans.runs[1].seq, 'T' + st.scans.runs[2].seq]);
-  assert.deepEqual(o.rows.map((r) => `${r.t}:${r.n}`), ['AAA:3', 'NEW:2', 'BBB:2', 'OLD:1']); // NEW (not decided) before BBB (near buy) in "2 of 3"
+  assert.deepEqual(o.rows.map((r) => `${r.t}:${r.n}`), ['AAA:3', 'BBB:2', 'NEW:2', 'OLD:1']); // 1.8.17: Near buy no longer moves a stock (only Rejected goes last)
   assert.deepEqual(o.rows.find((r) => r.t === 'NEW').hits, [false, true, true]); assert.equal(o.inAll, 1);
   assert.equal(SC.runLabel(st, st.scans.runs[1], '2026-11-22'), 'today (2nd)'); assert.equal(SC.runLabel(st, st.scans.runs[2], '2026-11-22'), '21-11-2026');
 });
-test('filter: status counts, search, RS, earnings, rules with K/M/B numbers and text', () => {
+test('filter (1.8.17, Finviz style): search, RS from–to, earnings days, number and text columns, status', () => {
   const rows = [
     { t: 'AAA', rs: 90, mark: null, earnings: { days: 3 }, vals: { 'Mkt cap': '8.72 B USD', Sector: 'Tech', 'ADR %': '4.1%' } },
     { t: 'BBB', rs: 50, mark: { st: 'near' }, earnings: null, vals: { 'Mkt cap': '900 M USD', Sector: 'Health', 'ADR %': '6%' } },
-    { t: 'CCC', rs: null, mark: { st: 'rej' }, earnings: null, vals: { 'Mkt cap': '', Sector: 'Tech', 'ADR %': '3%' } }];
-  const info = { isOpen: (t) => t === 'BBB', traded: (t) => t === 'CCC' };
-  let r = SC.applyFilter(rows, SC.emptyFilter(), info); assert.deepEqual(r.counts, { all: 3, new: 1, watch: 0, near: 1, rej: 1 }); assert.equal(r.rows.length, 3);
-  r = SC.applyFilter(rows, { ...SC.emptyFilter(), status: 'near' }, info); assert.deepEqual(r.rows.map((x) => x.t), ['BBB']); assert.equal(r.total, 3);
-  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rsMin: 60 }, info); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']);
-  r = SC.applyFilter(rows, { ...SC.emptyFilter(), noEarn: true, noOpen: true }, info); assert.deepEqual(r.rows.map((x) => x.t), ['CCC']);
-  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rules: [{ col: 'Mkt cap', op: '>=', val: '1B' }] }, info); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']);
-  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rules: [{ col: 'Sector', op: 'has', val: 'tech' }, { col: 'ADR %', op: '>=', val: '4' }] }, info); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']);
-  r = SC.applyFilter(rows, { ...SC.emptyFilter(), q: 'b', traded: false }, info); assert.deepEqual(r.rows.map((x) => x.t), ['BBB']);
-  assert.equal(SC.filterCount({ ...SC.emptyFilter(), rsMin: 80, noEarn: true, rules: [{}] }), 3);
+    { t: 'CCC', rs: null, mark: { st: 'watch' }, earnings: null, vals: { 'Mkt cap': '', Sector: 'Tech', 'ADR %': '3%' } },
+    { t: 'DDD', rs: 70, mark: null, earnings: null, vals: {} }];
+  const cols = ['Mkt cap', 'Sector', 'ADR %'];
+  let r = SC.applyFilter(rows, SC.emptyFilter(), { cols }); assert.equal(r.rows.length, 4); assert.equal(r.total, 4);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rsMin: 60 }, { cols }); assert.deepEqual(r.rows.map((x) => x.t), ['AAA', 'DDD']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), rsMin: 60, rsMax: 80 }, { cols }); assert.deepEqual(r.rows.map((x) => x.t), ['DDD']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), earnDays: 7 }, { cols }); assert.deepEqual(r.rows.map((x) => x.t), ['BBB', 'CCC', 'DDD']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), cols: { 'Mkt cap': { min: '1B' } } }, { cols }); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']); assert.equal(r.noData, 2, 'CCC (empty) and DDD (never scanned)');
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), cols: { Sector: { is: 'tech' }, 'ADR %': { min: '4' } } }, { cols }); assert.deepEqual(r.rows.map((x) => x.t), ['AAA']);
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), cols: { 'ADR %': { min: '', max: '' } } }, { cols }); assert.equal(r.rows.length, 4, 'empty boxes are not a filter');
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), cols: { 'Float %': { min: '10' } } }, { cols }); assert.equal(r.rows.length, 4, 'a column the stocks shown do not have is ignored');
+  r = SC.applyFilter(rows, { ...SC.emptyFilter(), q: 'b' }, { cols }); assert.deepEqual(r.rows.map((x) => x.t), ['BBB']);
+  r = SC.applyFilter(rows, SC.emptyFilter(), { cols, statuses: new Set(['near', 'none']) }); assert.deepEqual(r.rows.map((x) => x.t), ['AAA', 'BBB', 'DDD']);
+  assert.equal(SC.filterCount({ ...SC.emptyFilter(), rsMin: 80, earnDays: 7, cols: { a: { min: '1' }, b: { is: '' }, c: { is: 'Tech' } } }), 4);
+  const k = SC.colKinds(rows, cols); assert.equal(k['ADR %'].kind, 'num'); assert.equal(k.Sector.kind, 'text'); assert.deepEqual(k.Sector.options, ['Health', 'Tech']);
+  assert.deepEqual(SC.filterableCols(['No.', 'Ticker', 'Company', 'Sector', 'Price']), ['Sector', 'Price']);
 });
 test('lists: folders, add with the "also in" choice, remove from all, move, clean up, TradingView files', () => {
   const st = fresh();
@@ -220,4 +226,117 @@ test('Finviz screener address: only filters are kept, the key is always dropped,
   assert.equal(JSON.stringify(st).includes('auth'), false); assert.equal(A.addFvScreen(st, 'breakout', 'https://elite.finviz.com/screener?v=141').ok, false);
   A.markFvFetched(st, a.data.screen.id, '2026-11-23'); assert.equal(st.scans.fvScreens[0].last, '2026-11-23');
   assert.match(SC.HELPER_CODE, /PASTE_YOUR_FINVIZ_KEY_HERE/); assert.match(SC.HELPER_CODE, /p\.secret !== TJ_SECRET/);
+});
+
+// ---------- 1.8.17 his test fixes (A4, A5) ----------
+test('A4 his own order inside a scanner: saved, new stocks first, dropped leave, renamed with the scanner, back to RS', () => {
+  const st = fresh();
+  A.addScanRun(st, { scanner: 'W1', date: '2026-11-26', cols: COLS, rows: [row('AAA', '30%', '', ''), row('BBB', '20%', '', ''), row('CCC', '10%', '', '')] }, { today: '2026-11-26' });
+  A.addScanRun(st, { scanner: 'W1', date: '2026-11-27', cols: COLS, rows: [row('AAA', '30%', '', ''), row('CCC', '10%', '', ''), row('DDD', '50%', '', '')] }, { today: '2026-11-27' });
+  const v0 = SC.sourceView(st, { kind: 'scanner', name: 'W1' }, '2026-11-27'); assert.deepEqual(v0.rows.map((r) => r.t), ['DDD', 'AAA', 'CCC']); assert.equal(v0.own, false);
+  assert.equal(A.setScannerOwnOrder(st, 'W1', ['CCC', 'AAA', 'BBB']).ok, true);
+  const v = SC.sourceView(st, { kind: 'scanner', name: 'W1' }, '2026-11-27');
+  assert.deepEqual(v.rows.map((r) => r.t), ['DDD', 'CCC', 'AAA']); assert.equal(v.own, true); // DDD is new: on top; BBB dropped: gone
+  assert.equal(A.setScannerOwnOrder(st, 'Nope', ['AAA']).ok, false); assert.equal(A.setScannerOwnOrder(st, 'W1', ['<x>']).ok, false);
+  A.renameScanner(st, 'W1', 'W1-1M'); assert.deepEqual(st.scans.own['W1-1M'], ['CCC', 'AAA', 'BBB']); assert.equal(st.scans.own.W1, undefined);
+  A.setScannerOwnOrder(st, 'W1-1M', null); assert.equal(st.scans.own['W1-1M'], undefined);
+  assert.deepEqual(dataProblems(st), []);
+  st.scans.own = { W1: 'x' }; assert.ok(dataProblems(st).some((p) => /own order/.test(p)));
+});
+test('A4 his own order: a rejected stock stays last (and hidden on screen)', () => {
+  const st = fresh();
+  A.addScanRun(st, { scanner: 'W1', date: '2026-11-27', cols: COLS, rows: [row('AAA', '30%', '', ''), row('BBB', '20%', '', ''), row('CCC', '10%', '', '')] }, { today: '2026-11-27' });
+  A.setScanMark(st, 'AAA', { status: 'rej', date: '2026-11-27' }); A.setScannerOwnOrder(st, 'W1', ['AAA', 'CCC', 'BBB']);
+  assert.deepEqual(SC.sourceView(st, { kind: 'scanner', name: 'W1' }, '2026-11-27').rows.map((r) => r.t), ['CCC', 'BBB', 'AAA']);
+});
+test('A5 filter: date columns from–to (Finviz writes month/day/year), kinds and groups of his Finviz columns', () => {
+  assert.equal(SC.dateIso('11/7/2026 4:30:00 PM'), '2026-11-07'); assert.equal(SC.dateIso('2026-12-01'), '2026-12-01'); assert.equal(SC.dateIso(''), null); assert.equal(SC.dateIso('soon'), null);
+  const rows = [{ t: 'A', rs: 50, vals: { 'Earnings Date': '12/2/2026 4:00:00 PM' } }, { t: 'B', rs: 60, vals: { 'Earnings Date': '1/20/2027 8:00:00 AM' } }, { t: 'C', rs: 70, vals: { 'Earnings Date': '' } }];
+  const f = { ...SC.emptyFilter(), cols: { 'Earnings Date': { from: '2026-12-01', to: '2026-12-31' } } };
+  const r = SC.applyFilter(rows, f, { cols: ['Earnings Date'] }); assert.deepEqual(r.rows.map((x) => x.t), ['A']); assert.equal(r.noData, 1);
+  assert.equal(SC.filterCount(f), 1); assert.equal(SC.colActive({ from: '', to: '' }), false);
+  assert.deepEqual(SC.filterColInfo('Earnings Date'), { kind: 'date', group: 'Descriptive' });
+  assert.deepEqual(SC.filterColInfo('Industry'), { kind: 'list', group: 'Descriptive' });
+  assert.deepEqual(SC.filterColInfo('Performance (Quarter)'), { kind: 'num', group: 'Technical' });
+  assert.deepEqual(SC.filterColInfo('P/E'), { kind: 'num', group: 'Fundamental' });
+  assert.deepEqual(SC.filterableCols(['No.', 'Ticker', 'Company', 'News Title', '52-Week Range', 'Price']), ['Price']);
+  const st = fresh(); A.addScanRun(st, { scanner: 'W1', date: '2026-11-27', cols: ['No.', 'Ticker', 'Price'], rows: [{ s: 'AAA', v: ['1', 'AAA', '10'] }] }, { today: '2026-11-27' });
+  A.addScanRun(st, { scanner: 'W2', date: '2026-11-27', cols: ['Ticker', 'Sector'], rows: [{ s: 'BBB', v: ['BBB', 'Tech'] }] }, { today: '2026-11-27' });
+  assert.deepEqual(SC.allScanCols(st).sort(), ['Price', 'Sector']); // every scan he has, not only the one open
+});
+
+// ---------- 1.8.17 review 28-11-2026: tests for the new data logic ----------
+test('his own statuses: add above Rejected, rename, colour, move, delete → Trash brings the status and its stocks back', () => {
+  const st = fresh();
+  const a = A.addStatus(st, 'Pilot', 'amber'); assert.equal(a.ok, true);
+  assert.deepEqual(SC.statusesOf(st).map((x) => x.name), ['Watching', 'Near buy', 'Pilot', 'Rejected']);
+  assert.equal(A.addStatus(st, 'pilot').ok, false); assert.equal(A.renameStatus(st, a.data.id, 'Watching').ok, false);
+  assert.equal(A.renameStatus(st, a.data.id, 'Test buy').ok, true); assert.equal(A.setStatusColor(st, a.data.id, 'pink').ok, false);
+  assert.equal(A.setStatusColor(st, a.data.id, 'grey').ok, true); A.moveStatus(st, a.data.id, 0); assert.equal(SC.statusesOf(st)[0].name, 'Test buy');
+  A.setScanMark(st, 'AAA', { status: a.data.id, date: '2026-11-28' }); A.setScanMark(st, 'BBB', { status: 'watch', date: '2026-11-28' });
+  assert.equal(A.deleteStatus(st, 'rej').ok, false);
+  const d = A.deleteStatus(st, a.data.id); assert.equal(d.ok, true); assert.equal(d.data.n, 1);
+  assert.equal(st.scans.marks.AAA, undefined); assert.equal(st.scans.marks.BBB.st, 'watch'); assert.deepEqual(dataProblems(st), []);
+  const i = st.trash.findIndex((e) => e.kind === 'scanStatus'); assert.equal(A.restoreFromTrash(st, i).ok, true);
+  assert.equal(st.scans.marks.AAA.st, a.data.id); assert.equal(SC.statusesOf(st)[0].name, 'Test buy'); assert.deepEqual(dataProblems(st), []);
+  // a name clash refuses the restore and keeps it in the Trash
+  A.deleteStatus(st, a.data.id); A.addStatus(st, 'Test buy');
+  const j = st.trash.findIndex((e) => e.kind === 'scanStatus'); assert.equal(A.restoreFromTrash(st, j).ok, false); assert.ok(st.trash[j]);
+});
+test('My lists: move a section to another list, a stock between sections (also when it is already there), lists in order', () => {
+  const st = fresh();
+  const L1 = A.addScanFolder(st, 'Swing').data, L2 = A.addScanFolder(st, 'Long').data;
+  const s1 = A.addScanList(st, 'Raw', L1.id).data, s2 = A.addScanList(st, 'Close', L1.id).data, s3 = A.addScanList(st, 'Raw', L2.id).data;
+  assert.equal(A.placeSection(st, s1.id, L2.id).ok, false); // "Raw" already in Long
+  assert.equal(A.placeSection(st, s2.id, L2.id, s3.id).ok, true); assert.equal(st.scans.lists.find((x) => x.id === s2.id).folder, L2.id);
+  assert.deepEqual(st.scans.lists.filter((x) => x.folder === L2.id).map((x) => x.name), ['Close', 'Raw']);
+  assert.equal(A.placeSection(st, s1.id, 'sf999').ok, false);
+  A.addToScanList(st, s1.id, [{ t: 'AAA' }, { t: 'BBB' }], { date: '2026-11-27' }); A.addToScanList(st, s3.id, [{ t: 'BBB' }], { date: '2026-11-27' });
+  assert.equal(A.placeScanItem(st, s1.id, s1.id, 'BBB', 'AAA').ok, true); assert.deepEqual(st.scans.lists.find((x) => x.id === s1.id).items.map((y) => y.t), ['BBB', 'AAA']);
+  const m = A.placeScanItem(st, s1.id, s3.id, 'BBB', null, { date: '2026-11-28' }); assert.equal(m.data.merged, true);
+  assert.deepEqual(st.scans.lists.find((x) => x.id === s1.id).items.map((y) => y.t), ['AAA']); assert.deepEqual(st.scans.lists.find((x) => x.id === s3.id).items.map((y) => y.t), ['BBB']);
+  assert.equal(A.placeScanItem(st, s1.id, s2.id, 'AAA', null, { date: '2026-11-28' }).ok, true); assert.equal(st.scans.lists.find((x) => x.id === s2.id).items[0].added, '2026-11-28');
+  assert.equal(A.placeScanItem(st, s1.id, s2.id, 'ZZZ').ok, false);
+  A.placeScanFolder(st, L2.id, L1.id); assert.deepEqual(st.scans.folders.map((f) => f.name), ['Long', 'Swing']);
+  A.placeScanFolder(st, L2.id, null); assert.deepEqual(st.scans.folders.map((f) => f.name), ['Swing', 'Long']);
+  assert.deepEqual(dataProblems(st), []);
+});
+test('1.8.17 opening a 1.8.16 file: loose sections go into "My list", the old reject chips are archived — once only', () => {
+  const st = fresh(); delete st.meta.scans1817; st.meta.version = '1.8.16';
+  st.scans.lists = [{ id: 'sl1', name: 'Ideas', folder: null, items: [{ t: 'AAA' }] }]; st.scans.folders = [];
+  st.rejects = defaultRejectsOld();
+  const m = migrate(JSON.parse(JSON.stringify(st)));
+  assert.equal(m.scans.folders.length, 1); assert.equal(m.scans.folders[0].name, 'My list'); assert.equal(m.scans.lists[0].folder, m.scans.folders[0].id);
+  assert.deepEqual(m.rejects.filter((r) => !r.archived).map((r) => r.name), ['No character', 'Weak volume', 'Low RS']);
+  assert.equal(m.meta.scans1817, true); assert.deepEqual(dataProblems(m), []);
+  // he later deletes "My list" contents and un-archives a chip: opening again changes nothing
+  m.rejects.find((r) => r.id === 'rj-ext').archived = false; m.scans.lists.push({ id: 'sl2', name: 'Loose', folder: null, items: [] });
+  const m2 = migrate(JSON.parse(JSON.stringify(m)));
+  assert.equal(m2.rejects.find((r) => r.id === 'rj-ext').archived, false); assert.equal(m2.scans.lists.find((x) => x.id === 'sl2').folder, null);
+});
+function defaultRejectsOld() { return [['rj-ext', 'Extended'], ['rj-vol', 'Weak volume'], ['rj-earn', 'Earnings soon'], ['rj-sma50', 'Below SMA 50'], ['rj-base', 'Bad base'], ['rj-rs', 'Low RS']].map(([id, name]) => ({ id, name, archived: false })); }
+test('bad values: statuses, scanner order, own order', () => {
+  const st = fresh(); assert.deepEqual(dataProblems(st), []);
+  A.setScanMark(st, 'AAA', { status: 'watch', date: '2026-11-28' });
+  st.scans.statuses = []; assert.deepEqual(dataProblems(st), [], 'an empty list means the three built-in ones');
+  st.scans.statuses = 'x'; assert.ok(dataProblems(st).some((p) => /statuses are not readable/.test(p)));
+  st.scans.statuses = [{ id: 'watch', name: 'A' }, { id: 'watch', name: 'B' }]; assert.ok(dataProblems(st).some((p) => /same ID/.test(p)));
+  st.scans.statuses = [{ id: 'near', name: 'Near buy' }]; assert.ok(dataProblems(st).some((p) => /Scan status of AAA/.test(p)));
+  st.scans.statuses = undefined; st.scans.order = ['S:W1', 5]; assert.ok(dataProblems(st).some((p) => /scanner order/.test(p)));
+  st.scans.order = 'x'; assert.ok(dataProblems(st).some((p) => /scanner order/.test(p)));
+  st.scans.order = []; st.scans.own = { W1: ['AAA', 3] }; assert.ok(dataProblems(st).some((p) => /own order/.test(p)));
+  st.scans.own = []; assert.ok(dataProblems(st).some((p) => /own order/.test(p)));
+});
+test('review fixes: deleting a scanner forgets its order; odd scanner names; filter boxes read "1,5"; dates only in Finviz forms', () => {
+  const st = fresh();
+  A.addScanRun(st, { scanner: 'W1', date: '2026-11-27', cols: COLS, rows: [row('AAA', '30%', '', ''), row('BBB', '20%', '', '')] }, { today: '2026-11-27' });
+  A.setScannerOwnOrder(st, 'W1', ['BBB', 'AAA']); A.deleteScanner(st, 'W1'); assert.equal(st.scans.own.W1, undefined);
+  A.addScanRun(st, { scanner: 'constructor', date: '2026-11-27', cols: COLS, rows: [row('AAA', '30%', '', '')] }, { today: '2026-11-27' });
+  assert.equal(SC.sourceView(st, { kind: 'scanner', name: 'constructor' }, '2026-11-27').own, false);
+  A.renameScanner(st, 'constructor', 'W9'); assert.equal(st.scans.own.W9, undefined);
+  assert.equal(SC.boxNum('1,5'), 1.5); assert.equal(SC.boxNum(' 2.25 '), 2.25); assert.equal(SC.boxNum('−3'), -3); assert.equal(SC.boxNum('x'), null); assert.equal(SC.boxNum(''), null);
+  const rows = [{ t: 'A', rs: 50, vals: { ADR: '1.2%' } }, { t: 'B', rs: 60, vals: { ADR: '1.8%' } }];
+  assert.deepEqual(SC.applyFilter(rows, { ...SC.emptyFilter(), cols: { ADR: { min: '1,5' } } }, { cols: ['ADR'] }).rows.map((r) => r.t), ['B']);
+  assert.deepEqual(SC.applyFilter(rows, { ...SC.emptyFilter(), rsMin: 'x' }, { cols: [] }).rows.length, 2);
+  assert.equal(SC.dateIso('Dec 2'), null); assert.equal(SC.dateIso('5'), null);
 });

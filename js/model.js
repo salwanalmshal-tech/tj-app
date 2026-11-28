@@ -2,7 +2,7 @@ import * as D from './decimal.js';
 // Data model, defaults and settings for the Trade Journal data file (one JSON file in Google Drive).
 // Raise APP_VERSION with EVERY release that goes live: the first time a new version opens the data file,
 // a "before update" backup is made (B5).
-export const APP_VERSION = '1.8.16'; // 1.8.13 (24-11-2026) = the first version after the restart of the project. 1.8.12 is the last version before it (rollback point).
+export const APP_VERSION = '1.8.17'; // 1.8.13 (24-11-2026) = the first version after the restart of the project. 1.8.12 is the last version before it (rollback point).
 export const SCHEMA = 1;
 
 export function defaultSettings() {
@@ -48,7 +48,7 @@ export function exampleReports() {
 
 export function emptyState(now = new Date().toISOString()) {
   return {
-    meta: { app: 'trade-journal', schema: SCHEMA, version: APP_VERSION, createdAt: now, savedAt: null, envelope: null },
+    meta: { app: 'trade-journal', schema: SCHEMA, version: APP_VERSION, createdAt: now, savedAt: null, envelope: null, scans1817: true },
     counters: { trade: 0, seq: 0, id: 0 },
     settings: defaultSettings(),
     capital: { start: null, flows: [] },
@@ -59,13 +59,23 @@ export function emptyState(now = new Date().toISOString()) {
     historySeen: null, reminders: {},
     // 1.8.0 Scans tab: dated scan runs grouped by scanner, one status per stock (kept across scans), his reject reasons
     scans: emptyScans(),
-    rejects: defaultRejects(),
+    rejects: rejects1817(defaultRejects()),
   };
 }
 
 // 1.8.1: his own folders and lists (folder = one TradingView watchlist, list = a section), folded scanners
-export function emptyScans() { return { runs: [], marks: {}, showCols: null, lists: [], folders: [], fold: {}, compares: [], keyCols: null, fvScreens: [] }; } // 1.8.10: his Finviz screeners (filters only, never the key) // 1.8.2: saved comparisons, key values under the chart
+export function emptyScans() { return { runs: [], marks: {}, showCols: null, lists: [], folders: [], fold: {}, compares: [], keyCols: null, fvScreens: [], statuses: defaultStatuses(), order: [], own: {} }; }
+// 1.8.17 (his choice 25-11-2026): his own statuses, each with a colour. The first three keep the old ids, so every old mark stays valid.
+// rej = the Rejected kind: asks for a reason, hidden from scans and lists, kept "almost for ever".
+export const STATUS_COLORS = ['blue', 'green', 'amber', 'red', 'grey'];
+export function defaultStatuses() { return [{ id: 'watch', name: 'Watching', color: 'blue' }, { id: 'near', name: 'Near buy', color: 'green' }, { id: 'rej', name: 'Rejected', color: 'red', rej: true }]; } // 1.8.10: his Finviz screeners (filters only, never the key) // 1.8.2: saved comparisons, key values under the chart
 // 1.8.0: the reject reason chips he starts with (his choice A); he adds, renames and archives them in Lists
+// 1.8.17 (his choice 25-11-2026): the chips are No character, Weak volume, Low RS; the old starting four are archived (kept on old marks)
+export function rejects1817(list) {
+  for (const r of list) if (r && ['rj-ext', 'rj-earn', 'rj-sma50', 'rj-base'].includes(r.id)) r.archived = true;
+  if (!list.some((r) => r && String(r.name).toLowerCase() === 'no character')) list.unshift({ id: 'rj-char', name: 'No character', archived: false });
+  return list;
+}
 export function defaultRejects() {
   return [['rj-ext', 'Extended'], ['rj-vol', 'Weak volume'], ['rj-earn', 'Earnings soon'], ['rj-sma50', 'Below SMA 50'], ['rj-base', 'Bad base'], ['rj-rs', 'Low RS']].map(([id, name]) => ({ id, name, archived: false }));
 }
@@ -127,8 +137,16 @@ export function dataProblems(data) {
       for (const l of arr(data.scans.lists ?? [], 'Scan lists')) { if (!l || !ID.test(String(l.id))) { out.push('A scan list has no valid ID'); continue; } arr(l.items, `Scan list ${l.name} stocks`); }
       for (const c of arr(data.scans.compares ?? [], 'Scan comparisons')) if (!c || !ID.test(String(c.id)) || !Array.isArray(c.scanners)) out.push('A saved comparison is not readable');
       for (const f of arr(data.scans.folders ?? [], 'Scan folders')) if (!f || !ID.test(String(f.id))) out.push('A scan folder has no valid ID');
+      // 1.8.17: his own statuses; a stock's status must be one of them (old files: the three built-in ones)
+      const sl = data.scans.statuses;
+      if (sl !== undefined && (!Array.isArray(sl) || sl.some((x) => !x || typeof x.id !== 'string' || !x.id || typeof x.name !== 'string'))) out.push('Your statuses are not readable');
+      if (Array.isArray(sl) && new Set(sl.map((x) => x?.id)).size !== sl.length) out.push('Two of your statuses have the same ID');
+      const ids = new Set(Array.isArray(sl) && sl.length ? sl.filter((x) => x && typeof x.id === 'string').map((x) => x.id) : ['watch', 'near', 'rej']);
+      if (data.scans.order !== undefined && (!Array.isArray(data.scans.order) || data.scans.order.some((k) => typeof k !== 'string'))) out.push('The scanner order is not readable');
+      // 1.8.17 (A4, agreed 27-11-2026): his own order of the stocks inside a scanner, by scanner name
+      const own = data.scans.own; if (own !== undefined && (!own || typeof own !== 'object' || Array.isArray(own) || Object.values(own).some((x) => !Array.isArray(x) || x.some((t) => typeof t !== 'string')))) out.push('Your own order of the scanner stocks is not readable');
       const m = data.scans.marks; if (m !== undefined && (typeof m !== 'object' || Array.isArray(m) || m === null)) out.push('Scan statuses are not readable');
-      else for (const [k, v] of Object.entries(m || {})) if (!v || !['watch', 'near', 'rej'].includes(v.st)) out.push(`Scan status of ${k} is not valid`);
+      else for (const [k, v] of Object.entries(m || {})) if (!v || !ids.has(v.st)) out.push(`Scan status of ${k} is not valid`);
     }
   }
   return out;
@@ -164,6 +182,16 @@ export function migrate(data) {
   out.settings = { ...base.settings, ...out.settings };
   // 1.8.1: scans from 1.8.0 get the new parts (lists, folders, folded scanners)
   if (out.scans && typeof out.scans === 'object') out.scans = { ...emptyScans(), ...out.scans };
+  // 1.8.17 (agreed 25-11-2026): My lists = lists (the old folders) with sections (the old lists). A section without a list
+  // goes into one list "My list". Reject reasons on the chips become No character, Weak volume, Low RS; the others are
+  // archived (stocks already rejected keep them). Done once.
+  if (out.scans && typeof out.scans === 'object' && !out.meta.scans1817) {
+    const sc = out.scans; sc.folders = Array.isArray(sc.folders) ? sc.folders : []; sc.lists = Array.isArray(sc.lists) ? sc.lists : [];
+    const loose = sc.lists.filter((l) => l && !sc.folders.some((f) => f.id === l.folder));
+    if (loose.length) { let f = sc.folders.find((x) => x.name === 'My list'); if (!f) { let id; do { id = nextId(out, 'sf'); } while (sc.folders.some((x) => x.id === id) || sc.lists.some((x) => x.id === id)); f = { id, name: 'My list' }; sc.folders.unshift(f); } for (const l of loose) l.folder = f.id; }
+    if (Array.isArray(out.rejects)) rejects1817(out.rejects);
+    out.meta.scans1817 = true;
+  }
   // 1.7.0: a journal from before the Reports page gets the 3 example reports once (never again after he deletes them)
   if (!out.meta.reportsSeeded) { if (!Array.isArray(out.reports) || !out.reports.length) out.reports = exampleReports(); out.meta.reportsSeeded = true; }
   // 1.4.9: whole stars only. A half-star rating from 1.4.8 is cleared, so the trade shows as not rated and can be rated again.

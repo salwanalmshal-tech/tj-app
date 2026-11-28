@@ -1,6 +1,6 @@
 // Open positions: the daily workspace. Look from the UX/UI specification; content, names and rules from the agreed decisions.
 // Hierarchy: page header + the account numbers he ticked on the Dashboard (1.5.1: up to 4, dragged into his own order here), then "All open positions" as cards straight on the page (1.2.1) with
-// filters and an Auto | Drag and drop order switch. A card opens the daily detail panel. All numbers come from calc.js / marks.js.
+// an Auto | Drag and drop order switch (1.8.17: the All · Needs attention · Missing data filter row is removed, his choice). A card opens the daily detail panel. All numbers come from calc.js / marks.js.
 import { h, dialog, para, toast, money, pctTxt, qtyTxt, priceTxt, numClass, dmy, num, changeTable, infoBtn, pill, datePicker } from './dom.js';
 import * as D from '../decimal.js';
 import * as C from '../calc.js';
@@ -17,8 +17,6 @@ const spct = (a, dp = 1) => (a === null || a === undefined ? '–' : (a > 0n ? '
 const rTxt = (r) => (r === null || r === undefined ? '–' : (r > 0n ? '+' : '') + D.fmt(r, 2) + ' R');
 const STATUS_TEXT = { act: 'Act now', rev: 'Review', ok: 'On plan' };
 const ORDER = { act: 0, rev: 1, ok: 2 };
-const isMissing = (marks) => marks.some((m) => m.code.startsWith('missing-')); // by the fixed code (1.5.7)
-let filter = 'all'; // all | attention | missing
 
 export function lines(st, today) {
   const account = C.estimatedAccount(st);
@@ -103,16 +101,14 @@ export function render(ctx) {
   }
 
   // ---- All open positions as cards, straight on the page (1.2.1: the separate "Needs your attention" slider is removed;
-  // the cards, their status and the "Needs attention" filter show it). Order: Auto (most urgent first) or his own (drag and drop).
-  const exc = all.filter((l) => l.status !== 'ok');
-  const nAtt = exc.length, nMiss = all.filter((l) => isMissing(l.marks)).length;
-  if (filter === 'attention' && !nAtt || filter === 'missing' && !nMiss) filter = 'all';
-  const shown = filter === 'attention' ? exc : filter === 'missing' ? all.filter((l) => isMissing(l.marks)) : all;
-  const chip = (key, label, n) => h('button', { class: 'chip', 'aria-pressed': String(filter === key), onClick: () => { filter = key; ctx.redraw(); } }, `${label} · ${n}`);
+  // the cards and their status show it). Order: Auto (most urgent first) or his own (drag and drop).
+  // 1.8.17 (his choice 28-11-2026): the All · Needs attention · Missing data filter row is removed — Auto order already puts the
+  // cards that need attention first, and missing data shows on each card. So every card is always shown and can always be dragged.
+  const shown = all;
   const lay = st.layouts?.openCards || {}; const mode = lay.mode === 'drag' ? 'drag' : 'auto';
   const autoSort = (list) => [...list].sort((a, b) => CS_ORDER[M.cardStatus(a.marks)] - CS_ORDER[M.cardStatus(b.marks)] || a.sym.localeCompare(b.sym) || (a.t.seq ?? 0) - (b.t.seq ?? 0));
   const cardsSorted = mode === 'drag' ? ownOrder(shown, lay.order || []) : autoSort(shown);
-  const canDrag = mode === 'drag' && filter === 'all' && !ctx.readOnly;
+  const canDrag = mode === 'drag' && !ctx.readOnly;
   const setLayout = (patch, label) => ctx.act((d) => { d.layouts ??= {}; d.layouts.openCards = { ...(d.layouts.openCards || {}), ...patch }; return { ok: true }; }, { label, now: true });
   const seg = (key, label) => h('button', { class: 'seg-b', 'aria-pressed': String(mode === key), disabled: ctx.readOnly, onClick: () => { if (mode !== key) setLayout(key === 'drag' && !lay.order?.length ? { mode: key, order: autoSort(all).map((l) => l.t.id) } : { mode: key }, 'card order mode'); } }, label);
   const grid = h('div', { class: 'pcards' + (canDrag ? ' dragmode' : '') }, cardsSorted.map((l) => posCard(ctx, l, today)));
@@ -120,12 +116,11 @@ export function render(ctx) {
   const totPL = shown.reduce((a, l) => a + (l.m.openPL ?? 0n), 0n);
   wrap.append(h('section', { class: 'cards-sec', 'aria-label': 'All open positions' },
     h('div', { class: 'cards-head' }, h('h2', null, 'All open positions'),
-      h('div', { class: 'row' }, chip('all', 'All', all.length), nAtt ? chip('attention', 'Needs attention', nAtt) : null, nMiss ? chip('missing', 'Missing data', nMiss) : null,
+      h('div', { class: 'row' },
         h('div', { class: 'seg', role: 'group', 'aria-label': 'Card order' }, seg('drag', 'Drag and drop'), seg('auto', 'Auto')),
         h('button', { class: 'btn', disabled: ctx.readOnly, onClick: () => updatePrices(ctx, all.map((l) => l.t)) }, 'Update prices'))),
-    mode === 'drag' && filter !== 'all' ? h('div', { class: 'note' }, 'Your own order. Select “All” to move cards.') : null,
     grid,
-    h('div', { class: 'cards-foot' }, h('span', null, `${shown.length} trade${shown.length === 1 ? '' : 's'}${filter === 'all' ? '' : ' (filtered)'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} trade${noStop === 1 ? '' : 's'} without a stop ${noStop === 1 ? 'is' : 'are'} not counted` : ''),
+    h('div', { class: 'cards-foot' }, h('span', null, `${shown.length} trade${shown.length === 1 ? '' : 's'} · Open P&L `, h('b', { class: numClass(totPL) }, susd(totPL)), ' · Loss if all stops hit ', h('b', { class: 'neg' }, susd(loss.loss)), noStop ? ` · ${noStop} trade${noStop === 1 ? '' : 's'} without a stop ${noStop === 1 ? 'is' : 'are'} not counted` : ''),
       h('span', null, `In market ${pctTxt(inMarket, 1)}`))));
   return wrap;
 }
@@ -264,6 +259,9 @@ function posCard(ctx, l, today) {
   // 2026-11-09: what is still missing for this trade, in its own raspberry red; each word goes away once it is filled in
   const st = ctx.store.state; const stock = A.stockById(st, t.stockId) || {}; const setupName = st.setups.find((x) => x.id === t.setupId)?.name;
   const missing = [['sector', !(stock.sector || '').trim()], ['industry', !(stock.industry || '').trim()], ['exchange', !(stock.exchange || '').trim()], ['setup', !setupName || setupName === 'Unclassified'], ['rating', A.canRate(st, t.setupId) && (t.stars ?? null) === null], ['earnings date', !t.nextReport]].filter((x) => x[1]).map((x) => x[0]);
+  // 1.8.17 (his wish 27-11-2026): Earnings and Initial stop sit under the line, in the place of "Missing: …", when nothing is missing;
+  // while something is missing they stay in the card until it is filled in
+  const small = () => h('div', { class: 'pc-small' }, h('span', null, 'Earnings: ', val('rep', reportText(t.nextReport, today))), h('span', null, 'Initial stop: ', val('init', init === null ? 'missing' : priceTxt(init))));
   const open = () => detail(ctx, t.id);
   return h('article', { class: 'pcard ' + cs, 'data-id': t.id, tabindex: 0, 'aria-label': `${l.sym} ${t.id}: ${CS_WORD[cs]}. Open the line`, onClick: open, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
     h('div', { class: 'pc-top' }, h('span', { class: 'pc-sym', title: t.id + (t.sales.length ? ' · partly sold' : '') }, l.sym, t.sales.length ? h('span', { class: 's2' }, ' ½') : null)), // status label removed 2026-11-06 (Auto order and the filters still use the status)
@@ -275,12 +273,12 @@ function posCard(ctx, l, today) {
           h('div', null, lab('Last price'), val('last', priceTxt(last))),
           h('div', null, lab('Highest price'), val('hi', priceTxt(num(t.highest)))),
           h('div', null, lab('EMA10'), val('ema', priceTxt(num(t.ema10))))),
-        h('div', { class: 'pc-small' }, h('span', null, 'Earnings: ', val('rep', reportText(t.nextReport, today))), h('span', null, 'Initial stop: ', val('init', init === null ? 'missing' : priceTxt(init))))),
+        missing.length ? small() : null),
       h('div', { class: 'pc-right' },
         h('div', null, lab('Risk, share of capital'), Object.assign(val('risk', risk, 'mid'), stop !== null && stop >= buy ? { title: 'Stop is above the buy price: no risk left' } : {})),
         h('div', null, lab('Performance'), h('b', { class: 'cv res' + (locked ? ' locked' : ''), title: locked ? `Profit locked in: stop more than ${S.profitLocked.replace('.', ',')} % above the buy price` : 'Change from your buy price to the last price' }, result === null ? '–' : spct(result, 2))))),
     h('div', { class: 'pc-size', title: 'Position size: how big this trade is next to your whole account, at the last price' },
-      missing.length ? h('span', { class: 'pc-miss', title: 'Sector, industry and exchange: add them in Lists → Stocks. Setup and rating: Edit trade. Earnings date: Update today.' }, 'Missing: ' + missing.join(', ')) : null, // 1.7.1: the grey price line is removed (his choice)
+      missing.length ? h('span', { class: 'pc-miss', title: 'Sector, industry and exchange: add them in Lists → Stocks. Setup and rating: Edit trade. Earnings date: Update today.' }, 'Missing: ' + missing.join(', ')) : small(), // 1.7.1: the grey price line is removed (his choice)
       // 2026-11-06: the size line is removed; its colours now go to the size text (green / orange / red, same limits)
       h('span', { class: 'sz c-' + sizeCls, title: hl.size ? hl.size.why.join(' · ') : null }, 'Position size ' + pctTxt(size, 1))));
 }

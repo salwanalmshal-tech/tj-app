@@ -204,7 +204,7 @@ function backupPane(ctx) {
 }
 
 // ------------------------------------------------------------- trash
-const TRASH_KIND = { trade: 'Trade', dividend: 'Dividend', flow: 'Capital line', stocks: 'Stock', setups: 'Setup', errors: 'Mistake', sales: 'Sales', rejects: 'Reject reason', scanRun: 'Scan run', scanner: 'Scanner', scanList: 'Scan list', scanFolder: 'Scan folder', scanCompare: 'Comparison' };
+const TRASH_KIND = { trade: 'Trade', dividend: 'Dividend', flow: 'Capital line', stocks: 'Stock', setups: 'Setup', errors: 'Mistake', sales: 'Sales', rejects: 'Reject reason', scanRun: 'Scan run', scanner: 'Scanner', scanList: 'Section', scanFolder: 'List', scanCompare: 'Comparison', scanStatus: 'Status' };
 function trashLabel(st, e) {
   const i = e.item;
   if (e.kind === 'trade') return `${i.id} ${A.symbolOf(st, i)} · ${dmy(i.buyDate)}`;
@@ -214,7 +214,8 @@ function trashLabel(st, e) {
   if (e.kind === 'scanCompare') return `${i.name} · ${i.scanners.join(', ')}`;
   if (e.kind === 'scanner') return `${i.scanner} · ${i.runs.length} scans`;
   if (e.kind === 'scanList') return `${i.name} · ${i.items.length} stocks`;
-  if (e.kind === 'scanFolder') return `${i.folder.name} · ${i.lists.length} lists`;
+  if (e.kind === 'scanFolder') return `${i.folder.name} · ${i.lists.length} sections`;
+  if (e.kind === 'scanStatus') return `${i.status.name} · ${Object.keys(i.marks || {}).length} stocks`;
   if (e.kind === 'scanRun') return `${i.scanner} · ${dmy(i.date)} · ${i.rows.length} stocks`;
   return i.symbol || i.name || '';
 }

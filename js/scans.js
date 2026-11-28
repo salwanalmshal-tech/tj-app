@@ -86,6 +86,7 @@ export const defaultPick = (st) => runsByScanner(st).map((g) => g.runs[0].id);
 
 // rows for a set of tickers, RS ranked among every stock in the given runs (shared by "common" and "what changed")
 function buildRows(st, runs, tickers, today) {
+  const rejSet = rejIds(st);
   const sets = runs.map((r) => new Set(r.rows.map((x) => tickerOf(x.s))));
   const universe = new Set(sets.flatMap((x) => [...x]));
   const newestFirst = [...runs].sort((a, b) => b.date.localeCompare(a.date) || b.seq - a.seq);
@@ -97,11 +98,18 @@ function buildRows(st, runs, tickers, today) {
     const src = newestFirst.find((r) => r.rows.some((x) => tickerOf(x.s) === t));
     let full = src ? src.rows.find((x) => tickerOf(x.s) === t).s : fullOf(st, t); if (!full.includes(':')) full = fullOf(st, t);
     const vals = Object.fromEntries(cols.map((c) => { for (const r of newestFirst) { const i = (r.cols || []).indexOf(c); if (i < 0) continue; const x = r.rows.find((y) => tickerOf(y.s) === t); if (x && x.v?.[i]) return [c, x.v[i]]; } return [c, '']; }));
-    return { t, full, rs: ranks.get(t) ?? null, vals, mark: st.scans?.marks?.[t] || null, earnings: earningsDays(valueOf(t, EARN), today), earningsText: valueOf(t, EARN), chg: null };
+    const mark = st.scans?.marks?.[t] || null;
+    return { t, full, rs: ranks.get(t) ?? null, vals, mark, rej: !!mark && rejSet.has(mark.st), earnings: earningsDays(valueOf(t, EARN), today), earningsText: valueOf(t, EARN), chg: null };
   });
   return { rows, cols, universe: universe.size };
 }
-const grp = (r) => (!r.mark ? 0 : r.mark.st === 'rej' ? 2 : 1);
+// 1.8.17 (his rule 25-11-2026): a status other than Rejected never moves a stock; only Rejected goes last (and is hidden in the screen)
+const grp = (r) => (r.rej ? 1 : 0);
+// his own statuses (1.8.17); old files have the three built-in ones
+export function statusesOf(st) { const L = st.scans?.statuses; return Array.isArray(L) && L.length ? L : [{ id: 'watch', name: 'Watching', color: 'blue' }, { id: 'near', name: 'Near buy', color: 'green' }, { id: 'rej', name: 'Rejected', color: 'red', rej: true }]; }
+export const statusOf = (st, id) => statusesOf(st).find((x) => x.id === id) || null;
+export const rejIds = (st) => new Set(statusesOf(st).filter((x) => x.rej).map((x) => x.id));
+export const isRejected = (st, t) => { const m = st.scans?.marks?.[t]; return !!m && rejIds(st).has(m.st); };
 const byRs = (a, b) => (b.rs ?? -1) - (a.rs ?? -1) || a.t.localeCompare(b.t);
 
 // stocks found in ALL the given runs; his order: New, then Watching and Near buy, then Rejected; inside each by RS
@@ -143,32 +151,76 @@ export function numOf(text) {
   if (!m) return null; const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || '').toUpperCase()] || 1;
   const v = Number(m[1]) * mult; return Number.isFinite(v) ? v : null;
 }
-export const emptyFilter = () => ({ status: 'all', q: '', rsMin: null, noEarn: false, traded: false, noOpen: false, rules: [] });
-export const STATUS_KEYS = ['all', 'new', 'watch', 'near', 'rej'];
-const statusOf = (r) => (r.mark ? r.mark.st : 'new');
-// info: { isOpen(t), traded(t) }. Status counts are taken after the other filters, so the buttons match what you would see.
-export function applyFilter(rows, f, info) {
-  const q = (f.q || '').trim().toUpperCase();
-  const pass = rows.filter((r) => {
+// 1.8.17 (his choice 25-11-2026, Finviz style): search, RS from–to, hide earnings within N days, and any column of the scan:
+// a number column "from … to …", a text column one value. A column the stocks shown do not have is ignored (grey chip).
+// A stock without a value in a column that is filtered is hidden and counted (noData).
+export const emptyFilter = () => ({ q: '', rsMin: null, rsMax: null, earnDays: null, cols: {} });
+const has = (x) => x !== null && x !== undefined && x !== '';
+export function colActive(c) { return !!c && (c.is !== undefined ? has(c.is) : c.from !== undefined || c.to !== undefined ? has(c.from) || has(c.to) : has(c.min) || has(c.max)); }
+// 1.8.17 (A5): a date column (Earnings Date, IPO Date, Dividend Ex Date) as yyyy-mm-dd. Finviz writes "11/7/2026 4:30:00 PM" (month/day/year).
+export function dateIso(text) {
+  if (!has(text)) return null; const s = String(text).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (us) return `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}`;
+  return null; // any other text is not read as a date (review 28-11-2026: "Dec 2" must not become 2001-12-02)
+}
+// a number he types in a filter box: "1,5" and "1.5" are both 1.5 (review 28-11-2026); text that is not a number is ignored (null)
+// "1B", "900M", "4%" keep working as before (K M B T)
+export function boxNum(x) { if (!has(x)) return null; let s = String(x).trim().replace(/[−–]/g, '-').replace(/[\s\u202f\u00a0]/g, ''); if (/^-?\d+,\d+[%KMBT]?$/i.test(s)) s = s.replace(',', '.'); return /^-?[\d,]+(\.\d+)?%?[KMBT]?$/i.test(s) ? numOf(s.toUpperCase()) : null; }
+export function applyFilter(rows, f, { cols = [], statuses = null, statusOf: stOf = (r) => r.mark?.st || 'none' } = {}) {
+  const q = (f.q || '').trim().toUpperCase(); const inView = new Set(cols);
+  const colF = Object.entries(f.cols || {}).filter(([c, x]) => inView.has(c) && colActive(x));
+  let noData = 0;
+  const shown = rows.filter((r) => {
     if (q && !r.t.includes(q)) return false;
-    if (f.rsMin !== null && f.rsMin !== '' && !(r.rs !== null && r.rs >= Number(f.rsMin))) return false;
-    if (f.noEarn && r.earnings && r.earnings.days >= 0 && r.earnings.days <= 7) return false;
-    if (f.traded && !info.traded(r.t)) return false;
-    if (f.noOpen && info.isOpen(r.t)) return false;
-    for (const ru of f.rules || []) {
-      const v = r.vals?.[ru.col];
-      if (ru.op === 'has') { if (!String(v || '').toLowerCase().includes(String(ru.val).toLowerCase())) return false; continue; }
-      const a = numOf(v), b = numOf(ru.val); if (a === null || b === null) return false;
-      if (ru.op === '>=' && !(a >= b)) return false; if (ru.op === '<=' && !(a <= b)) return false;
+    const rsMin = boxNum(f.rsMin), rsMax = boxNum(f.rsMax);
+    if (rsMin !== null && !(r.rs !== null && r.rs >= rsMin)) return false;
+    if (rsMax !== null && !(r.rs !== null && r.rs <= rsMax)) return false;
+    if (has(f.earnDays) && r.earnings && r.earnings.days >= 0 && r.earnings.days <= Number(f.earnDays)) return false;
+    if (statuses && statuses.size && !statuses.has(stOf(r))) return false;
+    for (const [c, x] of colF) {
+      const v = r.vals?.[c];
+      if (!has(v)) { noData++; return false; }
+      if (x.is !== undefined) { if (String(v).trim().toLowerCase() !== String(x.is).trim().toLowerCase()) return false; continue; }
+      if (x.from !== undefined || x.to !== undefined) { const d = dateIso(v); if (!d) { noData++; return false; } if (has(x.from) && d < x.from) return false; if (has(x.to) && d > x.to) return false; continue; }
+      const a = numOf(v); if (a === null) { noData++; return false; }
+      const lo = boxNum(x.min), hi = boxNum(x.max); if (lo !== null && !(a >= lo)) return false; if (hi !== null && !(a <= hi)) return false;
     }
     return true;
   });
-  const counts = Object.fromEntries(STATUS_KEYS.map((k) => [k, k === 'all' ? pass.length : pass.filter((r) => statusOf(r) === k).length]));
-  const shown = f.status === 'all' ? pass : pass.filter((r) => statusOf(r) === f.status);
-  return { rows: shown, counts, total: rows.length };
+  return { rows: shown, total: rows.length, noData };
 }
-// how many filters are on (the Filter button shows it); status and search have their own place on the row
-export const filterCount = (f) => (f.rsMin !== null && f.rsMin !== '' ? 1 : 0) + (f.noEarn ? 1 : 0) + (f.traded ? 1 : 0) + (f.noOpen ? 1 : 0) + (f.rules || []).length;
+// how many filters are on (the Filter button shows it)
+export const filterCount = (f) => (has(f.rsMin) || has(f.rsMax) ? 1 : 0) + (has(f.earnDays) ? 1 : 0) + Object.values(f.cols || {}).filter(colActive).length;
+// number or text column: numbers when most filled values read as numbers; text columns offer the values found (at most 60)
+export function colKinds(rows, cols) {
+  const out = {};
+  for (const c of cols) {
+    const vals = rows.map((r) => r.vals?.[c]).filter(has); const nums = vals.filter((v) => numOf(v) !== null).length;
+    out[c] = vals.length && nums >= vals.length * 0.6 ? { kind: 'num' } : { kind: 'text', options: [...new Set(vals.map((v) => String(v).trim()))].sort().slice(0, 60) };
+  }
+  return out;
+}
+const NO_FILTER_COL = /^(no\.?|#|ticker|symbol|company|name|news time|news url|news title|daily digest|52-week range)$/i;
+// 1.8.17 (A5, agreed 27-11-2026; releases/finviz-export-columns.md): + Add filter offers every column of his Finviz exports.
+// Kinds: choose from the values TJ has seen / dates from–to / numbers from–to (a % column: type 20 for 20 %).
+const FV_LIST = /^(index|sector|industry|country|exchange|optionable|shortable|candlestick)$/i;
+const FV_DATE = /^(earnings date|ipo date|dividend ex date)$/i;
+const FV_DESCRIPTIVE = /^(index|sector|industry|country|exchange|earnings date|ipo date|optionable|shortable|employees|market cap|shares outstanding|shares float|float %|analyst recom|target price|price|average volume|relative volume|current volume \(usd\)|volume|dividend yield)$/i;
+const FV_TECHNICAL = /^(performance \(|beta$|volatility|average true range|.*moving average|.*-day (high|low)|52-week (high|low)|all-time (high|low)|relative strength index|candlestick|change from open|gap$|change$|prev close|open$|high$|low$|after-hours|average dollar volume|trades$)/i;
+export function filterColInfo(c, kinds = {}) {
+  const k = FV_DATE.test(c) ? 'date' : FV_LIST.test(c) ? 'list' : kinds[c]?.kind === 'text' ? 'list' : 'num';
+  const g = FV_DESCRIPTIVE.test(c) ? 'Descriptive' : FV_TECHNICAL.test(c) ? 'Technical' : /^(p\/|forward p|peg|ev\/|enterprise|book|cash|return on|current ratio|quick ratio|lt debt|total debt|dividend|payout|eps|sales|income|gross|operating|profit|insider|institutional|short|dilution)/i.test(c) ? 'Fundamental' : 'Other';
+  return { kind: k, group: g };
+}
+// every column of every scan he has (not only the one that is open)
+export function allScanCols(st) { return filterableCols([...new Set((st.scans?.runs || []).flatMap((r) => r.cols || []))]); }
+// 1.8.17 (A4): his own order inside a scanner. Stocks that are new in this scan come first (by RS), then his order; dropped ones leave.
+export function ownOrder(rows, own) {
+  if (!Array.isArray(own)) return rows; const at = new Map(own.map((t, i) => [t, i]));
+  return [...rows.filter((r) => !at.has(r.t)), ...rows.filter((r) => at.has(r.t)).sort((a, b) => at.get(a.t) - at.get(b.t))];
+}
+export const filterableCols = (cols) => cols.filter((c) => !NO_FILTER_COL.test(String(c).trim()));
 
 // ---------- 1.8.1 lists ----------
 export function fullOf(st, t) {
@@ -180,18 +232,6 @@ export function fullOf(st, t) {
   return t;
 }
 export const listsOf = (st, t) => (st.scans?.lists || []).filter((l) => l.items.some((x) => x.t === t));
-// ready-made lists from his statuses: Near buy (all), Near buy per scanner, Watching
-export function readyLists(st) {
-  const marks = Object.entries(st.scans?.marks || {}); const tickers = (s) => marks.filter(([, m]) => m.st === s).map(([t]) => t).sort();
-  const item = (t) => ({ t, full: fullOf(st, t) });
-  const near = tickers('near'); const out = [{ id: 'ready-near', name: 'Near buy (all)', ready: true, items: near.map(item) }];
-  for (const g of runsByScanner(st)) {
-    const inIt = new Set(g.runs.flatMap((r) => r.rows.map((x) => tickerOf(x.s)))); const n = near.filter((t) => inIt.has(t));
-    if (n.length) out.push({ id: 'ready-near-' + g.scanner, name: 'Near buy · ' + g.scanner, ready: true, items: n.map(item) });
-  }
-  out.push({ id: 'ready-watch', name: 'Watching', ready: true, items: tickers('watch').map(item) });
-  return out;
-}
 // TradingView file with sections: ###Name,EX:A,EX:B,###Name2,... (the ### line is a section, like TradingView's own export)
 const sym = (x) => (x.full && x.full.includes(':') ? x.full : x.t);
 export function tradingViewSections(sections) {
@@ -288,8 +328,9 @@ export function sourceView(st, src, today) {
     const run = runs.find((r) => r.id === src.run) || runs[0]; const prev = runs[runs.indexOf(run) + 1] || null;
     const cur = compare(st, [run.id], today); const ps = prev ? tickSet(prev) : null; const now = tickSet(run);
     for (const r of cur.rows) r.isNew = !!ps && !ps.has(r.t);
+    const own = st.scans?.own && Object.hasOwn(st.scans.own, src.name) ? st.scans.own[src.name] : null; if (Array.isArray(own)) { const rej = cur.rows.filter((r) => r.rej); cur.rows = [...ownOrder(cur.rows.filter((r) => !r.rej), own), ...rej]; }
     const dropped = ps ? buildRows(st, [prev], [...ps].filter((t) => !now.has(t)), today).rows : [];
-    return { kind: 'scanner', title: src.name, sub: runLabel(st, run, today), rows: cur.rows, dropped, N: 1, runs: [run], cols: cur.cols, run, prev,
+    return { kind: 'scanner', title: src.name, sub: runLabel(st, run, today), rows: cur.rows, dropped, N: 1, runs: [run], cols: cur.cols, run, prev, own: !!own,
       picker: { value: run.id, options: runs.map((r) => ({ value: r.id, label: runLabel(st, r, today) + ` · ${r.rows.length}` })) }, hasNewDrop: !!prev };
   }
   if (src.kind === 'compare' || src.kind === 'quick') {
@@ -310,23 +351,28 @@ export function sourceView(st, src, today) {
     return { kind: 'compare', quick: src.kind === 'quick', scanners: c.scanners, title: c.name, sub: `${ov.inAll} in all ${N} · ${date === today ? 'today' : date.slice(8, 10) + '-' + date.slice(5, 7) + '-' + date.slice(0, 4)}`, rows: ov.rows, dropped, N, runs: ov.runs, cols: ov.cols, inAll: ov.inAll,
       picker: { value: date, options: dates.map((d) => ({ value: d, label: d === today ? 'today' : d.slice(8, 10) + '-' + d.slice(5, 7) + '-' + d.slice(0, 4) })) }, hasNewDrop: !!prevDate, missing: c.scanners.filter((n) => !names.includes(n)) };
   }
-  if (src.kind === 'ready' || src.kind === 'list') {
-    const l = src.kind === 'ready' ? readyLists(st).find((x) => x.id === src.id) : (st.scans?.lists || []).find((x) => x.id === src.id);
+  if (src.kind === 'list') { // a section of one of his lists: his own order (1.8.17)
+    const l = (st.scans?.lists || []).find((x) => x.id === src.id);
     if (!l) return empty; const b = rowsFromItems(st, l.items, today);
-    b.rows.sort((a, c) => grp(a) - grp(c) || byRs(a, c));
-    return { kind: src.kind, title: l.name, sub: `${l.items.length} stock${l.items.length === 1 ? '' : 's'}`, rows: b.rows, dropped: [], N: 1, runs: [], cols: b.cols, list: l, picker: null, hasNewDrop: false };
+    return { kind: 'list', title: l.name, sub: `${l.items.length} stock${l.items.length === 1 ? '' : 's'}`, rows: b.rows, dropped: [], N: 1, runs: [], cols: b.cols, list: l, picker: null, hasNewDrop: false };
+  }
+  if (src.kind === 'status') { // 1.8.17: every stock with this status, in no scan or list too; newest status date first
+    const s = statusOf(st, src.id); if (!s) return empty;
+    const items = Object.entries(st.scans?.marks || {}).filter(([, m]) => m.st === s.id).sort((a, b) => String(b[1].date || '').localeCompare(String(a[1].date || '')) || a[0].localeCompare(b[0])).map(([t]) => ({ t, full: fullOf(st, t) }));
+    const b = rowsFromItems(st, items, today);
+    return { kind: 'status', title: s.name, status: s, rows: b.rows, dropped: [], N: 1, runs: [], cols: b.cols, picker: null, hasNewDrop: false };
   }
   return empty;
 }
 // quick views above the list (his 6): All, In all scans (comparisons), New today, Dropped today, Not decided, Near buy
-export const QUICK = [['all', 'All'], ['inall', 'In all scans'], ['new', 'New today'], ['dropped', 'Dropped today'], ['undecided', 'Not decided'], ['near', 'Near buy']];
+export const QUICK = [['all', 'All'], ['inall', 'In all scans'], ['new', 'New today'], ['dropped', 'Dropped today']];
 export function quickRows(v, q) {
   switch (q) {
     case 'inall': return v.rows.filter((r) => r.n === v.N);
+    case 'some': return v.rows.filter((r) => r.n > 1 && r.n < v.N); // 1.8.17: found by more than one scanner, not all
+    case 'one': return v.rows.filter((r) => r.n === 1); // 1.8.17: found by just one scanner
     case 'new': return v.rows.filter((r) => r.isNew);
     case 'dropped': return v.dropped.map((r) => ({ ...r, isDropped: true }));
-    case 'undecided': return v.rows.filter((r) => !r.mark);
-    case 'near': return v.rows.filter((r) => r.mark?.st === 'near');
     default: return v.rows;
   }
 }
